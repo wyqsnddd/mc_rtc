@@ -102,6 +102,11 @@ if(BUILD_MC_RTC_PYTHON_UTILS)
   if(NOT PYTHON_PGM)
     return()
   endif()
+  set(
+    MC_LOG_UI_PYTHON_EXECUTABLE
+    "python3"
+    CACHE STRING "Python interpreter used by installed Python utility scripts"
+  )
 
   configure_file(
     mc_rtc_new_controller.in.py "${CMAKE_CURRENT_BINARY_DIR}/mc_rtc_new_controller"

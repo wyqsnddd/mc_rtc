@@ -1,6 +1,7 @@
 #include <mc_control/Ticker.h>
 
 #include <boost/program_options.hpp>
+#include <spdlog/spdlog.h>
 namespace po = boost::program_options;
 
 int main(int argc, char * argv[])
@@ -49,5 +50,9 @@ int main(int argc, char * argv[])
   }
   mc_control::Ticker ticker(config);
   ticker.run();
+  // ROS 2's spdlog backend may register a periodic worker whose callbacks live
+  // in a dynamically loaded plugin. Stop it before ticker destruction unloads
+  // those plugins, rather than leaving it to static destruction at process exit.
+  spdlog::shutdown();
   return 0;
 }

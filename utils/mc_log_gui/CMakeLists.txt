@@ -8,8 +8,8 @@ if(MC_RTC_BUILD_IN_NIX)
 else()
   execute_process(
     COMMAND
-      python3 -c
-      "from distutils import sysconfig; print(sysconfig.get_python_lib(prefix = '${CMAKE_INSTALL_PREFIX}', plat_specific = True))"
+      "${PYTHON_PGM}" -c
+      "import sysconfig; print(sysconfig.get_path('purelib'))"
     RESULT_VARIABLE PYTHON_INSTALL_DIR_FOUND
     OUTPUT_VARIABLE PYTHON_INSTALL_DIR
     OUTPUT_STRIP_TRAILING_WHITESPACE
