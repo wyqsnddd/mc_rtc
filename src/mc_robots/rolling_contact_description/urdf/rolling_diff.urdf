@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<robot name="rolling_diff">
+  <link name="chassis">
+    <inertial>
+      <origin xyz="0 0 -0.08" rpy="0 0 0"/>
+      <mass value="10"/>
+      <inertia ixx="0.32" ixy="0" ixz="0" iyy="0.50" iyz="0" izz="0.62"/>
+    </inertial>
+    <visual><geometry><box size="0.7 0.5 0.16"/></geometry></visual>
+    <collision><geometry><box size="0.64 0.44 0.14"/></geometry></collision>
+  </link>
+
+  <link name="left_wheel">
+    <inertial>
+      <mass value="1"/>
+      <inertia ixx="0.021" ixy="0" ixz="0" iyy="0.040" iyz="0" izz="0.021"/>
+    </inertial>
+    <visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></visual>
+    <collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></collision>
+  </link>
+  <joint name="left_drive" type="continuous">
+    <parent link="chassis"/><child link="left_wheel"/>
+    <origin xyz="0 0.3 0" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    <limit effort="35" velocity="30"/>
+  </joint>
+
+  <link name="right_wheel">
+    <inertial>
+      <mass value="1"/>
+      <inertia ixx="0.021" ixy="0" ixz="0" iyy="0.040" iyz="0" izz="0.021"/>
+    </inertial>
+    <visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></visual>
+    <collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></collision>
+  </link>
+  <joint name="right_drive" type="continuous">
+    <parent link="chassis"/><child link="right_wheel"/>
+    <origin xyz="0 -0.3 0" rpy="0 0 0"/><axis xyz="0 1 0"/>
+    <limit effort="35" velocity="30"/>
+  </joint>
+</robot>

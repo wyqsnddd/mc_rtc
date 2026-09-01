@@ -186,3 +186,19 @@ Enabled: LIPMStabilizer
 MainRobot: JVRC1
 Enabled: ExternalForces
 ```
+
+# RollingContact
+
+`RollingContact`は、差動二輪および四輪操舵の剛体車輪を、TasksまたはTVMバックエンドでCPU実行する
+動力学的に整合したサンプルです。hard/soft転がり、摩擦・トルク制限、
+fixed/rolling/sliding/detachedの安全な遷移を含みます。
+
+**詳しい説明**: [CPUローリング接触チュートリアル]({{site.baseurl}}/tutorials/samples/rolling-contact.html)を
+参照してください。
+
+**対応ロボット**: 同梱の`rolling_diff`と`rolling_4s`ロボットモジュール。
+
+```yaml
+MainRobot: [RollingContact, /path/to/mc_rtc/src/mc_robots/rolling_contact_description, rolling_diff]
+Enabled: RollingContact
+```

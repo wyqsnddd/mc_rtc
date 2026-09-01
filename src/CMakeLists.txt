@@ -245,6 +245,7 @@ set(mc_rbdyn_SRC
     mc_rbdyn/BodySensor.cpp
     mc_rbdyn/Frame.cpp
     mc_rbdyn/RobotFrame.cpp
+    mc_rbdyn/RollingContact.cpp
 )
 
 set(mc_rbdyn_HDR
@@ -287,6 +288,7 @@ set(mc_rbdyn_HDR
     ../include/mc_rbdyn/Device.h
     ../include/mc_rbdyn/Frame.h
     ../include/mc_rbdyn/RobotFrame.h
+    ../include/mc_rbdyn/RollingContact.h
     ../include/mc_rbdyn/JointSensor.h
 )
 
@@ -314,6 +316,7 @@ set(mc_tvm_HDR
     ${mc_tvm_HDR_DIR}/PostureFunction.h
     ${mc_tvm_HDR_DIR}/Robot.h
     ${mc_tvm_HDR_DIR}/RobotFrame.h
+    ${mc_tvm_HDR_DIR}/RollingContactFunction.h
     ${mc_tvm_HDR_DIR}/TransformFunction.h
     ${mc_tvm_HDR_DIR}/VectorOrientationFunction.h
 )
@@ -338,6 +341,7 @@ set(mc_tvm_SRC
     mc_tvm/PostureFunction.cpp
     mc_tvm/Robot.cpp
     mc_tvm/RobotFrame.cpp
+    mc_tvm/RollingContactFunction.cpp
     mc_tvm/TransformFunction.cpp
     mc_tvm/VectorOrientationFunction.cpp
 )
@@ -444,6 +448,8 @@ set(mc_solver_SRC
     mc_solver/DynamicsConstraint.cpp
     mc_solver/KinematicsConstraint.cpp
     mc_solver/QPSolver.cpp
+    mc_solver/RollingContactConstraint.cpp
+    mc_solver/RollingContactDynamicsConstraint.cpp
     mc_solver/TasksQPSolver.cpp
     mc_solver/TVMQPSolver.cpp
     mc_solver/Update.cpp
@@ -473,6 +479,8 @@ set(mc_solver_HDR
     ../include/mc_solver/GenInequalityConstraint.h
     ../include/mc_solver/InequalityConstraint.h
     ../include/mc_solver/QPSolver.h
+    ../include/mc_solver/RollingContactConstraint.h
+    ../include/mc_solver/RollingContactDynamicsConstraint.h
     ../include/mc_solver/TasksQPSolver.h
     ../include/mc_solver/TVMQPSolver.h
     ../include/mc_tasks/MetaTask.h

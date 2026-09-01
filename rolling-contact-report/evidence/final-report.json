@@ -1,0 +1,194 @@
+{
+  "schema": 1,
+  "date": "2026-09-01",
+  "status": "pass",
+  "device_contract": "CPU-only",
+  "revisions": {
+    "mc_rtc_base": "fc7df14a96f1273fb1aaff8e1a84ef514455d29c",
+    "mc_rtc_implementation": "the commit containing this report",
+    "tasks_source": "4d9fe01018ff0906475c829568b5d23b6705327a",
+    "tvm_source": "e82b990e0b556efe33c1dc5fe2cae42bf423a19b",
+    "mc_mujoco": "9397c73fcc348f4f2a3d2f433dcaf948a67532ea",
+    "mc_mujoco_patch": "patches/mc_mujoco-user-destination.patch",
+    "working_tree_at_measurement": "rolling-contact implementation present but not yet committed; unrelated AGENTS.md and colorful-guidance.md untracked"
+  },
+  "environment": {
+    "operating_system": "Ubuntu 24.04",
+    "architecture": "x86_64",
+    "cpu": "AMD Ryzen 9 9950X 16-Core Processor",
+    "physical_cores": 16,
+    "logical_cpus": 32,
+    "threads_per_core": 2,
+    "numa_nodes": 1,
+    "frequency_policy": "boost enabled",
+    "compiler": "GCC 13.3.0-6ubuntu2~24.04.1",
+    "cmake": "3.28.3",
+    "language": "C++17",
+    "build_type": "RelWithDebInfo",
+    "controller_period_ms": 5.0,
+    "thread_configuration": "one controller process; CPU solver/controller path single-threaded; no asynchronous device work",
+    "tasks_solver": "QLD CPU path",
+    "tvm_solver": "default weighted least-squares CPU path",
+    "gpu_devices_hidden": true
+  },
+  "stages": [
+    {"stage": "roadmap", "status": "pass", "evidence": "Task-Rolling-Contact.md"},
+    {"stage": 0, "name": "baseline and architecture", "status": "pass", "evidence": "architecture.md; evidence/stage-0.md; evidence/final-report.md"},
+    {"stage": 1, "name": "toy robots", "status": "pass", "evidence": "testRollingContactRobot"},
+    {"stage": 2, "name": "standalone rolling math", "status": "pass", "evidence": "testRollingContact"},
+    {"stage": 3, "name": "minimal solver insertion", "status": "pass", "evidence": "testRollingContactSolver"},
+    {"stage": 4, "name": "dynamic contact forces", "status": "pass", "evidence": "testRollingContactSolver"},
+    {"stage": 5, "name": "differential controller", "status": "pass", "evidence": "RollingContactController* CTests"},
+    {"stage": 6, "name": "CPU mc_mujoco differential validation", "status": "pass", "evidence": "evidence/mujoco-summary.json"},
+    {"stage": 7, "name": "contact modes", "status": "pass", "evidence": "RollingContactControllerModes and mode-cycle simulations"},
+    {"stage": 8, "name": "four-steering QP", "status": "pass", "evidence": "four-* controller and simulation cases"},
+    {"stage": 9, "name": "CPU backend parity", "status": "pass", "evidence": "testRollingContactSolver and Tasks/TVM simulation matrix"},
+    {"stage": 10, "name": "regression and handoff", "status": "pass", "evidence": "full CTest, ASan, timing, linkage, allocation, schemas, docs, and clean staged-checkout validation"}
+  ],
+  "inventory": {
+    "geometry": [
+      "mc_rbdyn::RollingContactDescription",
+      "mc_rbdyn::RollingContactState",
+      "mc_rbdyn::RollingContactGeometry"
+    ],
+    "solver": [
+      "mc_solver::RollingContactConstraint",
+      "mc_solver::RollingContactDynamicsConstraint",
+      "mc_tvm::RollingContactFunction"
+    ],
+    "robots": [
+      "RollingContactDifferential",
+      "RollingContactFourSteering"
+    ],
+    "controller": "RollingContact sample controller with Tasks and TVM configurations",
+    "documentation": [
+      "English tutorial",
+      "Japanese tutorial",
+      "JSON schemas",
+      "configuration examples",
+      "ADR-001",
+      "normative rolling-contact QP report"
+    ],
+    "reproduction": [
+      "scripts/audit-cpu-linkage.py",
+      "scripts/build-cpu-mujoco-runner.sh",
+      "scripts/check-controller-log.py",
+      "scripts/check-mujoco-report.py",
+      "scripts/run-mujoco-suite.py",
+      "scripts/plot-evidence.py",
+      "evidence/validation-summary.svg"
+    ]
+  },
+  "validation": {
+    "rolling_ctest": {
+      "command": "CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON ctest --test-dir build -R 'RollingContact|testRollingContact' --output-on-failure -j1",
+      "exit_code": 0,
+      "passed": 13,
+      "total": 13,
+      "wall_time_s": 1.73
+    },
+    "full_ctest": {
+      "command": "CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON ctest --test-dir build --output-on-failure -j1",
+      "exit_code": 0,
+      "passed": 102,
+      "total": 102,
+      "wall_time_s": 33.30
+    },
+    "asan": {
+      "command": "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 CUDA_VISIBLE_DEVICES=-1 ctest --test-dir /tmp/rolling-contact-asan -R 'RollingContactControllerRepeatedLifecycle|testRollingContact$|testRollingContactRobot|testRollingContactSolver' --output-on-failure -j1",
+      "exit_code": 0,
+      "passed": 4,
+      "total": 4,
+      "wall_time_s": 1.41
+    },
+    "lifecycle_stress": {
+      "test": "RollingContactControllerRepeatedLifecycle",
+      "consecutive_passes": 50,
+      "complete_solver_consecutive_passes": 20
+    },
+    "geometry_allocations": {
+      "updates_after_warmup": 10000,
+      "heap_allocations": 0,
+      "enforcement": "test assertion"
+    },
+    "schemas": {
+      "command": "jq empty on every changed JSON schema and retained evidence JSON",
+      "exit_code": 0
+    }
+  },
+  "numerics": {
+    "basis_and_closed_form_policy": "1e-12 basis and 1e-10 coefficient tolerances",
+    "tasks_tvm_direct_parity": {
+      "coefficient_matrix_max_error": 0.0,
+      "bias_max_error": 0.0,
+      "generalized_acceleration_error": 3.530393869375426e-7,
+      "generalized_acceleration_scaled_tolerance": 1.0e-6,
+      "actuated_torque_error": 6.60888592104069e-16,
+      "resultant_wrench_error": 4.236472619822962e-6,
+      "resultant_wrench_scaled_tolerance": 1.186798e-5,
+      "tvm_soft_rolling_residual": 4.982765543864147e-10
+    },
+    "layout": "rolling point/cone identity and lambda/force-variable offsets remain stable across updates and mode transitions"
+  },
+  "simulation": {
+    "status": "pass",
+    "summary": "evidence/mujoco-summary.json",
+    "suite_report_outside_git": "/tmp/rolling-contact-final-mujoco-v7/suite-report.json",
+    "suite_report_sha256": "d323fc4d1dc179d5be9786e4f2915a5571559abcdfdbf04b672cf3f10eb4ab2c",
+    "runner_sha256": "3b2408b023f015553c78ccabf9fec7dde2544acfc00d4d0caebf9c24a9c2cd1a",
+    "backends": ["Tasks", "TVM"],
+    "named_cases_per_backend": 25,
+    "case_backend_pairs": 50,
+    "repetitions": 5,
+    "processes": 250,
+    "cycles_per_process": 1000,
+    "warmup_cycles_per_process": 100,
+    "missed_deadlines": 0,
+    "controller_failures": 0,
+    "worst_cycle_p99_ms": 0.346865,
+    "worst_cycle_p99_case": "TVM/four-steering-rate",
+    "minimum_real_time_factor": 20.52840913401877,
+    "minimum_real_time_factor_case": "TVM/four-steering-rate",
+    "peak_resident_kib": 52312
+  },
+  "performance": {
+    "status": "pass",
+    "summary": "evidence/timing-summary.json",
+    "suite_report_sha256": "88c607a2db9a20e87770e2fe0ef2fe6f8246113d810ee5fd8af25fb568dcf818",
+    "warmup_cycles_per_case": 100,
+    "measured_cycles_per_case": 10000,
+    "missed_deadlines": 0,
+    "period_ms": 5.0,
+    "cases": [
+      {"backend": "Tasks", "case": "diff-forward", "median_ms": 0.044740, "p95_ms": 0.064231, "p99_ms": 0.070081, "max_ms": 0.226873, "real_time_factor": 86.1634153564, "peak_resident_kib": 50648},
+      {"backend": "Tasks", "case": "four-crab", "median_ms": 0.118021, "p95_ms": 0.151712, "p99_ms": 0.175613, "max_ms": 0.238283, "real_time_factor": 35.5079588593, "peak_resident_kib": 51648},
+      {"backend": "TVM", "case": "diff-forward", "median_ms": 0.047081, "p95_ms": 0.058371, "p99_ms": 0.072461, "max_ms": 0.145982, "real_time_factor": 83.3322362630, "peak_resident_kib": 52148},
+      {"backend": "TVM", "case": "four-crab", "median_ms": 0.136831, "p95_ms": 0.175352, "p99_ms": 0.200392, "max_ms": 0.357224, "real_time_factor": 31.0695377235, "peak_resident_kib": 52672}
+    ]
+  },
+  "cpu_linkage": {
+    "status": "pass",
+    "summary": "evidence/cpu-linkage-summary.json",
+    "source_report_sha256": "30bf3dae6f9e08a39d062b95d9ab1ca16619d2c816c087ea1205b9af295fa7af",
+    "targets_checked": 5,
+    "gpu_runtime_dependencies": [],
+    "unresolved_dependencies": []
+  },
+  "deviations_and_fixes": [
+    "Tasks soft rolling is a quadratic residual over the native acceleration vector; no nonexistent slack variable was added.",
+    "Tasks dynamic rolling force columns are updated by a repository-local RollingMotionConstr instead of patching the external Tasks dependency.",
+    "TVM torque is actuated-only for floating robots; the six unactuated base efforts are explicitly zero.",
+    "TVM graph removal exposed a stale weighted-least-squares cache lifetime fault; solver-owned deferred destruction now retires removed graph objects after the next solve and the lifecycle stress/ASan gates pass.",
+    "The isolated mc_mujoco runner uses the tracked patch that makes MC_MUJOCO_USER_DESTINATION overrideable."
+  ],
+  "limitations": [
+    "Rigid-wheel ideal/contact-mode model; no deformable tire, rolling resistance, or contact complementarity.",
+    "A four-ray polyhedral friction cone is applied at each of two line-contact endpoints.",
+    "Terrain is a supplied plane or constant-slope ramp; online terrain estimation is outside this scope.",
+    "Supported examples are differential drive and four independently steering/driving wheels.",
+    "The planar four-steering specialization selects two independent lateral hard rows to avoid geometric rank duplication.",
+    "Slip and recovery thresholds require validation when wheel materials, terrain, or control period change.",
+    "Reported CPU timing is specific to the recorded Ryzen 9 9950X host and toolchain."
+  ],
+  "failed_gates": []
+}

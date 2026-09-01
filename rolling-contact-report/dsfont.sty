@@ -1,0 +1,10 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{dsfont}[2026/08/30 local compatibility fallback]
+
+% The pinned shared configuration requires dsfont, but the current TeX Live
+% installation does not provide it. AMS blackboard bold is sufficient for the
+% shared \mathds uses in these reports and keeps the submodule unchanged.
+\RequirePackage{amsfonts}
+\providecommand{\mathds}[1]{\mathbb{#1}}
+
+\endinput

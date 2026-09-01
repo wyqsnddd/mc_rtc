@@ -1,0 +1,36 @@
+RollingContact:
+  scenario: forward
+  linearSpeed: 0.2
+  yawRate: 0.35
+  steeringAngle: 0.3
+  commandPeriod: 4.0
+  velocityGain: 20.0
+  rollingWeight: 1000.0
+  recoveryRollingWeight: 1000000.0
+  recoverySpeed: 0.05
+  recoveryResidual: 0.2
+  recoveryTransverseResidual: 0.5
+  postureStiffness: 5.0
+  postureWeight: 100.0
+  baseOrientationStiffness: 10.0
+  baseOrientationWeight: 500.0
+  basePositionStiffness: 5.0
+  basePositionWeight: 500.0
+  steeringStiffness: 1000.0
+  steeringWeight: 10.0
+  slipEnter: 0.05
+  slipExit: 0.02
+  residualEnter: 0.05
+  residualExit: 0.02
+  normalForceEnter: 5.0
+  normalForceExit: 1.0
+  frictionMarginEnter: 0.001
+  frictionMarginExit: -0.00001
+  torqueMarginEnter: 0.1
+  torqueMarginExit: 0.0
+  minimumDwell: 0.1
+  transitionTime: 0.2
+  filterTimeConstant: 0.02
+  closedLoopFeedback: false
+  longitudinal: hard
+  terrainNormal: [0.0, 0.0, 1.0]

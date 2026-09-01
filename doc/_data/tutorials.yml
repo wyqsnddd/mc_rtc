@@ -93,6 +93,8 @@
       id: list-of-samples
     -
       id: sample-admittance
+    -
+      id: rolling-contact
 -
   id: advanced
   tutorials:

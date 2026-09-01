@@ -36,7 +36,19 @@ public:
   SET_UPDATES(DynamicFunction, Jacobian, B)
 
   /** Construct the equation of motion for a given robot */
-  DynamicFunction(const mc_rbdyn::Robot & robot);
+  /** Construct the rigid-body dynamics function.
+   *
+   * \param robot Robot associated with the dynamics.
+   *
+   * \param actuatedEffortOnly For a floating-base robot, use an independent
+   * actuated-joint effort variable and leave the six unactuated rows as hard
+   * dynamics equations. This is intended for contact formulations that must
+   * never introduce a virtual floating-base wrench.
+   */
+  DynamicFunction(const mc_rbdyn::Robot & robot, bool actuatedEffortOnly = false);
+
+  /** Release contact variables before the LinearFunction base is destroyed. */
+  ~DynamicFunction() override;
 
   /** Add a contact to the function
    *
@@ -55,11 +67,24 @@ public:
                                          std::vector<sva::PTransformd> points,
                                          double dir);
 
+  /** Generalized effort variable restricted to actuated joints.
+   *
+   * For a floating-base robot this excludes the first six unactuated DoFs.
+   * Fixed-base robots return the complete generalized effort variable.
+   */
+  const tvm::VariablePtr & actuatedTau() const noexcept { return actuatedTau_; }
+
+  /** True when floating-base effort is excluded from the decision vector. */
+  bool actuatedEffortOnly() const noexcept { return actuatedEffortOnly_; }
+
   /** Removes the contact associated to the given frame
    *
    * \param frame Contact frame
    */
   void removeContact(const mc_rbdyn::RobotFrame & frame);
+
+  /** Update contact-point offsets without replacing the force variables. */
+  void updateContact(const mc_rbdyn::RobotFrame & frame, const std::vector<sva::PTransformd> & points);
 
   /** Returns the contact force at the given contact frame
    *
@@ -73,6 +98,8 @@ protected:
   void updateb();
 
   const mc_rbdyn::Robot & robot_;
+  tvm::VariablePtr actuatedTau_;
+  bool actuatedEffortOnly_ = false;
 
   /** Holds data for the force part of the motion equation */
   struct ForceContact
@@ -110,6 +137,7 @@ protected:
   std::vector<ForceContact> contacts_;
 
   std::vector<ForceContact>::const_iterator findContact(const mc_rbdyn::RobotFrame & frame) const;
+  std::vector<ForceContact>::iterator findContact(const mc_rbdyn::RobotFrame & frame);
 
   void updateJacobian();
 };

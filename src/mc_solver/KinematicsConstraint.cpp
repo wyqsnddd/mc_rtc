@@ -99,8 +99,13 @@ void TVMKinematicsConstraint::removeFromSolver(mc_solver::TVMQPSolver & solver)
   {
     solver.problem().removeSubstitutionFor(*solver.problem().constraint(*c));
     solver.problem().remove(*c);
+    solver.deferDestructionUntilNextSolve(c);
   }
-  for(auto & c : constraints_) { solver.problem().remove(*c); }
+  for(auto & c : constraints_)
+  {
+    solver.problem().remove(*c);
+    solver.deferDestructionUntilNextSolve(c);
+  }
   constraints_.clear();
   mimics_constraints_.clear();
 }

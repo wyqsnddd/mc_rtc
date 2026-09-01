@@ -1,0 +1,222 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1180" viewBox="0 0 1280 1180">
+<rect width="100%" height="100%" fill="white"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#212121">
+<text x="640.00" y="38.00" font-size="24" text-anchor="middle" font-weight="bold">CPU rolling-contact validation summary</text>
+<text x="640.00" y="62.00" font-size="14" text-anchor="middle" font-weight="normal">Ubuntu 24.04 · Ryzen 9 9950X · Tasks and TVM · GPU devices hidden</text>
+<text x="90.00" y="88.00" font-size="18" text-anchor="start" font-weight="bold">10,000-cycle controller timing</text>
+<line x1="90.00" y1="110.00" x2="90.00" y2="290.00" stroke="#424242" stroke-width="1.5"/>
+<line x1="90.00" y1="290.00" x2="1250.00" y2="290.00" stroke="#424242" stroke-width="1.5"/>
+<line x1="90.00" y1="290.00" x2="1250.00" y2="290.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="295.00" font-size="12" text-anchor="end" font-weight="normal">0</text>
+<line x1="90.00" y1="254.00" x2="1250.00" y2="254.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="259.00" font-size="12" text-anchor="end" font-weight="normal">0.05</text>
+<line x1="90.00" y1="218.00" x2="1250.00" y2="218.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="223.00" font-size="12" text-anchor="end" font-weight="normal">0.1</text>
+<line x1="90.00" y1="182.00" x2="1250.00" y2="182.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="187.00" font-size="12" text-anchor="end" font-weight="normal">0.15</text>
+<line x1="90.00" y1="146.00" x2="1250.00" y2="146.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="151.00" font-size="12" text-anchor="end" font-weight="normal">0.2</text>
+<line x1="90.00" y1="110.00" x2="1250.00" y2="110.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="115.00" font-size="12" text-anchor="end" font-weight="normal">0.25</text>
+<text x="20.00" y="200.00" font-size="13" text-anchor="middle" font-weight="normal" transform="rotate(-90 20 200.0)">P99 wall time (ms)</text>
+<rect x="148.00" y="237.83" width="174.00" height="52.17" fill="#ef6c00"/>
+<text x="235.00" y="230.83" font-size="12" text-anchor="middle" font-weight="normal">0.072</text>
+<text x="235.00" y="308.00" font-size="11" text-anchor="end" font-weight="normal" transform="rotate(-20 235.0 308)">TVM / diff-forward</text>
+<rect x="438.00" y="145.72" width="174.00" height="144.28" fill="#ef6c00"/>
+<text x="525.00" y="138.72" font-size="12" text-anchor="middle" font-weight="normal">0.200</text>
+<text x="525.00" y="308.00" font-size="11" text-anchor="end" font-weight="normal" transform="rotate(-20 525.0 308)">TVM / four-crab</text>
+<rect x="728.00" y="239.54" width="174.00" height="50.46" fill="#1976d2"/>
+<text x="815.00" y="232.54" font-size="12" text-anchor="middle" font-weight="normal">0.070</text>
+<text x="815.00" y="308.00" font-size="11" text-anchor="end" font-weight="normal" transform="rotate(-20 815.0 308)">Tasks / diff-forward</text>
+<rect x="1018.00" y="163.56" width="174.00" height="126.44" fill="#1976d2"/>
+<text x="1105.00" y="156.56" font-size="12" text-anchor="middle" font-weight="normal">0.176</text>
+<text x="1105.00" y="308.00" font-size="11" text-anchor="end" font-weight="normal" transform="rotate(-20 1105.0 308)">Tasks / four-crab</text>
+<text x="1250.00" y="88.00" font-size="12" text-anchor="end" font-weight="normal">5 ms deadline (outside plotted range)</text>
+<text x="90.00" y="433.00" font-size="18" text-anchor="start" font-weight="bold">Physical CPU suite: maximum position tracking error</text>
+<line x1="90.00" y1="455.00" x2="90.00" y2="685.00" stroke="#424242" stroke-width="1.5"/>
+<line x1="90.00" y1="685.00" x2="1250.00" y2="685.00" stroke="#424242" stroke-width="1.5"/>
+<line x1="90.00" y1="685.00" x2="1250.00" y2="685.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="690.00" font-size="12" text-anchor="end" font-weight="normal">0</text>
+<line x1="90.00" y1="639.00" x2="1250.00" y2="639.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="644.00" font-size="12" text-anchor="end" font-weight="normal">0.745</text>
+<line x1="90.00" y1="593.00" x2="1250.00" y2="593.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="598.00" font-size="12" text-anchor="end" font-weight="normal">1.49</text>
+<line x1="90.00" y1="547.00" x2="1250.00" y2="547.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="552.00" font-size="12" text-anchor="end" font-weight="normal">2.23</text>
+<line x1="90.00" y1="501.00" x2="1250.00" y2="501.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="506.00" font-size="12" text-anchor="end" font-weight="normal">2.98</text>
+<line x1="90.00" y1="455.00" x2="1250.00" y2="455.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="460.00" font-size="12" text-anchor="end" font-weight="normal">3.72</text>
+<text x="20.00" y="570.00" font-size="13" text-anchor="middle" font-weight="normal" transform="rotate(-90 20 570.0)">metres</text>
+<rect x="97.61" y="677.51" width="14.85" height="7.49" fill="#1976d2"/>
+<rect x="113.94" y="677.51" width="14.85" height="7.49" fill="#ef6c00"/>
+<text x="113.20" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 113.2 697)">D:circle-left</text>
+<rect x="144.01" y="677.51" width="14.85" height="7.49" fill="#1976d2"/>
+<rect x="160.34" y="677.51" width="14.85" height="7.49" fill="#ef6c00"/>
+<text x="159.60" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 159.6 697)">D:circle-right</text>
+<rect x="190.41" y="677.55" width="14.85" height="7.45" fill="#1976d2"/>
+<rect x="206.74" y="677.57" width="14.85" height="7.43" fill="#ef6c00"/>
+<text x="206.00" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 206.0 697)">D:contact-loss</text>
+<rect x="236.81" y="674.80" width="14.85" height="10.20" fill="#1976d2"/>
+<rect x="253.14" y="674.80" width="14.85" height="10.20" fill="#ef6c00"/>
+<text x="252.40" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 252.4 697)">D:forward</text>
+<rect x="283.21" y="685.00" width="14.85" height="0.00" fill="#1976d2"/>
+<rect x="299.54" y="685.00" width="14.85" height="0.00" fill="#ef6c00"/>
+<text x="298.80" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 298.79999999999995 697)">D:hold</text>
+<rect x="329.61" y="677.36" width="14.85" height="7.64" fill="#1976d2"/>
+<rect x="345.94" y="677.36" width="14.85" height="7.64" fill="#ef6c00"/>
+<text x="345.20" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 345.2 697)">D:lateral-impulse</text>
+<rect x="376.01" y="593.67" width="14.85" height="91.33" fill="#1976d2"/>
+<rect x="392.34" y="593.67" width="14.85" height="91.33" fill="#ef6c00"/>
+<text x="391.60" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 391.59999999999997 697)">D:low-friction</text>
+<rect x="422.41" y="656.56" width="14.85" height="28.44" fill="#1976d2"/>
+<rect x="438.74" y="655.04" width="14.85" height="29.96" fill="#ef6c00"/>
+<text x="438.00" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 438.0 697)">D:mode-cycle</text>
+<rect x="468.81" y="669.05" width="14.85" height="15.95" fill="#1976d2"/>
+<rect x="485.14" y="669.05" width="14.85" height="15.95" fill="#ef6c00"/>
+<text x="484.40" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 484.4 697)">D:ramp-down</text>
+<rect x="515.21" y="669.05" width="14.85" height="15.95" fill="#1976d2"/>
+<rect x="531.54" y="669.05" width="14.85" height="15.95" fill="#ef6c00"/>
+<text x="530.80" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 530.8 697)">D:ramp-up</text>
+<rect x="561.61" y="674.80" width="14.85" height="10.20" fill="#1976d2"/>
+<rect x="577.94" y="674.80" width="14.85" height="10.20" fill="#ef6c00"/>
+<text x="577.20" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 577.2 697)">D:reverse</text>
+<rect x="608.01" y="677.51" width="14.85" height="7.49" fill="#1976d2"/>
+<rect x="624.34" y="677.51" width="14.85" height="7.49" fill="#ef6c00"/>
+<text x="623.60" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 623.6 697)">D:sinusoid</text>
+<rect x="654.41" y="685.00" width="14.85" height="0.00" fill="#1976d2"/>
+<rect x="670.74" y="685.00" width="14.85" height="0.00" fill="#ef6c00"/>
+<text x="670.00" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 670.0 697)">D:turn-left</text>
+<rect x="700.81" y="685.00" width="14.85" height="0.00" fill="#1976d2"/>
+<rect x="717.14" y="685.00" width="14.85" height="0.00" fill="#ef6c00"/>
+<text x="716.40" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 716.4 697)">D:turn-right</text>
+<rect x="747.21" y="676.61" width="14.85" height="8.39" fill="#1976d2"/>
+<rect x="763.54" y="676.61" width="14.85" height="8.39" fill="#ef6c00"/>
+<text x="762.80" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 762.8 697)">4S:ackermann-left</text>
+<rect x="793.61" y="676.61" width="14.85" height="8.39" fill="#1976d2"/>
+<rect x="809.94" y="676.61" width="14.85" height="8.39" fill="#ef6c00"/>
+<text x="809.20" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 809.1999999999999 697)">4S:ackermann-right</text>
+<rect x="840.01" y="677.01" width="14.85" height="7.99" fill="#1976d2"/>
+<rect x="856.34" y="677.01" width="14.85" height="7.99" fill="#ef6c00"/>
+<text x="855.60" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 855.6 697)">4S:crab</text>
+<rect x="886.41" y="677.01" width="14.85" height="7.99" fill="#1976d2"/>
+<rect x="902.74" y="677.01" width="14.85" height="7.99" fill="#ef6c00"/>
+<text x="902.00" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 902.0 697)">4S:forward</text>
+<rect x="932.81" y="679.26" width="14.85" height="5.74" fill="#1976d2"/>
+<rect x="949.14" y="679.26" width="14.85" height="5.74" fill="#ef6c00"/>
+<text x="948.40" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 948.4 697)">4S:lateral-impulse</text>
+<rect x="979.21" y="624.27" width="14.85" height="60.73" fill="#1976d2"/>
+<rect x="995.54" y="624.27" width="14.85" height="60.73" fill="#ef6c00"/>
+<text x="994.80" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 994.8 697)">4S:low-friction</text>
+<rect x="1025.61" y="465.95" width="14.85" height="219.05" fill="#1976d2"/>
+<rect x="1041.94" y="465.95" width="14.85" height="219.05" fill="#ef6c00"/>
+<text x="1041.20" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1041.1999999999998 697)">4S:mode-cycle</text>
+<rect x="1072.01" y="685.00" width="14.85" height="0.00" fill="#1976d2"/>
+<rect x="1088.34" y="685.00" width="14.85" height="0.00" fill="#ef6c00"/>
+<text x="1087.60" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1087.6 697)">4S:pure-yaw</text>
+<rect x="1118.41" y="681.10" width="14.85" height="3.90" fill="#1976d2"/>
+<rect x="1134.74" y="681.10" width="14.85" height="3.90" fill="#ef6c00"/>
+<text x="1134.00" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1134.0 697)">4S:ramp-crab</text>
+<rect x="1164.81" y="677.01" width="14.85" height="7.99" fill="#1976d2"/>
+<rect x="1181.14" y="677.01" width="14.85" height="7.99" fill="#ef6c00"/>
+<text x="1180.40" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1180.3999999999999 697)">4S:reverse</text>
+<rect x="1211.21" y="652.44" width="14.85" height="32.56" fill="#1976d2"/>
+<rect x="1227.54" y="635.24" width="14.85" height="49.76" fill="#ef6c00"/>
+<text x="1226.80" y="697.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1226.8 697)">4S:steering-rate</text>
+<text x="90.00" y="818.00" font-size="18" text-anchor="start" font-weight="bold">Physical CPU suite: maximum rolling slip</text>
+<line x1="90.00" y1="840.00" x2="90.00" y2="1070.00" stroke="#424242" stroke-width="1.5"/>
+<line x1="90.00" y1="1070.00" x2="1250.00" y2="1070.00" stroke="#424242" stroke-width="1.5"/>
+<line x1="90.00" y1="1070.00" x2="1250.00" y2="1070.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="1075.00" font-size="12" text-anchor="end" font-weight="normal">0</text>
+<line x1="90.00" y1="1024.00" x2="1250.00" y2="1024.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="1029.00" font-size="12" text-anchor="end" font-weight="normal">0.272</text>
+<line x1="90.00" y1="978.00" x2="1250.00" y2="978.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="983.00" font-size="12" text-anchor="end" font-weight="normal">0.544</text>
+<line x1="90.00" y1="932.00" x2="1250.00" y2="932.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="937.00" font-size="12" text-anchor="end" font-weight="normal">0.816</text>
+<line x1="90.00" y1="886.00" x2="1250.00" y2="886.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="891.00" font-size="12" text-anchor="end" font-weight="normal">1.09</text>
+<line x1="90.00" y1="840.00" x2="1250.00" y2="840.00" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80.00" y="845.00" font-size="12" text-anchor="end" font-weight="normal">1.36</text>
+<text x="20.00" y="955.00" font-size="13" text-anchor="middle" font-weight="normal" transform="rotate(-90 20 955.0)">m/s</text>
+<rect x="97.61" y="1069.94" width="14.85" height="0.06" fill="#1976d2"/>
+<rect x="113.94" y="1069.94" width="14.85" height="0.06" fill="#ef6c00"/>
+<text x="113.20" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 113.2 1082)">D:circle-left</text>
+<rect x="144.01" y="1069.94" width="14.85" height="0.06" fill="#1976d2"/>
+<rect x="160.34" y="1069.94" width="14.85" height="0.06" fill="#ef6c00"/>
+<text x="159.60" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 159.6 1082)">D:circle-right</text>
+<rect x="190.41" y="1069.25" width="14.85" height="0.75" fill="#1976d2"/>
+<rect x="206.74" y="1069.24" width="14.85" height="0.76" fill="#ef6c00"/>
+<text x="206.00" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 206.0 1082)">D:contact-loss</text>
+<rect x="236.81" y="1069.99" width="14.85" height="0.01" fill="#1976d2"/>
+<rect x="253.14" y="1069.99" width="14.85" height="0.01" fill="#ef6c00"/>
+<text x="252.40" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 252.4 1082)">D:forward</text>
+<rect x="283.21" y="1070.00" width="14.85" height="0.00" fill="#1976d2"/>
+<rect x="299.54" y="1070.00" width="14.85" height="0.00" fill="#ef6c00"/>
+<text x="298.80" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 298.79999999999995 1082)">D:hold</text>
+<rect x="329.61" y="1069.93" width="14.85" height="0.07" fill="#1976d2"/>
+<rect x="345.94" y="1069.08" width="14.85" height="0.92" fill="#ef6c00"/>
+<text x="345.20" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 345.2 1082)">D:lateral-impulse</text>
+<rect x="376.01" y="988.21" width="14.85" height="81.79" fill="#1976d2"/>
+<rect x="392.34" y="988.21" width="14.85" height="81.79" fill="#ef6c00"/>
+<text x="391.60" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 391.59999999999997 1082)">D:low-friction</text>
+<rect x="422.41" y="996.72" width="14.85" height="73.28" fill="#1976d2"/>
+<rect x="438.74" y="998.52" width="14.85" height="71.48" fill="#ef6c00"/>
+<text x="438.00" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 438.0 1082)">D:mode-cycle</text>
+<rect x="468.81" y="1069.95" width="14.85" height="0.05" fill="#1976d2"/>
+<rect x="485.14" y="1069.95" width="14.85" height="0.05" fill="#ef6c00"/>
+<text x="484.40" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 484.4 1082)">D:ramp-down</text>
+<rect x="515.21" y="1069.95" width="14.85" height="0.05" fill="#1976d2"/>
+<rect x="531.54" y="1069.95" width="14.85" height="0.05" fill="#ef6c00"/>
+<text x="530.80" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 530.8 1082)">D:ramp-up</text>
+<rect x="561.61" y="1069.99" width="14.85" height="0.01" fill="#1976d2"/>
+<rect x="577.94" y="1069.99" width="14.85" height="0.01" fill="#ef6c00"/>
+<text x="577.20" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 577.2 1082)">D:reverse</text>
+<rect x="608.01" y="1069.98" width="14.85" height="0.02" fill="#1976d2"/>
+<rect x="624.34" y="1069.98" width="14.85" height="0.02" fill="#ef6c00"/>
+<text x="623.60" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 623.6 1082)">D:sinusoid</text>
+<rect x="654.41" y="1069.95" width="14.85" height="0.05" fill="#1976d2"/>
+<rect x="670.74" y="1069.95" width="14.85" height="0.05" fill="#ef6c00"/>
+<text x="670.00" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 670.0 1082)">D:turn-left</text>
+<rect x="700.81" y="1069.95" width="14.85" height="0.05" fill="#1976d2"/>
+<rect x="717.14" y="1069.95" width="14.85" height="0.05" fill="#ef6c00"/>
+<text x="716.40" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 716.4 1082)">D:turn-right</text>
+<rect x="747.21" y="1069.96" width="14.85" height="0.04" fill="#1976d2"/>
+<rect x="763.54" y="1069.96" width="14.85" height="0.04" fill="#ef6c00"/>
+<text x="762.80" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 762.8 1082)">4S:ackermann-left</text>
+<rect x="793.61" y="1069.96" width="14.85" height="0.04" fill="#1976d2"/>
+<rect x="809.94" y="1069.96" width="14.85" height="0.04" fill="#ef6c00"/>
+<text x="809.20" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 809.1999999999999 1082)">4S:ackermann-right</text>
+<rect x="840.01" y="1069.99" width="14.85" height="0.01" fill="#1976d2"/>
+<rect x="856.34" y="1069.99" width="14.85" height="0.01" fill="#ef6c00"/>
+<text x="855.60" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 855.6 1082)">4S:crab</text>
+<rect x="886.41" y="1069.99" width="14.85" height="0.01" fill="#1976d2"/>
+<rect x="902.74" y="1069.99" width="14.85" height="0.01" fill="#ef6c00"/>
+<text x="902.00" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 902.0 1082)">4S:forward</text>
+<rect x="932.81" y="1069.95" width="14.85" height="0.05" fill="#1976d2"/>
+<rect x="949.14" y="1069.95" width="14.85" height="0.05" fill="#ef6c00"/>
+<text x="948.40" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 948.4 1082)">4S:lateral-impulse</text>
+<rect x="979.21" y="850.95" width="14.85" height="219.05" fill="#1976d2"/>
+<rect x="995.54" y="850.95" width="14.85" height="219.05" fill="#ef6c00"/>
+<text x="994.80" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 994.8 1082)">4S:low-friction</text>
+<rect x="1025.61" y="1061.99" width="14.85" height="8.01" fill="#1976d2"/>
+<rect x="1041.94" y="1061.99" width="14.85" height="8.01" fill="#ef6c00"/>
+<text x="1041.20" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1041.1999999999998 1082)">4S:mode-cycle</text>
+<rect x="1072.01" y="1069.96" width="14.85" height="0.04" fill="#1976d2"/>
+<rect x="1088.34" y="1069.96" width="14.85" height="0.04" fill="#ef6c00"/>
+<text x="1087.60" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1087.6 1082)">4S:pure-yaw</text>
+<rect x="1118.41" y="1069.95" width="14.85" height="0.05" fill="#1976d2"/>
+<rect x="1134.74" y="1069.95" width="14.85" height="0.05" fill="#ef6c00"/>
+<text x="1134.00" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1134.0 1082)">4S:ramp-crab</text>
+<rect x="1164.81" y="1069.99" width="14.85" height="0.01" fill="#1976d2"/>
+<rect x="1181.14" y="1069.99" width="14.85" height="0.01" fill="#ef6c00"/>
+<text x="1180.40" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1180.3999999999999 1082)">4S:reverse</text>
+<rect x="1211.21" y="1058.11" width="14.85" height="11.89" fill="#1976d2"/>
+<rect x="1227.54" y="1067.71" width="14.85" height="2.29" fill="#ef6c00"/>
+<text x="1226.80" y="1082.00" font-size="10" text-anchor="end" font-weight="normal" transform="rotate(-50 1226.8 1082)">4S:steering-rate</text>
+<rect x="540.00" y="1144" width="22" height="12" fill="#1976d2"/>
+<text x="570.00" y="1156.00" font-size="13" text-anchor="start" font-weight="normal">Tasks</text>
+<rect x="680.00" y="1144" width="22" height="12" fill="#ef6c00"/>
+<text x="710.00" y="1156.00" font-size="13" text-anchor="start" font-weight="normal">TVM</text>
+</g>
+</svg>

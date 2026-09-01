@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot name="rolling_4s">
+  <link name="chassis">
+    <inertial>
+      <origin xyz="0 0 0.08" rpy="0 0 0"/>
+      <mass value="18"/>
+      <inertia ixx="0.75" ixy="0" ixz="0" iyy="1.35" iyz="0" izz="1.75"/>
+    </inertial>
+    <visual><geometry><box size="0.9 0.55 0.16"/></geometry></visual>
+    <collision><geometry><box size="0.72 0.40 0.12"/></geometry></collision>
+  </link>
+
+  <link name="front_left_knuckle"><inertial><mass value="0.3"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial></link>
+  <joint name="front_left_steer" type="revolute"><parent link="chassis"/><child link="front_left_knuckle"/><origin xyz="0.45 0.3 0"/><axis xyz="0 0 1"/><limit lower="-3.141592653589793" upper="3.141592653589793" effort="25" velocity="8"/></joint>
+  <link name="front_left_wheel"><inertial><mass value="1"/><inertia ixx="0.021" ixy="0" ixz="0" iyy="0.040" iyz="0" izz="0.021"/></inertial><visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></visual><collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></collision></link>
+  <joint name="front_left_drive" type="continuous"><parent link="front_left_knuckle"/><child link="front_left_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+
+  <link name="front_right_knuckle"><inertial><mass value="0.3"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial></link>
+  <joint name="front_right_steer" type="revolute"><parent link="chassis"/><child link="front_right_knuckle"/><origin xyz="0.45 -0.3 0"/><axis xyz="0 0 1"/><limit lower="-3.141592653589793" upper="3.141592653589793" effort="25" velocity="8"/></joint>
+  <link name="front_right_wheel"><inertial><mass value="1"/><inertia ixx="0.021" ixy="0" ixz="0" iyy="0.040" iyz="0" izz="0.021"/></inertial><visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></visual><collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></collision></link>
+  <joint name="front_right_drive" type="continuous"><parent link="front_right_knuckle"/><child link="front_right_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+
+  <link name="rear_left_knuckle"><inertial><mass value="0.3"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial></link>
+  <joint name="rear_left_steer" type="revolute"><parent link="chassis"/><child link="rear_left_knuckle"/><origin xyz="-0.45 0.3 0"/><axis xyz="0 0 1"/><limit lower="-3.141592653589793" upper="3.141592653589793" effort="25" velocity="8"/></joint>
+  <link name="rear_left_wheel"><inertial><mass value="1"/><inertia ixx="0.021" ixy="0" ixz="0" iyy="0.040" iyz="0" izz="0.021"/></inertial><visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></visual><collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></collision></link>
+  <joint name="rear_left_drive" type="continuous"><parent link="rear_left_knuckle"/><child link="rear_left_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+
+  <link name="rear_right_knuckle"><inertial><mass value="0.3"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial></link>
+  <joint name="rear_right_steer" type="revolute"><parent link="chassis"/><child link="rear_right_knuckle"/><origin xyz="-0.45 -0.3 0"/><axis xyz="0 0 1"/><limit lower="-3.141592653589793" upper="3.141592653589793" effort="25" velocity="8"/></joint>
+  <link name="rear_right_wheel"><inertial><mass value="1"/><inertia ixx="0.021" ixy="0" ixz="0" iyy="0.040" iyz="0" izz="0.021"/></inertial><visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></visual><collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.2" length="0.08"/></geometry></collision></link>
+  <joint name="rear_right_drive" type="continuous"><parent link="rear_right_knuckle"/><child link="rear_right_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+</robot>

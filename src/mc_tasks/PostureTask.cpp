@@ -18,6 +18,8 @@
 #include <mc_rtc/gui/NumberInput.h>
 #include <mc_rtc/gui/NumberSlider.h>
 
+#include <stdexcept>
+
 namespace mc_tasks
 {
 
@@ -512,12 +514,27 @@ void PostureTask::jointWeights(const std::map<std::string, double> & jws)
   Eigen::VectorXd dimW = dimWeight();
   const auto & robot = robots_.robot(rIndex_);
   const auto & mb = robot.mb();
+  const int dofOffset = backend_ == Backend::TVM ? mb.joint(0).dof() : 0;
   for(const auto & jw : jws)
   {
     if(robot.hasJoint(jw.first))
     {
       auto jIndex = mb.jointIndexByName(jw.first);
-      if(mb.joint(jIndex).dof() > 0) { dimW[mb.jointPosInDof(jIndex)] = jw.second; }
+      const auto & joint = mb.joint(jIndex);
+      const int dofIndex = mb.jointPosInDof(jIndex) - dofOffset;
+      // TVM's posture function excludes the floating-base DoFs, unlike the
+      // Tasks posture task. Ignore that joint if it is explicitly named and
+      // translate every actuated-joint index into TVM's joint-only vector.
+      if(joint.dof() > 0 && dofIndex >= 0)
+      {
+        if(dofIndex + joint.dof() > dimW.size())
+        {
+          mc_rtc::log::error_and_throw<std::out_of_range>(
+              "[PostureTask] Joint {} weight indices [{}, {}) exceed posture dimension {}", jw.first, dofIndex,
+              dofIndex + joint.dof(), dimW.size());
+        }
+        dimW.segment(dofIndex, joint.dof()).setConstant(jw.second);
+      }
       // No warning, it's probably over specified
     }
     else
@@ -536,8 +553,10 @@ void PostureTask::target(const std::map<std::string, std::vector<double>> & join
   {
     if(robots_.robot(rIndex_).hasJoint(j.first))
     {
-      if(static_cast<size_t>(
-             robots_.robot(rIndex_).mb().joint(static_cast<int>(robots_.robot(rIndex_).jointIndexByName(j.first))).dof())
+      if(static_cast<size_t>(robots_.robot(rIndex_)
+                                .mb()
+                                .joint(static_cast<int>(robots_.robot(rIndex_).jointIndexByName(j.first)))
+                                .dof())
          == j.second.size())
       {
         q[robots_.robot(rIndex_).jointIndexByName(j.first)] = j.second;

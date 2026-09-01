@@ -113,9 +113,42 @@ void TasksQPSolver::setContacts(ControllerToken, const std::vector<mc_rbdyn::Con
     }
   }
 
-  solver_.nrVars(robots_p->mbs(), uniContacts_, biContacts_);
+  refreshNrVars();
   updateConstrSize();
 } // namespace mc_solver
+
+void TasksQPSolver::registerRollingContacts(const std::string & owner,
+                                            std::vector<tasks::qp::UnilateralContact> contacts)
+{
+  if(owner.empty()) { mc_rtc::log::error_and_throw("Rolling-contact owner key cannot be empty"); }
+  if(rollingContacts_.count(owner) != 0)
+  {
+    mc_rtc::log::error_and_throw("Rolling-contact owner '{}' is already registered", owner);
+  }
+  rollingContacts_.emplace(owner, std::move(contacts));
+  refreshNrVars();
+  updateConstrSize();
+}
+
+void TasksQPSolver::unregisterRollingContacts(const std::string & owner)
+{
+  rollingContacts_.erase(owner);
+  refreshNrVars();
+  updateConstrSize();
+}
+
+void TasksQPSolver::refreshNrVars()
+{
+  std::vector<tasks::qp::UnilateralContact> contacts = uniContacts_;
+  size_t rollingSize = 0;
+  for(const auto & entry : rollingContacts_) { rollingSize += entry.second.size(); }
+  contacts.reserve(contacts.size() + rollingSize);
+  for(const auto & entry : rollingContacts_)
+  {
+    contacts.insert(contacts.end(), entry.second.begin(), entry.second.end());
+  }
+  solver_.nrVars(robots_p->mbs(), std::move(contacts), biContacts_);
+}
 
 const sva::ForceVecd TasksQPSolver::desiredContactForce(const mc_rbdyn::Contact & contact) const
 {
@@ -189,7 +222,7 @@ bool TasksQPSolver::runOpenLoop()
     t->update(*this);
     t->incrementIterInSolver();
   }
-  if(solver_.solveNoMbcUpdate(robots_p->mbs(), robots_p->mbcs()))
+  if(solveNoMbcUpdate())
   {
     for(size_t i = 0; i < robots_p->mbs().size(); ++i)
     {
@@ -259,7 +292,7 @@ bool TasksQPSolver::runJointsFeedback(bool wVelocity)
     t->update(*this);
     t->incrementIterInSolver();
   }
-  if(solver_.solveNoMbcUpdate(robots_p->mbs(), robots_p->mbcs()))
+  if(solveNoMbcUpdate())
   {
     for(size_t i = 0; i < robots_p->mbs().size(); ++i)
     {
@@ -317,7 +350,7 @@ bool TasksQPSolver::runClosedLoop(bool integrateControlState)
   }
 
   // Solve QP and integrate
-  if(solver_.solveNoMbcUpdate(robots_p->mbs(), robots_p->mbcs()))
+  if(solveNoMbcUpdate())
   {
     for(size_t i = 0; i < robots_p->mbs().size(); ++i)
     {
@@ -348,7 +381,7 @@ void TasksQPSolver::updateConstrSize()
 
 void TasksQPSolver::updateNrVars()
 {
-  solver_.nrVars(robots_p->mbs(), uniContacts_, biContacts_);
+  refreshNrVars();
 }
 
 void TasksQPSolver::updateNrVars(const mc_rbdyn::Robots & robots)
@@ -366,7 +399,15 @@ double TasksQPSolver::solveTime()
 
 double TasksQPSolver::solveAndBuildTime()
 {
-  return boost_ms(boost_ns(solver_.solveAndBuildTime().wall)).count();
+  return solveAndBuildDt_.count();
+}
+
+bool TasksQPSolver::solveNoMbcUpdate()
+{
+  const auto start = mc_rtc::clock::now();
+  const bool success = solver_.solveNoMbcUpdate(robots_p->mbs(), robots_p->mbcs());
+  solveAndBuildDt_ = mc_rtc::elapsed_ms(start);
+  return success;
 }
 
 const Eigen::VectorXd & TasksQPSolver::result() const

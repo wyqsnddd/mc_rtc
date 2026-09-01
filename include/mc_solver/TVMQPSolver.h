@@ -42,6 +42,14 @@ struct MC_SOLVER_DLLAPI TVMQPSolver final : public QPSolver
   /** Access the internal problem (const) */
   inline const tvm::LinearizedControlProblem & problem() const noexcept { return problem_; }
 
+  /** Keep a removed TVM graph object alive until solver memory has been refreshed.
+   *
+   * TVM's resolution-scheme memory may retain graph nodes from the preceding
+   * solve until the next solve. Removed tasks must therefore outlive that
+   * refresh, or the problem itself when no later solve occurs.
+   */
+  void deferDestructionUntilNextSolve(std::shared_ptr<void> object);
+
   /** Helper to get a \ref TVMQPSolver from a \ref QPSolver instance
    *
    * The caller should make sure the cast is valid by checking the QPSolver backend.
@@ -67,6 +75,12 @@ struct MC_SOLVER_DLLAPI TVMQPSolver final : public QPSolver
   }
 
 private:
+  /** Objects retired from the preceding problem graph.
+   *
+   * This member must be declared before problem_ so it is destroyed after
+   * the problem and its resolution-scheme memory.
+   */
+  std::vector<std::shared_ptr<void>> deferredDestruction_;
   /** Control problem */
   tvm::LinearizedControlProblem problem_;
   /** Solver scheme */

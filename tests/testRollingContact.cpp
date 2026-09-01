@@ -1,0 +1,438 @@
+#include <mc_rbdyn/RollingContact.h>
+
+#include <boost/test/unit_test.hpp>
+
+#include <Eigen/Geometry>
+
+#include <atomic>
+#include <cmath>
+#include <cstdlib>
+#include <limits>
+#include <new>
+#include <random>
+
+namespace allocation_probe
+{
+
+std::atomic<bool> enabled{false};
+std::atomic<size_t> count{0};
+
+void record() noexcept
+{
+  if(enabled.load(std::memory_order_relaxed)) { count.fetch_add(1, std::memory_order_relaxed); }
+}
+
+} // namespace allocation_probe
+
+void * operator new(std::size_t size)
+{
+  allocation_probe::record();
+  if(void * memory = std::malloc(size)) { return memory; }
+  throw std::bad_alloc{};
+}
+
+void * operator new[](std::size_t size)
+{
+  return ::operator new(size);
+}
+
+void operator delete(void * memory) noexcept
+{
+  std::free(memory);
+}
+
+void operator delete[](void * memory) noexcept
+{
+  std::free(memory);
+}
+
+#if defined(__GNUC__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
+void operator delete(void * memory, std::size_t) noexcept
+{
+  std::free(memory);
+}
+
+void operator delete[](void * memory, std::size_t) noexcept
+{
+  std::free(memory);
+}
+
+void * operator new(std::size_t size, std::align_val_t alignment)
+{
+  allocation_probe::record();
+  void * memory = nullptr;
+  if(posix_memalign(&memory, static_cast<std::size_t>(alignment), size) != 0) { throw std::bad_alloc{}; }
+  return memory;
+}
+
+void * operator new[](std::size_t size, std::align_val_t alignment)
+{
+  return ::operator new(size, alignment);
+}
+
+void operator delete(void * memory, std::align_val_t) noexcept
+{
+  std::free(memory);
+}
+
+void operator delete[](void * memory, std::align_val_t) noexcept
+{
+  std::free(memory);
+}
+
+void operator delete(void * memory, std::size_t, std::align_val_t) noexcept
+{
+  std::free(memory);
+}
+
+void operator delete[](void * memory, std::size_t, std::align_val_t) noexcept
+{
+  std::free(memory);
+}
+
+#if defined(__GNUC__)
+#  pragma GCC diagnostic pop
+#endif
+
+namespace
+{
+
+constexpr double tolerance = 1e-11;
+
+void checkVector(const Eigen::VectorXd & actual, const Eigen::VectorXd & expected, double tol = tolerance)
+{
+  BOOST_REQUIRE_EQUAL(actual.size(), expected.size());
+  BOOST_CHECK_SMALL((actual - expected).norm(), tol);
+}
+
+mc_rbdyn::RollingContactKinematics nominalInput()
+{
+  mc_rbdyn::RollingContactKinematics input;
+  input.carrierCenter = Eigen::Vector3d(1.0, 2.0, 0.4);
+  input.wheelAxle = Eigen::Vector3d::UnitY();
+  input.terrainNormal = Eigen::Vector3d::UnitZ();
+  input.carrierJacobian.setZero(3, 5);
+  input.carrierJacobian.block<3, 3>(0, 0).setIdentity();
+  input.wheelSelector.setZero(5);
+  input.wheelSelector(3) = 1.0;
+  input.generalizedVelocity.resize(5);
+  input.generalizedVelocity << 1.0, 0.3, -0.1, 4.0, 0.0;
+  input.radius = 0.2;
+  input.width = 0.1;
+  input.spinSign = 1.0;
+  input.velocityGain = 3.0;
+  return input;
+}
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(RollingContactModeAndDescriptionValidation)
+{
+  BOOST_CHECK_EQUAL(mc_rbdyn::to_string(mc_rbdyn::RollingContactMode::Fixed), "fixed");
+  BOOST_CHECK(mc_rbdyn::rollingContactModeFromString("ROLLING") == mc_rbdyn::RollingContactMode::Rolling);
+  BOOST_CHECK_THROW(mc_rbdyn::rollingContactModeFromString("flying"), std::invalid_argument);
+
+  mc_rbdyn::RollingContactDescription description;
+  description.name = "left";
+  description.carrierFrame = "left_carrier";
+  description.wheelBody = "left_wheel";
+  description.driveJoint = "left_drive";
+  description.radius = 0.2;
+  description.width = 0.08;
+  BOOST_CHECK_NO_THROW(description.validate());
+  description.activation = 1.1;
+  BOOST_CHECK_THROW(description.validate(), std::invalid_argument);
+  description.activation = 1.0;
+  for(const double invalidRadius : {0.0, -0.1, std::numeric_limits<double>::quiet_NaN()})
+  {
+    description.radius = invalidRadius;
+    BOOST_CHECK_THROW(description.validate(), std::invalid_argument);
+  }
+  description.radius = 0.2;
+  for(const double invalidFriction : {-0.1, std::numeric_limits<double>::quiet_NaN()})
+  {
+    description.friction = invalidFriction;
+    BOOST_CHECK_THROW(description.validate(), std::invalid_argument);
+  }
+  description.friction = 0.8;
+  for(const double invalidWidth : {-0.1, std::numeric_limits<double>::quiet_NaN()})
+  {
+    description.width = invalidWidth;
+    BOOST_CHECK_THROW(description.validate(), std::invalid_argument);
+  }
+  description.width = 0.08;
+  for(const auto & field : {std::string{"name"}, std::string{"carrier"}, std::string{"body"}, std::string{"drive"}})
+  {
+    auto invalid = description;
+    if(field == "name") { invalid.name.clear(); }
+    else if(field == "carrier") { invalid.carrierFrame.clear(); }
+    else if(field == "body") { invalid.wheelBody.clear(); }
+    else { invalid.driveJoint.clear(); }
+    BOOST_CHECK_THROW(invalid.validate(), std::invalid_argument);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(RollingContactModeManagerHysteresisDwellAndRecovery)
+{
+  mc_rbdyn::RollingContactModeThresholds thresholds;
+  thresholds.slipEnter = 0.10;
+  thresholds.slipExit = 0.04;
+  thresholds.residualEnter = 0.10;
+  thresholds.residualExit = 0.04;
+  thresholds.normalForceEnter = 10.0;
+  thresholds.normalForceExit = 2.0;
+  thresholds.frictionMarginEnter = 1.0;
+  thresholds.frictionMarginExit = 0.0;
+  thresholds.torqueMarginEnter = 1.0;
+  thresholds.torqueMarginExit = 0.0;
+  thresholds.minimumDwell = 0.03;
+  thresholds.transitionTime = 0.05;
+  thresholds.filterTimeConstant = 0.0;
+  mc_rbdyn::RollingContactModeManager manager(thresholds);
+  mc_rbdyn::RollingContactModeObservation observation;
+  observation.valid = true;
+  observation.normalForce = 20.0;
+  observation.frictionMargin = 2.0;
+  observation.torqueMargin = 2.0;
+
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Detached);
+  manager.update(observation, 0.01);
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Detached);
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Rolling);
+  BOOST_CHECK_CLOSE(manager.state().activation, 0.2, 1e-12);
+
+  observation.slipSpeed = thresholds.slipEnter;
+  for(int i = 0; i < 4; ++i) { manager.update(observation, 0.01); }
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Rolling);
+  observation.slipSpeed = thresholds.slipEnter + 0.001;
+  manager.update(observation, 0.01);
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Rolling);
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Sliding);
+
+  observation.slipSpeed = 0.06;
+  for(int i = 0; i < 5; ++i) { manager.update(observation, 0.01); }
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Sliding);
+  observation.slipSpeed = thresholds.slipExit - 0.001;
+  manager.update(observation, 0.01);
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Sliding);
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Rolling);
+
+  observation.normalForce = 1.0;
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Detached);
+  manager.requestedMode(mc_rbdyn::RollingContactMode::Fixed);
+  observation.normalForce = 20.0;
+  for(int i = 0; i < 3; ++i) { manager.update(observation, 0.01); }
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Fixed);
+
+  observation.valid = false;
+  manager.update(observation, 0.01);
+  BOOST_CHECK(manager.state().estimated == mc_rbdyn::RollingContactMode::Detached);
+  BOOST_CHECK(!manager.state().measurementValid);
+  BOOST_CHECK_EQUAL(manager.state().invalidReason, "measurement-invalid");
+  BOOST_CHECK_THROW(manager.update(observation, 0.0), std::invalid_argument);
+
+  thresholds.slipEnter = thresholds.slipExit;
+  BOOST_CHECK_THROW((void)mc_rbdyn::RollingContactModeManager{thresholds}, std::invalid_argument);
+}
+
+BOOST_AUTO_TEST_CASE(RollingFramePointRowsSlipAndBias)
+{
+  mc_rbdyn::RollingContactGeometry geometry(5);
+  auto input = nominalInput();
+  input.carrierNormalAcceleration = Eigen::Vector3d(0.1, 0.2, 0.3);
+  input.steeringRate = 2.0;
+  const auto & result = geometry.update(input);
+
+  checkVector(result.rollingDirection, Eigen::Vector3d::UnitX());
+  checkVector(result.lateralDirection, Eigen::Vector3d::UnitY());
+  checkVector(result.normalDirection, Eigen::Vector3d::UnitZ());
+  BOOST_CHECK_SMALL(result.orthonormalError, tolerance);
+  BOOST_CHECK_SMALL(result.rightHandedError, tolerance);
+  checkVector(result.contactPoint, Eigen::Vector3d(1.0, 2.0, 0.2));
+  checkVector(result.lineStart, Eigen::Vector3d(1.0, 1.95, 0.2));
+  checkVector(result.lineEnd, Eigen::Vector3d(1.0, 2.05, 0.2));
+
+  Eigen::Matrix<double, 3, 5> expectedMatrix = Eigen::Matrix<double, 3, 5>::Zero();
+  expectedMatrix(0, 0) = 1.0;
+  expectedMatrix(0, 3) = -0.2;
+  expectedMatrix(1, 1) = 1.0;
+  expectedMatrix(2, 2) = 1.0;
+  BOOST_CHECK_SMALL((result.rollingMatrix - expectedMatrix).norm(), tolerance);
+  checkVector(result.velocityResidual, Eigen::Vector3d(0.2, 0.3, -0.1));
+  checkVector(result.slipVelocity, Eigen::Vector3d(0.2, 0.3, 0.0));
+  checkVector(result.tangentialCarrierVelocity, Eigen::Vector3d(1.0, 0.3, 0.0));
+
+  // tdot = 2 l, ldot = -2 t. Hence Gdot*alpha is
+  // [0.1 + 2*0.3, 0.2 - 2*1.0, 0.3].
+  checkVector(result.accelerationBias, Eigen::Vector3d(0.7, -1.8, 0.3));
+  checkVector(result.rhs, Eigen::Vector3d(-1.3, 0.9, 0.0));
+}
+
+BOOST_AUTO_TEST_CASE(RollingGeometryRejectsInvalidInputAndRecovers)
+{
+  mc_rbdyn::RollingContactGeometry geometry(5);
+  auto input = nominalInput();
+  input.radius = -0.1;
+  BOOST_CHECK_THROW(geometry.update(input), std::invalid_argument);
+  input = nominalInput();
+  BOOST_CHECK_NO_THROW(geometry.update(input));
+
+  input.wheelAxle = input.terrainNormal;
+  BOOST_CHECK_THROW(geometry.update(input), std::invalid_argument);
+  input = nominalInput();
+  input.generalizedVelocity(0) = std::numeric_limits<double>::quiet_NaN();
+  BOOST_CHECK_THROW(geometry.update(input), std::invalid_argument);
+  input = nominalInput();
+  BOOST_CHECK_NO_THROW(geometry.update(input));
+}
+
+BOOST_AUTO_TEST_CASE(RollingGeometryPerformsNoHeapAllocationAfterWarmup)
+{
+  mc_rbdyn::RollingContactGeometry geometry(5);
+  auto input = nominalInput();
+  geometry.update(input);
+  allocation_probe::count.store(0, std::memory_order_relaxed);
+  allocation_probe::enabled.store(true, std::memory_order_relaxed);
+  double checksum = 0.0;
+  for(int cycle = 0; cycle < 10000; ++cycle)
+  {
+    input.generalizedVelocity(0) = 1.0 + 1e-6 * static_cast<double>(cycle);
+    checksum += geometry.update(input).velocityResidual.x();
+  }
+  allocation_probe::enabled.store(false, std::memory_order_relaxed);
+  const size_t allocations = allocation_probe::count.load(std::memory_order_relaxed);
+  BOOST_CHECK(std::isfinite(checksum));
+  BOOST_CHECK_EQUAL(allocations, 0);
+}
+
+BOOST_AUTO_TEST_CASE(DifferentialDriveRowsHaveNoDuplicateLateralConstraint)
+{
+  const auto result = mc_rbdyn::differentialDriveRollingMatrix(0.6, 0.2, 0.25);
+  Eigen::Matrix<double, 3, 5> expected = Eigen::Matrix<double, 3, 5>::Zero();
+  expected << 1.0, 0.0, -0.3, -0.2, 0.0, 1.0, 0.0, 0.3, 0.0, -0.25, 0.0, 1.0, 0.0, 0.0, 0.0;
+  BOOST_CHECK_SMALL((result.matrix - expected).norm(), tolerance);
+  BOOST_CHECK_EQUAL(result.matrix.rows(), 3);
+
+  Eigen::Vector<double, 5> pureRolling;
+  pureRolling << 1.0, 0.0, 0.5, 4.25, 4.6;
+  BOOST_CHECK_SMALL((result.matrix * pureRolling).norm(), tolerance);
+}
+
+BOOST_AUTO_TEST_CASE(PlanarSpecializationsRecoverCommonChassisTwists)
+{
+  std::mt19937 generator(421337);
+  std::uniform_real_distribution<double> rate(-8.0, 8.0);
+  std::uniform_real_distribution<double> twist(-2.0, 2.0);
+  std::uniform_real_distribution<double> offset(-0.8, 0.8);
+  constexpr double track = 0.6;
+  constexpr double leftRadius = 0.2;
+  constexpr double rightRadius = 0.23;
+  const auto differential =
+      mc_rbdyn::differentialDriveRollingMatrix(track, leftRadius, rightRadius);
+  for(size_t i = 0; i < 100; ++i)
+  {
+    const double leftRate = rate(generator);
+    const double rightRate = rate(generator);
+    const double vx = 0.5 * (leftRadius * leftRate + rightRadius * rightRate);
+    const double omega = (rightRadius * rightRate - leftRadius * leftRate) / track;
+    Eigen::Vector<double, 5> state;
+    state << vx, 0.0, omega, leftRate, rightRate;
+    BOOST_CHECK_SMALL((differential.matrix * state).norm(), 1e-10);
+  }
+
+  std::vector<mc_rbdyn::PlanarWheel> wheels(4);
+  for(auto & wheel : wheels)
+  {
+    wheel.radius = 0.2;
+    wheel.offset = Eigen::Vector2d(offset(generator), offset(generator));
+  }
+  for(size_t sample = 0; sample < 100; ++sample)
+  {
+    const Eigen::Vector3d chassisTwist(twist(generator), twist(generator), twist(generator));
+    Eigen::VectorXd state(7);
+    state.head<3>() = chassisTwist;
+    for(size_t i = 0; i < wheels.size(); ++i)
+    {
+      const auto & p = wheels[i].offset;
+      const Eigen::Vector2d carrierVelocity(chassisTwist.x() - p.y() * chassisTwist.z(),
+                                            chassisTwist.y() + p.x() * chassisTwist.z());
+      BOOST_REQUIRE_GT(carrierVelocity.norm(), 1e-8);
+      wheels[i].steeringAngle = std::atan2(carrierVelocity.y(), carrierVelocity.x());
+      state(static_cast<Eigen::Index>(3 + i)) = carrierVelocity.norm() / wheels[i].radius;
+    }
+    const auto compatible = mc_rbdyn::steeringRollingMatrix(wheels, chassisTwist);
+    BOOST_CHECK_SMALL((compatible.matrix * state).norm(), 1e-10);
+
+    Eigen::VectorXd incompatible = state;
+    incompatible(3) += 0.5;
+    BOOST_CHECK_GT((compatible.matrix * incompatible).norm(), 0.09);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(SteeringRowsIncludeDirectionDerivative)
+{
+  std::vector<mc_rbdyn::PlanarWheel> wheels(1);
+  wheels[0].offset = Eigen::Vector2d(0.7, -0.4);
+  wheels[0].steeringAngle = 0.37;
+  wheels[0].steeringRate = -0.8;
+  wheels[0].radius = 0.22;
+  const Eigen::Vector3d velocity(0.9, -0.2, 0.6);
+  const auto result = mc_rbdyn::steeringRollingMatrix(wheels, velocity);
+
+  Eigen::Vector4d fullVelocity;
+  fullVelocity << velocity, 1.3;
+  constexpr double dt = 1e-7;
+  auto plus = wheels;
+  auto minus = wheels;
+  plus[0].steeringAngle += wheels[0].steeringRate * dt;
+  minus[0].steeringAngle -= wheels[0].steeringRate * dt;
+  const auto plusResult = mc_rbdyn::steeringRollingMatrix(plus, velocity);
+  const auto minusResult = mc_rbdyn::steeringRollingMatrix(minus, velocity);
+  const Eigen::Vector2d finiteDifference =
+      (plusResult.matrix * fullVelocity - minusResult.matrix * fullVelocity) / (2.0 * dt);
+  BOOST_CHECK_SMALL((finiteDifference - result.accelerationBias).norm(), 2e-9);
+}
+
+BOOST_AUTO_TEST_CASE(RampGeometryIsRotationEquivariant)
+{
+  mc_rbdyn::RollingContactGeometry flatGeometry(5);
+  mc_rbdyn::RollingContactGeometry rampGeometry(5);
+  const auto flatInput = nominalInput();
+  const auto flat = flatGeometry.update(flatInput);
+
+  const Eigen::Matrix3d rotation = Eigen::AngleAxisd(0.31, Eigen::Vector3d::UnitY()).toRotationMatrix();
+  auto rampInput = flatInput;
+  rampInput.carrierCenter = rotation * flatInput.carrierCenter;
+  rampInput.wheelAxle = rotation * flatInput.wheelAxle;
+  rampInput.terrainNormal = rotation * flatInput.terrainNormal;
+  rampInput.carrierJacobian = rotation * flatInput.carrierJacobian;
+  const auto & ramp = rampGeometry.update(rampInput);
+  checkVector(ramp.rollingDirection, rotation * flat.rollingDirection);
+  checkVector(ramp.lateralDirection, rotation * flat.lateralDirection);
+  checkVector(ramp.normalDirection, rotation * flat.normalDirection);
+  checkVector(ramp.contactPoint, rotation * flat.contactPoint);
+  BOOST_CHECK_SMALL((ramp.rollingMatrix - flat.rollingMatrix).norm(), tolerance);
+  checkVector(ramp.slipVelocity, rotation * flat.slipVelocity);
+}
+
+BOOST_AUTO_TEST_CASE(ContactWrenchContainsWheelAxisMoment)
+{
+  const Eigen::Vector3d center(0.0, 0.0, 0.2);
+  const Eigen::Vector3d point(0.0, 0.0, 0.0);
+  const Eigen::Vector3d force(10.0, 0.0, 30.0);
+  const auto wrench = mc_rbdyn::contactWrenchAtCarrier(center, point, force);
+  checkVector(wrench.head<3>(), Eigen::Vector3d(0.0, -2.0, 0.0));
+  checkVector(wrench.tail<3>(), force);
+  BOOST_CHECK_CLOSE(wrench.head<3>().dot(Eigen::Vector3d::UnitY()), -0.2 * force.x(), 1e-12);
+}

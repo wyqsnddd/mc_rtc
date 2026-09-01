@@ -77,6 +77,15 @@ public:
   inline unsigned int robotIndex() const noexcept { return robotIndex_; }
 
 protected:
+  /** Internal constructor for dynamics formulations that exclude floating-base effort. */
+  DynamicsConstraint(const mc_rbdyn::Robots & robots,
+                     unsigned int robotIndex,
+                     double timeStep,
+                     const std::array<double, 3> & damper,
+                     double velocityPercent,
+                     bool infTorque,
+                     bool actuatedEffortOnly);
+
   /** Holds the motion constraint implementation
    *
    * In Tasks backend:

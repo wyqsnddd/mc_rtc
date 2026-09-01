@@ -122,7 +122,16 @@ bool TVMQPSolver::runCommon()
   auto start_t = mc_rtc::clock::now();
   auto r = solver_.solve(problem_);
   solve_dt_ = mc_rtc::clock::now() - start_t;
+  deferredDestruction_.clear();
   return r;
+}
+
+void TVMQPSolver::deferDestructionUntilNextSolve(std::shared_ptr<void> object)
+{
+  if(!object) { return; }
+  const auto alreadyDeferred = std::find_if(deferredDestruction_.begin(), deferredDestruction_.end(),
+                                            [&object](const auto & current) { return current.get() == object.get(); });
+  if(alreadyDeferred == deferredDestruction_.end()) { deferredDestruction_.push_back(std::move(object)); }
 }
 
 bool TVMQPSolver::runOpenLoop()
@@ -245,6 +254,14 @@ bool TVMQPSolver::runClosedLoop(bool integrateControlState)
 void TVMQPSolver::updateRobot(mc_rbdyn::Robot & robot)
 {
   auto & tvm_robot = robot.tvmRobot();
+  const auto dynamicsIt = dynamics_.find(robot.name());
+  if(dynamicsIt != dynamics_.end())
+  {
+    const auto & actuatedTau = dynamicsIt->second->dynamicFunction().actuatedTau()->value();
+    const Eigen::Index floatingDof = tvm_robot.tau()->size() - actuatedTau.size();
+    for(Eigen::Index i = 0; i < floatingDof; ++i) { tvm_robot.tau()->set(i, 0.0); }
+    tvm_robot.tau()->set(floatingDof, actuatedTau.size(), actuatedTau);
+  }
   rbd::vectorToParam(tvm_robot.tau()->value(), robot.controlTorque());
   rbd::vectorToParam(tvm_robot.alphaD()->value(), robot.alphaD());
   robot.eulerIntegration(timeStep);
@@ -317,7 +334,11 @@ void TVMQPSolver::removeDynamicsConstraint(mc_solver::DynamicsConstraint * dyn)
                              std::vector<tvm::TaskWithRequirementsPtr> & constraints)
     {
       if(robot != r.name()) { return; }
-      for(auto & c : constraints) { problem_.remove(*c); }
+      for(auto & c : constraints)
+      {
+        problem_.remove(*c);
+        deferDestructionUntilNextSolve(c);
+      }
       constraints.clear();
       forces = tvm::VariableVector();
     };
@@ -341,7 +362,11 @@ void TVMQPSolver::addContactToDynamics(const std::string & robot,
   if(constraints.size())
   {
     // FIXME Instead of this we should be able to change C
-    for(const auto & c : constraints) { problem_.remove(*c); }
+    for(const auto & c : constraints)
+    {
+      problem_.remove(*c);
+      deferDestructionUntilNextSolve(c);
+    }
     constraints.clear();
   }
   else
@@ -497,11 +522,20 @@ auto TVMQPSolver::removeContact(size_t idx) -> ContactIterator
     r2DynamicsIt->second->dynamicFunction().removeContact(r2.frame(contact.r2Surface()->name()));
     r2DynamicsIt->second->addToSolverImpl(*this);
   }
-  for(const auto & c : data.f1Constraints_) { problem_.remove(*c); }
-  for(const auto & c : data.f2Constraints_) { problem_.remove(*c); }
+  for(const auto & c : data.f1Constraints_)
+  {
+    problem_.remove(*c);
+    deferDestructionUntilNextSolve(c);
+  }
+  for(const auto & c : data.f2Constraints_)
+  {
+    problem_.remove(*c);
+    deferDestructionUntilNextSolve(c);
+  }
   if(data.contactConstraint_)
   {
     problem_.remove(*data.contactConstraint_);
+    deferDestructionUntilNextSolve(data.contactConstraint_);
     data.contactConstraint_.reset();
   }
   contactsData_.erase(contactsData_.begin() + static_cast<decltype(contacts_)::difference_type>(idx));

@@ -1,0 +1,130 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% FORMAT
+%%%%%%%%%%%%%%%%%%%%%%%%%%% footer and header
+\usepackage{lastpage}
+
+\usepackage{fancyhdr}
+\usepackage{xparse}
+\pagestyle{fancy}
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Headers and footers
+
+\fancyhead{} % clear all header fields
+\fancyfoot{} % clear all footer fields
+
+
+\rfoot{Page \thepage\ of \pageref{LastPage}}
+% Define the footer separation line
+\renewcommand{\footrulewidth}{0.4pt}
+\addtolength{\headwidth}{4.8cm}
+\usepackage[headheight=80pt,tmargin=85pt,headsep=25pt, footskip=25pt]{geometry}
+
+\geometry{a4paper, margin=2cm}
+
+\usepackage[numbers]{natbib}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Modify the description list
+\usepackage{nameref}
+
+\makeatletter
+\let\orgdescriptionlabel\descriptionlabel
+\renewcommand*{\descriptionlabel}[1]{%
+  \let\orglabel\label
+  \let\label\@gobble
+  \phantomsection
+  \edef\@currentlabel{#1\unskip}%
+  \let\label\orglabel
+  \orgdescriptionlabel{#1}%
+}
+\makeatother
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Font colour
+
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage[dvipsnames]{xcolor}
+
+\usepackage{listings}
+\usepackage{color}
+% %%%%%%%%%%%%%%%%%%%%%%%%% Tikz packages:
+\usepackage{tikz}
+\usepackage{tikz-layers}
+\usepackage{array}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+%
+% the positioning-plus library (is on TeX.sx),
+% the node-families library (is on TeX.sx),
+% the fit library (loaded by positioning-plus),
+% the backgrounds library to draw stuff behind other stuff,
+% the calc library for some funny coordinate calculations and the
+% shapes.geometric library for the ellipse shape
+
+\usetikzlibrary{shapes.geometric,automata,positioning,arrows,shadows,backgrounds,calc}
+
+\definecolor{frameColor}{RGB}{128,128,128}
+\definecolor{initialStateColor}{RGB}{10,100,10}
+\definecolor{impactStateColor}{RGB}{0,255,0}
+\definecolor{admittanceStateColor}{RGB}{0,0,255}
+
+\definecolor{resetStateColor}{RGB}{10,100,10}
+
+\definecolor{stateColor}{RGB}{51,204,204}
+
+\definecolor{controllerColor}{RGB}{10,10,255}
+\definecolor{plannerColor}{RGB}{10,150,150}
+\definecolor{estimatorColor}{RGB}{10,200,10}
+\definecolor{robotColor}{RGB}{255,0,0}
+\definecolor{modelColor}{RGB}{180,100,10}
+
+%%% Enumeration
+\usepackage{enumitem}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Table
+\usepackage{multirow}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Adjust font size
+\usepackage{setspace}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% MATH:
+%%%%%%%%%%%%%%%%%%%%%%%%% AMS packages:
+\usepackage{mathtools}
+\usepackage{amsmath, amsthm, amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[font=normal,labelfont=bf]{caption}
+\usepackage{subcaption}
+\usepackage{url}
+\usepackage[colorlinks=true,hyperindex=true,bookmarksnumbered]{hyperref} % Turn on "bookmarks" and "hyperindex" to generate outlines.
+
+%%%%%%%%%%%%%%%%%%%%%%%%% Answer and reply
+\usepackage{thmtools}
+\declaretheoremstyle[headfont=\bfseries,
+bodyfont=\normalfont,
+numbered=no]{normalhead}
+\declaretheorem[style=normalhead]{Reply}
+
+\theoremstyle{plain}
+\newtheorem*{Reply*}{Reply}
+
+\newtheorem*{AuthorReply*}{AuthorReply}
+
+\declaretheoremstyle[
+  headfont=\color{blue}\normalfont\bfseries,
+  bodyfont=\color{red}\normalfont\itshape,
+  numbered=no
+]{quoteColor}
+
+\declaretheorem[style=quoteColor]{Quote}
+\newtheorem*{Quote*}{Quote}
+
+\declaretheoremstyle[
+  headfont=\color{black}\normalfont\bfseries,
+  bodyfont=\color{blue}\normalfont,
+  numbered=no
+]{reviewColor}
+\declaretheorem[style=reviewColor]{review}
+\newtheorem*{review*}{review}
+
+\theoremstyle{definition}
+
+\theoremstyle{remark}
+% -----------------------------------------------------------------

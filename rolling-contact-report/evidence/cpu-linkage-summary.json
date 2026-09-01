@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "status": "pass",
+  "source": {
+    "report": "build/rolling-contact-cpu-linkage.json",
+    "report_sha256": "30bf3dae6f9e08a39d062b95d9ab1ca16619d2c816c087ea1205b9af295fa7af"
+  },
+  "device_contract": "CPU-only",
+  "targets": [
+    {
+      "name": "libmc_rbdyn.so.2.15.2",
+      "gpu_runtime_dependencies": [],
+      "unresolved": []
+    },
+    {
+      "name": "libmc_solver.so.2.15.2",
+      "gpu_runtime_dependencies": [],
+      "unresolved": []
+    },
+    {
+      "name": "rolling_contact.so",
+      "gpu_runtime_dependencies": [],
+      "unresolved": []
+    },
+    {
+      "name": "rolling_contact_controller.so",
+      "gpu_runtime_dependencies": [],
+      "unresolved": []
+    },
+    {
+      "name": "testRollingContactControllerLifecycle",
+      "gpu_runtime_dependencies": [],
+      "unresolved": []
+    }
+  ]
+}

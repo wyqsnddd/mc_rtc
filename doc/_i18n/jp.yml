@@ -176,6 +176,8 @@ tutorials:
       title: コントローラのリスト
     sample-admittance:
       title: アドミッタンスコントローラ
+    rolling-contact:
+      title: CPUローリング接触コントローラ
   advanced:
     title: 上級者向けのトピック
     desc: こちらのチュートリアルではそれほど一般的ではないやや特殊なトピックについて触れます。

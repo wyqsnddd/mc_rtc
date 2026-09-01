@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "source": {
+    "suite_report": "/tmp/rolling-contact-final-timing-v4/suite-report.json",
+    "suite_report_sha256": "88c607a2db9a20e87770e2fe0ef2fe6f8246113d810ee5fd8af25fb568dcf818",
+    "runner_sha256": "3b2408b023f015553c78ccabf9fec7dde2544acfc00d4d0caebf9c24a9c2cd1a"
+  },
+  "status": "pass",
+  "device": "CPU",
+  "gpu_devices_hidden": true,
+  "timestep_s": 0.005,
+  "warmup_cycles_per_case": 100,
+  "measured_cycles_per_case": 10000,
+  "thread_configuration": "one controller process; solver/controller path single-threaded; no asynchronous device work",
+  "cases": [
+    {
+      "name": "diff-forward",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "forward",
+      "cycles_completed": 10100,
+      "measured_samples": 10000,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median": 0.047080999999999998,
+        "p95": 0.058370999999999999,
+        "p99": 0.072460999999999998,
+        "maximum": 0.145982
+      },
+      "real_time_factor": 83.332236263023276,
+      "peak_resident_kib": 52148
+    },
+    {
+      "name": "four-crab",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "crab",
+      "cycles_completed": 10100,
+      "measured_samples": 10000,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median": 0.13683100000000001,
+        "p95": 0.17535200000000001,
+        "p99": 0.20039199999999999,
+        "maximum": 0.35722399999999999
+      },
+      "real_time_factor": 31.069537723511434,
+      "peak_resident_kib": 52672
+    },
+    {
+      "name": "diff-forward",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "forward",
+      "cycles_completed": 10100,
+      "measured_samples": 10000,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median": 0.044740000000000002,
+        "p95": 0.064230999999999996,
+        "p99": 0.070081000000000004,
+        "maximum": 0.22687299999999999
+      },
+      "real_time_factor": 86.16341535639981,
+      "peak_resident_kib": 50648
+    },
+    {
+      "name": "four-crab",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "crab",
+      "cycles_completed": 10100,
+      "measured_samples": 10000,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median": 0.118021,
+        "p95": 0.15171200000000001,
+        "p99": 0.17561299999999999,
+        "maximum": 0.23828299999999999
+      },
+      "real_time_factor": 35.507958859348946,
+      "peak_resident_kib": 51648
+    }
+  ]
+}

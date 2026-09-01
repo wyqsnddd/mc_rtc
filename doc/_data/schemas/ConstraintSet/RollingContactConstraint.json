@@ -1,0 +1,32 @@
+{
+  "title": "mc_solver::RollingContactConstraint",
+  "type": "object",
+  "properties":
+  {
+    "type": { "const": "rollingContact" },
+    "robot": { "$ref": "../common/ConstraintSet_robot.json" },
+    "terrainNormal": { "$ref": "../Eigen/Vector3d.json", "default": [0, 0, 1] },
+    "longitudinal": { "type": "string", "enum": ["hard", "soft"], "default": "hard" },
+    "velocityGain": { "type": "number", "minimum": 0, "default": 20 },
+    "rollingWeight": { "type": "number", "exclusiveMinimum": 0, "default": 1000 },
+    "constrainNormal": { "type": "boolean", "default": true },
+    "differentialPlanar": { "type": "boolean", "default": false },
+    "steeringPlanar": { "type": "boolean", "default": false },
+    "steeringPlanarWheels":
+    {
+      "type": "array",
+      "description": "Wheel names used for the independent four-steering planar chassis rows",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "wheels":
+    {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "../common/RollingContactWheel.json" }
+    }
+  },
+  "required": ["type", "wheels"]
+}

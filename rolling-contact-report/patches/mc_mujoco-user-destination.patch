@@ -1,0 +1,21 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ffdb997..5f5c7dd 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -98,10 +98,12 @@ endif()
+ message(STATUS "MuJoCo lib found at: " ${LIB_MUJOCO})
+
+ set(MC_MUJOCO_SHARE_DESTINATION "${CMAKE_INSTALL_PREFIX}/share/mc_mujoco")
+-if(WIN32)
+-  set(MC_MUJOCO_USER_DESTINATION "$ENV{APPDATA}/mc_rtc/mc_mujoco")
+-else()
+-  set(MC_MUJOCO_USER_DESTINATION "$ENV{HOME}/.config/mc_rtc/mc_mujoco")
++if(NOT DEFINED MC_MUJOCO_USER_DESTINATION)
++  if(WIN32)
++    set(MC_MUJOCO_USER_DESTINATION "$ENV{APPDATA}/mc_rtc/mc_mujoco")
++  else()
++    set(MC_MUJOCO_USER_DESTINATION "$ENV{HOME}/.config/mc_rtc/mc_mujoco")
++  endif()
+ endif()
+
+ add_subdirectory(cmake)

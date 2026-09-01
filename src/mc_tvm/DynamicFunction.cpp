@@ -10,7 +10,7 @@
 namespace mc_tvm
 {
 
-DynamicFunction::DynamicFunction(const mc_rbdyn::Robot & robot)
+DynamicFunction::DynamicFunction(const mc_rbdyn::Robot & robot, bool actuatedEffortOnly)
 : tvm::function::abstract::LinearFunction(robot.mb().nrDof()), robot_(robot)
 {
   registerUpdates(Update::B, &DynamicFunction::updateb);
@@ -21,10 +21,36 @@ DynamicFunction::DynamicFunction(const mc_rbdyn::Robot & robot)
   addInputDependency<DynamicFunction>(Update::Jacobian, tvm_robot, Robot::Output::H);
   addInputDependency<DynamicFunction>(Update::B, tvm_robot, Robot::Output::C);
   addVariable(tvm::dot(tvm_robot.q(), 2), true);
-  addVariable(tvm_robot.tau(), true);
-  jacobian_[tvm_robot.tau().get()] = -Eigen::MatrixXd::Identity(robot_.mb().nrDof(), robot_.mb().nrDof());
-  jacobian_[tvm_robot.tau().get()].properties(tvm::internal::MatrixProperties::MINUS_IDENTITY);
+  const int floatingDof = tvm_robot.qFloatingBase()->size() == 0 ? 0 : 6;
+  const int actuatedDof = robot_.mb().nrDof() - floatingDof;
+  actuatedEffortOnly_ = actuatedEffortOnly && floatingDof != 0;
+  if(actuatedEffortOnly_)
+  {
+    actuatedTau_ = tvm::Space(actuatedDof).createVariable("actuatedTau_" + robot_.name());
+    addVariable(actuatedTau_, true);
+    auto & tauJacobian = jacobian_[actuatedTau_.get()];
+    tauJacobian.setZero(robot_.mb().nrDof(), actuatedDof);
+    tauJacobian.bottomRows(actuatedDof) = -Eigen::MatrixXd::Identity(actuatedDof, actuatedDof);
+  }
+  else
+  {
+    actuatedTau_ = floatingDof == 0 ? tvm_robot.tau()
+                                    : tvm_robot.tau()->subvariable(tvm::Space(actuatedDof),
+                                                                   tvm::Space(floatingDof));
+    addVariable(tvm_robot.tau(), true);
+    jacobian_[tvm_robot.tau().get()] = -Eigen::MatrixXd::Identity(robot_.mb().nrDof(), robot_.mb().nrDof());
+    jacobian_[tvm_robot.tau().get()].properties(tvm::internal::MatrixProperties::MINUS_IDENTITY);
+  }
   velocity_.setZero();
+}
+
+DynamicFunction::~DynamicFunction()
+{
+  for(auto & contact : contacts_)
+  {
+    for(const auto & force : contact.forces_) { removeVariable(force); }
+  }
+  contacts_.clear();
 }
 
 DynamicFunction::ForceContact::ForceContact(const mc_rbdyn::RobotFrame & frame,
@@ -89,6 +115,24 @@ void DynamicFunction::removeContact(const mc_rbdyn::RobotFrame & frame)
   }
 }
 
+void DynamicFunction::updateContact(const mc_rbdyn::RobotFrame & frame,
+                                    const std::vector<sva::PTransformd> & points)
+{
+  auto it = findContact(frame);
+  if(it == contacts_.end())
+  {
+    mc_rtc::log::error_and_throw<std::out_of_range>("No dynamic contact at frame {} for {}", frame.name(),
+                                                    robot_.name());
+  }
+  if(points.size() != it->points_.size())
+  {
+    mc_rtc::log::error_and_throw<std::invalid_argument>(
+        "Dynamic contact point count cannot change for frame {} ({} != {})", frame.name(), points.size(),
+        it->points_.size());
+  }
+  it->points_ = points;
+}
+
 sva::ForceVecd DynamicFunction::contactForce(const mc_rbdyn::RobotFrame & frame) const
 {
   auto it = findContact(frame);
@@ -113,6 +157,11 @@ void DynamicFunction::updateJacobian()
 }
 
 auto DynamicFunction::findContact(const mc_rbdyn::RobotFrame & frame) const -> std::vector<ForceContact>::const_iterator
+{
+  return std::find_if(contacts_.begin(), contacts_.end(), [&](const auto & c) { return c.frame_.get() == &frame; });
+}
+
+auto DynamicFunction::findContact(const mc_rbdyn::RobotFrame & frame) -> std::vector<ForceContact>::iterator
 {
   return std::find_if(contacts_.begin(), contacts_.end(), [&](const auto & c) { return c.frame_.get() == &frame; });
 }

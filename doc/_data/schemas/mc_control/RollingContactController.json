@@ -1,0 +1,59 @@
+{
+  "title": "RollingContact sample controller configuration",
+  "type": "object",
+  "description": "CPU-only differential-drive and four-steering rolling-contact sample settings.",
+  "properties":
+  {
+    "RollingContact":
+    {
+      "type": "object",
+      "properties":
+      {
+        "scenario":
+        {
+          "type": "string",
+          "enum": [
+            "hold", "forward", "reverse", "turn_left", "turn_right", "circle_left", "circle_right",
+            "sinusoid", "unequal_radii", "infeasible_soft", "crab", "ackermann_left", "ackermann_right",
+            "pure_yaw", "steering_rate", "incompatible", "mode_cycle"
+          ],
+          "default": "hold"
+        },
+        "closedLoopFeedback": { "type": "boolean", "default": false },
+        "linearSpeed": { "type": "number", "default": 0.2 },
+        "yawRate": { "type": "number", "default": 0.35 },
+        "steeringAngle": { "type": "number", "default": 0.3 },
+        "commandPeriod": { "type": "number", "exclusiveMinimum": 0, "default": 4.0 },
+        "longitudinal": { "type": "string", "enum": ["hard", "soft"], "default": "hard" },
+        "terrainNormal": { "$ref": "../Eigen/Vector3d.json", "default": [0, 0, 1] },
+        "velocityGain": { "type": "number", "minimum": 0, "default": 20 },
+        "rollingWeight": { "type": "number", "exclusiveMinimum": 0, "default": 1000 },
+        "recoveryRollingWeight": { "type": "number", "exclusiveMinimum": 0, "default": 1000000 },
+        "recoverySpeed": { "type": "number", "minimum": 0, "default": 0.05 },
+        "recoveryResidual": { "type": "number", "minimum": 0, "default": 0.2 },
+        "recoveryTransverseResidual": { "type": "number", "minimum": 0, "default": 0.5 },
+        "slipEnter": { "type": "number", "minimum": 0, "default": 0.05 },
+        "slipExit": { "type": "number", "minimum": 0, "default": 0.02 },
+        "residualEnter": { "type": "number", "minimum": 0, "default": 0.05 },
+        "residualExit": { "type": "number", "minimum": 0, "default": 0.02 },
+        "normalForceEnter": { "type": "number", "minimum": 0, "default": 5.0 },
+        "normalForceExit": { "type": "number", "minimum": 0, "default": 1.0 },
+        "frictionMarginEnter": { "type": "number", "default": 0.001 },
+        "frictionMarginExit": { "type": "number", "default": -0.00001 },
+        "torqueMarginEnter": { "type": "number", "minimum": 0, "default": 0.1 },
+        "torqueMarginExit": { "type": "number", "minimum": 0, "default": 0.0 },
+        "minimumDwell": { "type": "number", "minimum": 0, "default": 0.1 },
+        "transitionTime": { "type": "number", "minimum": 0, "default": 0.2 },
+        "filterTimeConstant": { "type": "number", "minimum": 0, "default": 0.02 },
+        "postureStiffness": { "type": "number", "exclusiveMinimum": 0, "default": 5.0 },
+        "postureWeight": { "type": "number", "exclusiveMinimum": 0, "default": 100.0 },
+        "steeringStiffness": { "type": "number", "exclusiveMinimum": 0, "default": 1000.0 },
+        "steeringWeight": { "type": "number", "exclusiveMinimum": 0, "default": 10.0 },
+        "baseOrientationStiffness": { "type": "number", "exclusiveMinimum": 0, "default": 10.0 },
+        "baseOrientationWeight": { "type": "number", "exclusiveMinimum": 0, "default": 500.0 },
+        "basePositionStiffness": { "type": "number", "exclusiveMinimum": 0, "default": 5.0 },
+        "basePositionWeight": { "type": "number", "exclusiveMinimum": 0, "default": 500.0 }
+      }
+    }
+  }
+}

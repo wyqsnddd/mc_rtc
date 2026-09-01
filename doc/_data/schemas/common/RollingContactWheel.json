@@ -1,0 +1,25 @@
+{
+  "title": "Rolling wheel",
+  "type": "object",
+  "properties":
+  {
+    "name": { "type": "string" },
+    "carrierFrame": { "type": "string", "description": "Frame at the wheel carrier center" },
+    "forceBody": { "type": "string", "description": "Wheel body receiving the endpoint forces" },
+    "wheelBody": { "type": "string", "description": "Deprecated alias for forceBody" },
+    "driveJoint": { "type": "string" },
+    "steeringJoint": { "type": "string", "default": "" },
+    "radius": { "type": "number", "exclusiveMinimum": 0 },
+    "width": { "type": "number", "exclusiveMinimum": 0 },
+    "friction": { "type": "number", "minimum": 0, "default": 0.7 },
+    "spinSign": { "type": "number", "enum": [-1, 1], "default": 1 },
+    "mode": { "type": "string", "enum": ["fixed", "rolling", "sliding", "detached"], "default": "rolling" },
+    "activation": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 }
+  },
+  "required": ["name", "carrierFrame", "driveJoint", "radius", "width"],
+  "anyOf":
+  [
+    { "required": ["forceBody"] },
+    { "required": ["wheelBody"] }
+  ]
+}

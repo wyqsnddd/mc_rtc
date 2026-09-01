@@ -1,0 +1,9 @@
+# kp kd, in RollingContact reference-joint order
+60 5
+20 1
+60 5
+20 1
+60 5
+20 1
+60 5
+20 1

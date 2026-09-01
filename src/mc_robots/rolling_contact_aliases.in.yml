@@ -1,0 +1,2 @@
+RollingContactDifferential: [RollingContact, "@ROLLING_CONTACT_INSTALL_PATH@", rolling_diff]
+RollingContactFourSteering: [RollingContact, "@ROLLING_CONTACT_INSTALL_PATH@", rolling_4s]

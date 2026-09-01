@@ -1,0 +1,4786 @@
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 1. PACKAGES AND ENVIRONMENT SETUP
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\usepackage{xparse} % For enhanced command definitions, coupled with transposeRow
+\usepackage{xstring} % For string parsing, e.g., \IfStrEq{#1}{dot}{}{}
+\usepackage{ifthen} % For semantic selectors used by frame and notation macros.
+\usepackage{mathtools} % Core display math and \DeclareMathOperator for legacy direct inputs.
+\usepackage{amsfonts,amssymb}
+\usepackage{enumitem} % Structured enumerate labels used throughout the reports.
+
+\ExplSyntaxOn
+\NewDocumentCommand{\yuquanIfBlankTF}{mmm}{%
+  \tl_if_blank:nTF {#1} {#2} {#3}%
+}
+\ExplSyntaxOff
+
+\usepackage{mdframed}
+\usepackage{natbib} % For \citet command
+
+\newmdenv[
+shadow=true,
+shadowsize=6pt,
+linewidth=0pt,
+backgroundcolor=gray!20,
+shadowcolor=black!40,
+roundcorner=10pt
+]{shadowed}
+
+\usepackage{makecell}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% For  the cross mark
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+
+\usepackage{color}
+% %%%%%%%%%%%%%%%%%%%%%%%%% Tikz packages:
+\usepackage{tikz}
+\usepackage{tikz-layers}
+\usepackage{array}
+%
+% the positioning-plus library (is on TeX.sx),
+% the node-families library (is on TeX.sx),
+% the fit library (loaded by positioning-plus),
+% the backgrounds library to draw stuff behind other stuff,
+% the calc library for some funny coordinate calculations and the
+% shapes.geometric library for the ellipse shape
+
+\usetikzlibrary{shapes.geometric,automata,positioning,arrows,shadows,backgrounds,calc,fit}
+
+\usepackage{setspace}
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% MATLAB setup
+
+\usepackage{listings}
+\lstset{
+  language=Matlab,                		% choose the language of the code
+  %	basicstyle=10pt,       				% the size of the fonts that are used for the code
+  numbers=left,                  			% where to put the line-numbers
+  numberstyle=\footnotesize,      		% the size of the fonts that are used for the line-numbers
+  stepnumber=1,                   			% the step between two line-numbers. If it's 1 each line will be numbered
+  numbersep=5pt,                  		% how far the line-numbers are from the code
+  %	backgroundcolor=\color{white},  	% choose the background color. You must add \usepackage{color}
+  showspaces=false,               		% show spaces adding particular underscores
+  showstringspaces=false,         		% underline spaces within strings
+  showtabs=false,                 			% show tabs within strings adding particular underscores
+  %	frame=single,	                			% adds a frame around the code
+  %	tabsize=2,                				% sets default tabsize to 2 spaces
+  %	captionpos=b,                   			% sets the caption-position to bottom
+  breaklines=true,                			% sets automatic line breaking
+  breakatwhitespace=false,        		% sets if automatic breaks should only happen at whitespace
+  escapeinside={\%*}{*)}          		% if you want to add a comment within your code
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Self-defined commands:
+
+
+\usepackage{xspace}
+\lstset{frame=tb,
+  language=C++,
+  backgroundcolor=\color{black!5}, % set backgroundcolor
+  basicstyle=\footnotesize,% basic font setting
+  aboveskip=3mm,
+  belowskip=3mm,
+  showstringspaces=false,
+  columns=flexible,
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=3
+}
+
+
+\usepackage{soul}
+
+\usepackage{pifont}% http://ctan.org/pkg/pifont
+
+\usepackage{stackengine}
+\newcommand\barbelow[1]{\stackunder[1.2pt]{$#1$}{\rule{.8ex}{.075ex}}}
+
+% Algorithms.  Use the standard algorithmicx packages when available.  A
+% small compatibility implementation keeps the reports buildable on minimal
+% TeX installations; it supports the constructs used in this repository.
+\IfFileExists{algorithm.sty}{%
+  \usepackage{algorithm}% http://ctan.org/pkg/algorithms
+  \usepackage{algorithmicx}
+  \usepackage{algpseudocode}% http://ctan.org/pkg/algorithmicx
+}{%
+  \usepackage{float}
+  \floatstyle{ruled}
+  \newfloat{algorithm}{tbp}{loa}
+  \floatname{algorithm}{Algorithm}
+  \newlength{\algorithmicindent}
+  \setlength{\algorithmicindent}{1.5em}
+  \NewDocumentEnvironment{algorithmic}{O{}}{%
+    \begin{list}{}{%
+      \setlength{\leftmargin}{1.5em}%
+      \setlength{\itemsep}{0.15em}%
+      \setlength{\parsep}{0pt}%
+    }%
+  }{\end{list}}
+  \newcommand{\State}{\item}
+  \newcommand{\Procedure}[2]{\item\textbf{procedure} ##1\yuquanIfBlankTF{##2}{}{\ (##2)}}
+  \newcommand{\EndProcedure}{\item\textbf{end procedure}}
+  \newcommand{\For}[1]{\item\textbf{for} ##1 \textbf{do}}
+  \newcommand{\EndFor}{\item\textbf{end for}}
+  \newcommand{\If}[1]{\item\textbf{if} ##1 \textbf{then}}
+  \newcommand{\Else}[1]{\item\textbf{else}\yuquanIfBlankTF{##1}{}{ ##1}}
+  \newcommand{\EndIf}{\item\textbf{end if}}
+  \newcommand{\While}[1]{\item\textbf{while} ##1 \textbf{do}}
+  \newcommand{\EndWhile}{\item\textbf{end while}}
+  \newcommand{\Comment}[1]{\hfill$\triangleright$~##1}
+}
+
+%%% predecessor:
+\usepackage{dsfont}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 2. COLOR DEFINITIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\definecolor{frameColor}{RGB}{128,128,128}
+\definecolor{initialStateColor}{RGB}{10,100,10}
+\definecolor{impactStateColor}{RGB}{0,255,0}
+\definecolor{admittanceStateColor}{RGB}{0,0,255}
+
+\definecolor{resetStateColor}{RGB}{10,100,10}
+
+\definecolor{stateColor}{RGB}{51,204,204}
+
+\definecolor{controllerColor}{RGB}{10,10,255}
+\definecolor{plannerColor}{RGB}{10,150,150}
+\definecolor{estimatorColor}{RGB}{10,200,10}
+\definecolor{robotColor}{RGB}{255,0,0}
+\definecolor{modelColor}{RGB}{180,100,10}
+
+%%% Enumeration
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Adjust font size
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+
+\definecolor{svaColor}{RGB}{7, 160, 2}
+\definecolor{uncertainColor}{RGB}{255, 0, 0}
+
+\definecolor{spatialVelColor}{RGB}{189, 38, 96}
+\definecolor{geometricColor}{RGB}{66, 126, 245}
+\definecolor{bodyVelColor}{RGB}{13, 191, 191}
+
+\definecolor{velColor}{RGB}{50, 205, 50}
+
+\definecolor{textColor}{RGB}{0, 11, 178}
+
+
+\colorlet{svaColorVariable}{svaColor}
+\colorlet{geometricColorVariable}{geometricColor}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%% comment
+\definecolor{csrStateColor}{RGB}{255,255,153}
+\definecolor{scrStateColor}{RGB}{153,204,0}
+\definecolor{crStateColor}{RGB}{153,204,155}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% DDP commands:
+
+% Open-loop gain for computing the optimal control action
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 3. FORMATTING AND PRESENTATION
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\shadowRemark}[1]{
+\begin{shadowed}
+\begin{remark}
+{#1}
+\end{remark}
+\end{shadowed}
+}
+
+\newcommand{\shadowProblem}[2]{
+\begin{shadowed}
+\infoBlock{Problem:} \hlBlock{#1}
+{#2}
+        \end{shadowed}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Splitting lines within a table cell
+\newcommand{\crossmark}{
+  \ding{55}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Font colour
+\newcommand{\mcrtc}{mc$\_$rtc\xspace}
+\newcommand{\sota}{state-of-the-art\xspace}
+
+\newcommand{\poincare}{Poincar\'e\xspace}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Units:
+\newcommand{\ith}{$i$-th\xspace}
+%%%%%%%%%%%%%%%%%%%%%%%%%% Units:
+\newcommand{\highlight}[1]{%
+  \colorbox{gray!20}{$\displaystyle#1$}}
+
+\newcommand{\highlightblue}[1]{%
+  \colorbox{blue!20}{$\displaystyle#1$}}
+\newcommand{\highlightgreen}[1]{%
+  \colorbox{green!20}{$\displaystyle#1$}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Bounds on tasks
+\newcommand{\threshold}[1]{\Theta_{#1}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Control Lyapunov function
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Control Barrier function
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Optimal Control
+% Estimated quantity
+\NewDocumentCommand{\cpp}{v}{%
+\texttt{\textcolor{blue}{#1}}%
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%% New reference command:
+\NewDocumentCommand{\secRef}{m}{%
+Sec.~\ref{#1}}
+
+\NewDocumentCommand{\remarkRef}{m}{%
+Remark.~\ref{#1}}
+
+\NewDocumentCommand{\tableRef}{m}{%
+Table.~\ref{#1}}
+
+\NewDocumentCommand{\algRef}{m}{%
+Algorithm.~\ref{#1}}
+
+\NewDocumentCommand{\lemmaRef}{m}{%
+Lemma.~\ref{#1}}
+
+\NewDocumentCommand{\theoremRef}{m}{%
+Theorem.~\ref{#1}}
+
+\NewDocumentCommand{\figRef}{m}{%
+  Fig.~\ref{#1}}
+
+\NewDocumentCommand{\appRef}{m}{%
+  Appendix~\ref{#1}}
+
+\NewDocumentCommand{\lineRef}{m}{%
+line.~\ref{#1}}
+
+\NewDocumentCommand\orderedTwoS{mm}%
+  {$<$#1,#2$>$}
+\NewDocumentCommand\orderedThreeS{mmm}%
+  {$<$#1,#2,#3$>$}
+
+\newif\ifBlockComment
+\BlockCommentfalse %\BlockCommenttrue
+% %%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\newcommand{\comment}[1]{{\bf \colorbox{teal}{\textcolor{white}{#1}}}}
+\newcommand{\fix}[1]{{\bf \colorbox{purple}{\textcolor{white}{#1}}}}
+% %%%%%%%%%%%%%%%%%%%%%%%%% Highlight with colors
+\sethlcolor{teal}
+\newcommand{\hlBlock}[1]{{\sethlcolor{teal}\color{white}\hl{#1}}}
+\newcommand{\errorBlock}[1]{{\sethlcolor{violet}\color{white}\hl{#1}}}
+% Question block
+\newcommand{\qtBlock}[1]{{\sethlcolor{violet}\color{white}\hl{#1}}}
+\newcommand{\infoBlock}[1]{{\sethlcolor{olive}\color{white}\hl{#1}}}
+\newcommand{\bashBlock}[1]{{\sethlcolor{black}\color{white}\hl{#1}}}
+
+\newcommand{\tBlock}[1]{{\bf \colorbox{teal}{\textcolor{white}{#1}}}}
+\newcommand{\oBlock}[1]{{\bf \colorbox{olive}{\textcolor{white}{#1}}}}
+
+\newcommand{\bBlock}[1]{{\sethlcolor{brown}\color{white}\hl{#1}}}
+
+
+\newcommand{\fixedwidth}[1]{
+{\parbox{\dimexpr\linewidth-20\fboxsep}{#1}}
+}
+\newcommand{\wrongBlock}[1]{{\color{brown}\ding{55}}~~{\bf \colorbox{brown}{\textcolor{white}{#1}}}}
+\newcommand{\correctBlock}[1]{
+{{\color{olive}\ding{51}}~{\bf \colorbox{teal}{\textcolor{white}{
+	\fixedwidth{#1}
+	}}}}
+}
+% Delay the lightweight fallback until every package has been loaded.  This
+% lets reports opt into todonotes after inputting this legacy configuration
+% without triggering a duplicate \todo definition.
+\AtBeginDocument{%
+  \providecommand{\todo}[1]{To do:~
+    \textcolor{bodyVelColor}{#1}%
+  }%
+}
+
+
+% The critical frequency
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+
+
+% The motion constraint Jacobian
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 4. UNITS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\unitHz}{~Hz\xspace}
+\newcommand{\unitMs}{~ms\xspace}
+\newcommand{\unitTime}{~s\xspace}
+\newcommand{\unitDegree}{~deg.\xspace}
+\newcommand{\unitMass}{~kg\xspace}
+\newcommand{\unitMeter}{~m\xspace}
+\newcommand{\unitHertz}{~N/m$^{3/2}$\xspace}
+\newcommand{\unitGPa}{~GPa\xspace}
+
+
+\newcommand{\unitPosTS}{~m\xspace}
+\newcommand{\unitPosJS}{~rad\xspace}
+\newcommand{\unitVelTS}{~m/s\xspace}
+\newcommand{\unitVelJS}{~rad/s\xspace}
+\newcommand{\unitAccTS}{~m/s$^2$\xspace}
+\newcommand{\unitAccVel}{~rad/s$^2$\xspace}
+\newcommand{\unitForce}{~N\xspace}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newcommand{\unitImpulse}{~N$\cdot$s\xspace}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% LQR commands:
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 5. BASIC MATH NOTATION
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\setDef}[2]{
+  \defeq \{#1 \mid #2 \}
+}
+
+\newcommand{\quickEq}[2]{
+  \begin{equation}
+    \label{#1}
+    {#2}
+  \end{equation}
+}
+
+\newcommand{\quickBM}[1]{
+    \begin{bmatrix}
+    {#1}
+    \end{bmatrix}
+}
+
+\newcommand{\quickAd}[1]{
+  \begin{aligned}
+    {#1}
+  \end{aligned}
+}
+
+\newcommand{\de}[1]{
+  \frac{d}{dt}(#1)
+}
+%%%%%%%%%%%%%%%%%%%%%%%%%% Collision observer
+
+
+\newcommand{\setSymbol}{\mathcal{X}}
+
+\newcommand{\feasibleSymbol}{\mathcal{F}}
+\newcommand{\viableSymbol}{\nu}
+
+\newcommand{\feasibleSet}[1]{\feasibleSymbol_{#1}}
+\newcommand{\viableSet}[1]{\viableSymbol_{#1}}
+
+\newcommand{\set}[1]{\setSymbol_{#1}}
+% Interval
+\newcommand{\interval}[2]{[\ #1,~#2 ]\ }
+
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%% COLOUR:
+
+\newcommand{\quadraticPN}[4]{
+#1\pTwo{#4}  #2{#4}   #3 = 0
+}
+%%%%%%%%%%%%%%%%%%%%%%%%% Momenta
+\newcommand{\weightMatrix}[1]{\mathbb{#1}}
+\newcommand{\weightmatrixH}{\mathbf{H}}
+\newcommand{\weightmatrixW}{\mathbf{W}}
+\newcommand{\weightmatrixQ}{\mathbf{Q}}
+
+
+\newcommand{\matrixA}{\mathbf{A}}
+
+\IfFileExists{accents.sty}{%
+  \usepackage{accents}
+  \newcommand{\ubar}[1]{\underaccent{\bar}{##1}}
+}{%
+  % A conventional underline is preferable to making the entire package fail
+  % when the optional accents package is not installed.
+  \newcommand{\ubar}[1]{\underline{##1}}
+}
+\newcommand{\boundSymbol}{l}
+
+\newcommand{\applyBoundSuperscript}[1]{%
+    \IfStrEqCase{#1}{%
+        {min}{\text{min}}%
+        {max}{\text{max}}%
+    }[] % "default" string
+}
+
+\newcommand{\applyBoundSubscript}[1]{%
+        #1
+}
+
+
+\NewDocumentCommand{\bound}{O{}O{}}{%
+  \ensuremath{%
+    \boundSymbol
+    \yuquanIfBlankTF{#2}{}{^{\applyBoundSubscript{#2}}}%
+    \yuquanIfBlankTF{#1}{}{_{\applyBoundSuperscript{#1}}}%
+  }
+}
+
+
+\newcommand{\lowerBound}[1]{{#1}_{\text{min}}}
+\newcommand{\upperBound}[1]{{#1}_{\text{max}}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Bound
+
+\newcommand{\stateBound}[1]{
+        \lowerBound{#1} \leq #1 \leq \upperBound{#1}
+}
+\newcommand{\stateAbsBound}[1]{
+        | #1 |  \leq \upperBound{#1}
+}
+\newcommand{\stateBoundConstraint}[2]{
+        \lowerBound{#1} \leq #2 \leq \upperBound{#1}
+}
+\newcommand{\doubleBound}[1]{\ubar{\bar{#1}}}
+
+
+\newcommand{\defeq}{\vcentcolon=}
+\newcommand{\eqdef}{=\vcentcolon}
+
+
+% Operators
+% New operators must defined as such to have them typeset
+% correctly. As an example we define the Jacobian:
+% -----------------------------------------------------------------
+\DeclareMathOperator{\Jac}{Jac}
+
+
+% Shortcuts.
+% One can define new commands to shorten frequently used
+% constructions. As an example, this defines the R and Z used
+% for the real and integer numbers.
+% -----------------------------------------------------------------
+\def\RR{\mathbb{R}}
+\def\ZZ{\mathbb{Z}}
+
+% Integrate over time:  #1 starting time, #2 finishing time, #3 quantity
+\newcommand{\timeIntegral}[3]{
+\int^{#2}_{#1} #3 dt
+}
+
+\newcommand{\RRv}[1]{\mathbb{R}^{#1}}
+\newcommand{\RRm}[2]{\mathbb{R}^{#1 \times #2}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% Impact-handling
+
+\DeclareMathOperator*{\argmin}{arg\,min} % thin space, limits underneath in displays
+\DeclareMathOperator*{\lexmin}{lex\,min} % Lexicographic-order minimization
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Probabilistic robotics
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Collision avoidance notations
+% A link
+\newcommand{\fpd}[2]{{#1}_{#2}}
+% Second-order partial derivative #1 quantity, #2 variable, #3 second variable
+\newcommand{\spd}[3]{{#1}_{#2#3}}
+
+
+
+% The argument denotes the initial state
+\newcommand{\Vee}[1]{\left(#1\right)^\vee}
+
+
+%%%%%%%%% Represent the derivative operator
+\newcommand{\derivative}[1]{\frac{d}{dt}(#1)}
+%%% #1:function, #2:var1, #3:var2
+\newcommand{\pdv}[3]{
+  \frac{\partial^2 #1}{\partial #2 \partial #3}
+}
+%%% #1:function, #2:var1
+\newcommand{\pd}[2]{
+  \frac{\partial #1}{\partial #2 }
+}
+
+\newcommand{\up}[1]{\skewMatrix{#1}}
+
+\newcommand{\liebra}[2]{
+  [#1,#2]
+}
+
+% #1 Notation of the twist coordinate
+\newcommand{\liebraResult}[2]{
+  \Vee{\liebraDefDef{#1}{#2}}
+}
+%%%% #1:linear velocity #2: angular velocity #3:linear velocity #4: angular velocity
+\newcommand{\seLiebraResult}[4]{
+(\cross{#2}{#3} - \cross{#4}{#1}, \skewMatrix{#2}#4 - \skewMatrix{#4}#2 )
+}
+
+
+
+\newcommand{\liebraDef}[2]{
+  \skewMatrixTwo{\cross{#1}{#2}}
+}
+
+\newcommand{\liebraDefDef}[2]{
+  #1#2 - #2#1
+}
+
+%%%%%%%%%%% ----------------------------------------
+
+%% atan2
+% #1: y #2: x
+\newcommand{\twoNorm}[1]{
+  {{\left\lVert#1\right\rVert}^2}
+}
+
+\ExplSyntaxOn
+\NewDocumentCommand{\applyNormSymbols}{mm}{%
+  \str_case:nnF {#1}
+    {
+      {two}{\left\lVert#2\right\rVert^2_2}% Squared Euclidean norm.
+      {square}{\left\lVert#2\right\rVert^2}% Squared unspecified norm.
+      {one}{\left\lVert#2\right\rVert_1}% One norm.
+      {abs}{\left\lvert#2\right\rvert}% Scalar absolute value.
+      {inf}{\left\lVert#2\right\rVert_{\infty}}% Infinity norm.
+    }
+    {\left\lVert#2\right\rVert}% Default norm.
+}
+\ExplSyntaxOff
+
+\NewDocumentCommand{\norm}{O{}m}{%
+  \applyNormSymbols{#1}{#2}%
+}
+
+\newcommand{\abs}[1]{\left\vert#1\right\vert}
+\newcommand{\cross}[2]{ #1 \times #2 }
+\newcommand{\crossDef}[1]{ % Define the 3-dimensional cross operator for a vector
+\begin{bmatrix}
+0 & -{#1}_3 & {#1}_2 \\
+{#1}_3 & 0 &  -{#1}_1 \\
+-{#1}_2 & {#1}_1 & 0
+\end{bmatrix}
+}
+\newcommand{\crossDefTwo}[1]{ % Define the 3-dimensional cross operator for a vector
+\begin{bmatrix}
+0 & -\z{#1} & \y{#1} \\
+\z{#1} & 0 &  -\x{#1} \\
+-\y{#1} & \x{#1} & 0
+\end{bmatrix}
+}
+
+
+
+\newcommand{\dualCross}[2]{ #1 \times^* #2 }
+\newcommand{\dualCrossDef}[2]{ -#1 \times^\top #2 }
+\newcommand{\innerP}[2]{
+  \transpose{#1}#2
+}
+
+% Computes the outer product
+\newcommand{\outerP}[2]{
+  #1\transpose{#2}
+}
+
+
+
+% Calculates the reciprocal product between two twists
+% #1:v_1,  #2:w_1,  #3:v_2, #4:w_2.
+\newcommand{\agg}[3]{
+\sum^{#2}_{#1=1}{#3}
+}
+%%% #1:index, #2:first index, #3:last index, #3 component
+\newcommand{\aggTwo}[4]{
+\sum^{#3}_{#1=#2}{#4}
+}
+
+%%% #1:index, #2:last index, #3 component
+\newcommand{\union}[3]{
+\bigcup^{#2}_{#1=1}{#3}
+}
+
+
+%%%%%%%%%%% #1:row index, #2:column index, #3 index (between 1 and dof)
+\newcommand{\columnTwo}[2]{
+  \begin{bmatrix}
+    #1&  #2
+\end{bmatrix}
+}
+
+\newcommand{\vectorTwo}[2]{
+  \begin{bmatrix}
+    #1\\
+    #2
+\end{bmatrix}
+}
+
+\newcommand{\vectorThree}[3]{
+  \begin{bmatrix}
+    #1\\
+    #2\\
+    #3
+\end{bmatrix}
+}
+
+\newcommand{\vectorFour}[4]{
+  \begin{bmatrix}
+    #1\\
+    #2\\
+    #3\\
+    #4
+\end{bmatrix}
+}
+\newcommand{\vectorTwoRow}[2]{
+  [#1^\top, #2^\top]^\top
+}
+
+\newcommand{\vectorThreeRow}[3]{
+  [{#1}^\top, {#2}^\top, {#3}^\top]^\top
+}
+\newcommand{\matrixTwo}[4]{
+  \begin{bmatrix}
+    #1 & #2\\
+    #3 & #4
+\end{bmatrix}
+}
+
+\newcommand{\matrixThree}[9]{
+  \begin{bmatrix}
+    #1 & #2 & #3\\
+    #4 & #5 & #6\\
+    #7 & #8 & #9
+\end{bmatrix}
+}
+
+\newcommand{\order}[1]{\mathcal{O}(#1)}
+
+
+\newcommand{\SE}[1]{SE{(#1)}}
+\newcommand{\se}[1]{se{(#1)}}
+
+\newcommand{\SO}[1]{SO{(#1)}}
+\renewcommand{\so}[1]{so{(#1)}}
+\newcommand{\soPowerTwoDef}[1]{
+  \projectionDef{#1} - \twoNorm{#1} \identityMatrix
+}
+\newcommand{\soPowerThreeDef}[1]{
+  - \twoNorm{#1} \skewMatrix{#1}
+}
+
+
+\newcommand{\mapDef}[2]{
+  : #1 \rightarrow #2
+}
+
+
+% transform a twist coordinate from coordinate #1 to coordinate #2
+\newcommand{\quadraticObj}[2]{\transpose{#1}#2#1}
+
+\newcommand{\complexNum}[2]{
+  (#1 ~ #2*i)
+}
+
+%% #1 upper bound, #2 middle #3 lower bound
+\newcommand{\saturation}[3]{
+\left\{
+  \begin{array}{lr}
+    #1 \\
+    #2 \\
+    #3
+  \end{array}
+\right.
+}
+% #1 velocity #2 mass
+\newcommand{\quadratic}[2]{\frac{1}{2} #1^\top #2 #1}
+\newcommand{\squareTwo}[1]{ #1^\top #1}
+\newcommand{\squared}[1]{  {#1}^2 }
+
+
+\ExplSyntaxOn
+
+ % Define a sequence variable to store processed items
+ \seq_new:N \trSeq
+
+% Define the command to process and display the list
+\NewDocumentCommand{\transposeRow}{m}
+ {
+
+  % Clear the sequence at the start
+  \seq_clear:N \trSeq
+
+  % Process each item in the list and store in the sequence
+  \clist_map_inline:nn { #1 }
+   {
+    \seq_put_left:Nn \trSeq { \transpose{##1} }
+   }
+
+  % Output all items in the sequence, separated by spaces (or any other delimiter)
+  \seq_use:Nn \trSeq {}
+ }
+\ExplSyntaxOff
+
+
+\ExplSyntaxOn
+
+%% % Define a sequence variable to store processed items
+\seq_new:N \imSeq
+
+% Define the command to process and display the list
+\NewDocumentCommand{\innerMany}{m}
+ {
+  % Clear the sequence at the start
+  \seq_clear:N \imSeq
+
+  % Process each item in the list and store in the sequence
+  \clist_map_inline:nn { #1 }
+   {
+    \seq_put_left:Nn \imSeq { \transpose{##1} }
+    \seq_put_right:Nn \imSeq { {##1} }
+   }
+
+  % Output all items in the sequence, separated by spaces (or any other delimiter)
+  \seq_use:Nn \imSeq {}
+ }
+\ExplSyntaxOff
+
+
+% # 1 vel #2 mass # 3 partial d of vel
+\newcommand{\quadraticd}[3]{ #3^\top #2 #1 +  #1^\top #2 #3}
+\newcommand{\pTwo}[1]{#1^{2}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Cross product
+\newcommand{\paral}[2]{#1 \parallel #2}
+\newcommand{\perpen}[2]{#1 \perp #2}
+
+\newcommand{\bs}{\boldsymbol}
+\newcommand{\backfill}{\hfill\(\blacksquare\)}
+
+\newcommand{\skewMatrix}[1]{\widehat{#1}}
+
+\newcommand{\skewMatrixTwo}[1]{({#1})^{\widehat{~}}}
+
+
+\newcommand{\vectriple}[3]{#1\times(#2 \times #3)}
+\newcommand{\vectripleexpan}[3]{
+({#1}\bullet{#3}){#2} - ({#1}\bullet{#2}){#3}
+}
+\newcommand{\vectripleexpannegate}[3]{
+-({#1}\bullet{#3}){#2} + ({#1}\bullet{#2}){#3}
+}
+\newcommand{\scalartriple}[3]{{#1}\bullet({#2} \times {#3})}
+\newcommand{\vcd}[3]{({#1}\bullet{#3}){#2} - ({#1}\bullet{#2}) {#3}}  % Vector cross product definition
+
+\newcommand{\inner}[2]{#1\bullet#2} % Inner product
+\newcommand{\innerDef}[2]{\transpose{{#1}}#2} % Inner product
+\newcommand{\normal}[1]{\bs{n}_{{#1}}}
+
+\newcommand{\nc}[1]{\frac{#1}{| #1| }}% normal calc
+
+\newcommand{\transpose}[2][default]{
+  \IfStrEq{#1}{inv}
+  {
+    % Inverse transpose:
+    {#2}^{-\top}
+  }
+  {
+    % Default:
+    {#2}^\top
+  }
+}
+
+\newcommand{\transInverse}[1]{#1^{-\top}}
+\newcommand{\pseudoInverse}[1]{{#1}^{+}}
+% When  #row >  #column
+\newcommand{\pseudoInverseColumnDef}[1]{\inverse{( \transpose{#1} #1 )}\transpose{#1}}
+% When  #column >  #row
+\newcommand{\pseudoInverseRowDef}[1]{\transpose{#1}\inverse{( #1 \transpose{#1} )}}
+
+\newcommand{\weightedPseudoInverse}[1]{#1^{\dagger}}
+% % #1 Jacobian #2 The weight, e.g., the inertia matrix.
+\newcommand{\weightedPseudoInverseRowDef}[2]{\inverse{#2}\transpose{#1}\inverse{( #1 \inverse{#2} \transpose{#1} )}}
+\newcommand{\weightedPseudoInverseColumnDef}[2]{\inverse{( \transpose{#1} \inverse{#2} #1 )}\transpose{#1}\inverse{#2}}
+
+\newcommand{\inverse}[2][default]{
+\IfStrEq{#1}{trans}
+{
+{#2}^{-\top}
+}{
+{#2}^{-1}
+}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Resultant torque
+% The argument are: force, torque, application point of the input wrench, application point of the resultant wrench.
+\newcommand{\resultantTorque}[4]{#2 + (#3 - #4)\times #1}
+\newcommand{\resultantTorqueTwo}[4]{#2 + \pointer{#4}{#3}\times #1}
+
+\newcommand{\torqueFrame}[2]{{\torque_{#1#2}}}
+
+\newcommand{\frameSymbol}{\mathcal{F}}
+
+
+\newcommand{\applyFrameSubscript}[1]{%
+    \ifthenelse{\equal{#1}{inertial}}{\inertialFrame}{%
+    \ifthenelse{\equal{#1}{cmm}}{\cmmFrame}{%
+    \ifthenelse{\equal{#1}{com}}{\com}{%
+    \ifthenelse{\equal{#1}{fb}}{\fbFrame}{%
+    \ifthenelse{\equal{#1}{torso}}{\torsoFrame}{%
+    \ifthenelse{\equal{#1}{ee}}{\text{e}}{%
+    \ifthenelse{\equal{#1}{cp}}{\cpFrame}{%
+    \text{$#1$} % Default case, just print the argument as text
+    }}}}}}}%
+}
+
+\NewDocumentCommand{\cframe}{O{}}{{\frameSymbol_{\applyFrameSubscript{#1}}}}
+
+
+
+\newcommand{\origin}{\point[][][\inertialFrame]}
+
+
+% The Gravito-inertial wrench
+\newcommand{\giwrench}{\bs{W}^{gi}}
+% The contact wrench
+\newcommand{\cwrench}{\bs{W}^c}
+\newcommand{\numEE}{m}
+
+\newcommand{\forceJacobian}[2]{\jacobian_{#1 #2}}
+
+\newcommand{\configurationFrame}[2]{g_{#1 #2}}
+
+
+
+\newcommand{\spatialJacobian}[2]{
+  \textcolor{spatialVelColor}{
+    \spatial{\jacobian}_{#1 #2}
+  }
+}
+
+\newcommand{\spatialJacobiand}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\spatial{\jacobian}}_{#1 #2}
+  }
+}
+
+\newcommand{\forceJacobianDef}[2]{
+\begin{bmatrix}
+  \rotation{#1}{#2} \\
+  \pointer{#1}{#2} \times \rotation{#1}{#2}
+\end{bmatrix}}
+
+% Transform from #1 to #2
+\newcommand{\svaForceJacobianDef}[2]{
+  \textcolor{svaColorVariable}{
+    \vectorTwo{
+      \translationSkew{#2}{#1}\rotationInv{#1}{#2}
+    }{
+      {\rotationInv{#1}{#2}}
+    }
+  }
+}
+% Transform from #1 to #2
+\newcommand{\svaForceJacobianDefTwo}[2]{
+  \textcolor{svaColorVariable}{
+    \vectorTwo{
+      -\rotation{#2}{#1}\translationSkew{#1}{#2}
+    }{
+      {\rotation{#2}{#1}}
+    }
+  }
+}
+
+
+\newcommand{\mass}{\text{m}}
+
+\newcommand{\applyNumSymbol}[1]{%
+       \IfStrEq{#1}{upper}{\text{N}}{%
+         \text{n}
+    }%
+}
+
+\newcommand{\applyNumSuperscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {float}{
+    \text{fb}
+    }%
+    {actuated}{
+    \text{at}
+    }%
+    {ieq}{
+    \text{ieq}
+    }%
+    {eq}{
+    \text{eq}
+    }%
+    }[] % "default" string
+}
+\newcommand{\applyNumSubscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {obj}{
+    \text{obj}
+    }%
+    {cons}{
+    \text{cons}
+    }%
+    {joints}{
+    \text{j}
+    }%
+    {contact}{
+    \text{sc}
+    }%
+    {impact}{
+    \impulse
+    }%
+    }[] % "default" string
+}
+
+\NewDocumentCommand{\num}{O{default}O{default}O{default}}{%
+    \ensuremath{%
+        % #3 Shall we use the lower case symbol n?
+        \applyNumSymbol{#3}_{\applyNumSubscript{#1}}% Check the first optional argument for obj, cons, joints, contact, impact,
+        % Check the second optional argument for actuated, floating-base
+        ^{\applyNumSuperscript{#2}}
+    }
+}
+
+
+\newcommand{\numContacts}{{\text{m}_{\text{sc}}}} % The number of sustained contacts
+
+\newcommand{\numImpacts}{{\text{m}_{\text{im}}}}
+
+
+\newcommand{\numFree}{\numEE - \numContacts -\numImpacts }
+\newcommand{\contactPoint}{\text{c}}
+
+% End-effector
+\newcommand{\ee}{\text{e}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% wrench, force, and torque
+\newcommand{\applyWrenchPrescript}[1]{%
+#1
+}
+
+\newcommand{\applyWrenchSuperscript}[1]{%
+    \IfStrEqCase{#1}{%
+        {ref}{\text{ref}}%
+        {des}{\text{des}}%
+        {mea}{\circ}%
+        {min}{\text{min}}%
+        {max}{\text{max}}%
+    }[#1] % "default" string
+}
+
+\newcommand{\applyRelativeFrameSubscript}[2]{%
+    {#1
+    \ifx\hfuzz#1\hfuzz
+         % #1 is empty
+    \else % #1 is not empty
+        \ifx\hfuzz#2\hfuzz
+        % #2 is empty
+        \else
+          ,
+          \fi
+    \fi
+    #2}
+}
+
+\newcommand{\wrenchSymbol}{{\textcolor{textColor}{\text{\bf w}}}\xspace}
+
+\NewDocumentCommand{\test}{O{}O{}}{%
+    {\ensuremath{
+        {\wrenchSymbol_{#1}}_{#2}
+    }
+    }
+}
+
+
+\NewDocumentCommand{\wrench}{O{}O{}O{}O{}}{%
+    {\ensuremath{
+        % #1 reference frame #2 application point frame
+        ~^{\applyWrenchPrescript{#4}}
+        \wrenchSymbol_{\applyRelativeFrameSubscript{#1}{#2}}
+        % #3 ref, mea, or des
+        ^{\applyWrenchSuperscript{#3}}
+    }
+    }
+}
+
+\newcommand{\applyForceScalarSuperscript}[1]{%
+    \IfStrEqCase{#1}{%
+        {x}{\text{x}}%
+        {y}{\text{y}}%
+        {z}{\text{z}}%
+    }[] % "default" string
+}
+
+
+\newcommand{\forceSymbol}{{{\bf f}}\xspace}
+\NewDocumentCommand{\force}{O{}O{}O{}O{}}{%
+{    \ensuremath{
+      %% ^{\applyWrenchPrescript{#4}}
+        % #1 reference frame #2 application point frame
+       \bs{f}_{\applyRelativeFrameSubscript{#1}{#2}}
+        ^{
+          \applyForceScalarSuperscript{#4}% #4 x,y, or z
+          \ifx\hfuzz#3\hfuzz
+          % #3 is empty
+          \else % #3 is not empty
+          \ifx\hfuzz#4\hfuzz
+          % #4 is empty
+          \else
+          ,
+          \fi
+          \fi
+          %% \ifx\hfuzz#3\hfuzz\else
+          %% \ifx\hfuzz#4\hfuzz\else
+          %%   ,\applyWrenchSuperscript{#3}%
+          %% \fi
+          %% \fi
+          \applyWrenchSuperscript{#3}
+          }
+        }
+}
+}
+
+\NewDocumentCommand{\torque}{O{}O{}O{}O{}}{%
+{    \ensuremath{
+        % #1 reference frame #2 application point frame
+       \bs{\tau}_{\applyRelativeFrameSubscript{#1}{#2}}
+        ^{
+          \applyForceScalarSuperscript{#4}% #4 x,y, or z
+          \ifx\hfuzz#3\hfuzz\else
+          \ifx\hfuzz#4\hfuzz\else
+            ,\applyWrenchSuperscript{#3}%
+          \fi
+          \fi
+          \applyWrenchSuperscript{#3}
+          }
+        }
+}
+}
+
+\newcommand{\applyDurationSubscript}[2]{%
+    \IfStrEqCase{#1}{%
+    {stance}{
+      {#2}_{\text{st.}}
+    }%
+    {flight}{
+      {#2}_{\text{flt.}}
+    }%
+    {nominal}{
+      {#2}_{\text{nom.}}
+    }%
+    {horizon}{
+      {#2}_{\text{hor.}}
+    }%
+    }[
+    #2
+    ] % "default" string
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% ZMP, COM, and DCM
+
+\newcommand{\applySuperscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {ref}{
+    \text{ref}
+    }%
+    {des}{
+    \text{des}
+    }%
+    {mea}{
+    \circ
+    }%
+    {est}{
+    \wedge
+    }%
+    {min}{
+    \text{min}
+    }%
+    {max}{
+    \text{max}
+    }%
+    }[#1] % "default" string
+}
+
+\newcommand{\applyOverheadSymbols}[2]{%
+    \IfStrEqCase{#1}{%
+    {dddot}{
+    \dddot{#2}
+    }%
+    {ddot}{
+    \ddot{#2}
+    }%
+    {dot}{
+    \dot{#2}
+    }%
+    }[
+    #2
+    ] % "default" string
+}
+
+\newcommand{\applyPostscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {time}{
+    (t)
+    }%
+    {current}{
+    (k)
+    }%
+    {next}{
+    (k+1)
+    }%
+    {previous}{
+    (k-1)
+    }%
+    }[#1] % "default" string
+}
+
+\newcommand{\applySubscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {plane}{
+    \text{x,y}
+    }%
+    {x}{
+    \text{x}
+    }%
+    {y}{
+    \text{y}
+    }%
+    {z}{
+    \text{z}
+    }%
+    }[#1] % "default" string
+}
+
+
+
+
+\newcommand{\zmpSymbol}{\text{\bf z}}
+\NewDocumentCommand{\zmp}{O{}O{}O{}O{}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        %% \applyOverheadSymbols{#1}\text{\bf z}
+        \applyOverheadSymbols{#1}{\zmpSymbol}
+        % Check the second optional argument for 'ref'
+        ^{\applySuperscript{#2}}%
+        _{\applySubscript{#3}}
+        \applyPostscript{#4}
+    }
+    }
+}
+
+
+
+\newcommand{\comSymbol}{{\textcolor{textColor}{\text{\bf c}}}\xspace}
+\NewDocumentCommand{\com}{O{}O{}O{}O{}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        \applyOverheadSymbols{#1}{\comSymbol}
+        % Check the second optional argument for 'ref'
+        ^{\applySuperscript{#2}}
+        _{\applySubscript{#3}}
+        \applyPostscript{#4}
+    }
+    }
+}
+
+\newcommand{\dcmSymbol}{\textcolor{textColor}{\bs{\xi}}}
+\NewDocumentCommand{\dcm}{O{}O{}O{}O{}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        \applyOverheadSymbols{#1}{\dcmSymbol}
+        % Check the second optional argument for 'ref'
+        ^{\applySuperscript{#2}}%
+        _{\applySubscript{#3}}
+        \applyPostscript{#4}
+    }
+    }
+}
+
+\newcommand{\pointSymbol}{\boldsymbol{q}}
+\NewDocumentCommand{\point}{O{}O{}O{}O{}}{%
+  {\ensuremath{%
+        %% % Check the first optional argument for dot or double dot
+        %% \IfStrEq{#1}{ddot}{\ddot{\boldsymbol{q}}}{%
+        %%     \IfStrEq{#1}{dot}{\dot{\boldsymbol{q}}}{\boldsymbol{q}}%
+        %% }%
+        \applyOverheadSymbols{#1}{\pointSymbol}
+        % Check the second optional argument for 'ref'
+        ^{\applySuperscript{#2}}%
+        % The mandatory subscript
+        \ifx&#3&%
+        % #3 is empty
+        \else
+        _{#3}%
+        \fi
+        % Post script
+        \applyPostscript{#4}
+    }
+  }
+}
+
+
+\newcommand{\applySigmoidSymbols}[2]{%
+    \IfStrEqCase{#1}{%
+    {def}{
+      \frac{\exp{#2}}{ 1 + \exp{#2}}
+    }%
+    %
+    }[
+      \sigmoidSymbol(#2)
+    ] % "default" string
+}
+
+
+\newcommand{\sigmoidSymbol}{\sigma}
+\NewDocumentCommand{\sigmoid}{O{default}O{default}}{%
+  {\ensuremath{%
+    \applySigmoidSymbols{#2}{#1} % #1, argument #2, def or not
+    }
+  }
+}
+
+
+\newcommand{\durationSymbol}{\text{T}}
+\NewDocumentCommand{\duration}{O{default}}{%
+  {\ensuremath{%
+    \applyDurationSubscript{#1}{\durationSymbol}
+    }
+  }
+}
+
+\NewDocumentCommand{\pointFrame}{O{default}O{default}O{default}O{default}}{%
+{    \ensuremath{%
+       \point[#3][#4]_{\applyRelativeFrameSubscript{#1}{#2}} % #1 Reference frame, #2 Notation
+    }
+}
+}
+
+
+\newcommand{\forceScalar}{f}
+\newcommand{\forceFrame}[2]{{\force^{#1}_{#2}}}
+
+
+% The arguments are: (1) frame (2) Application point.
+\newcommand{\impulseFrame}[2]{{\impulse^{#1}_{#2}}}
+\newcommand{\applyWrenchFrameSuperscript}[1]{%
+    \IfStrEq{#1}{ref}{, \text{ref}}{%
+        \IfStrEq{#1}{des}{, \text{des}}{%
+            \IfStrEq{#1}{mea}{, \circ}{}%
+        }%
+    }%
+}
+\NewDocumentCommand{\wrenchFrame}{mmO{default}}{%
+  % #1 = representation frame
+  % #2 = application point
+  % #3 = optional argument, specifies ref, des, or mea
+   \wrench^{{#1}\applyWrenchFrameSuperscript{#3}}_{#2}
+}
+
+% The foundamental subspaces
+% #1 The matrix
+\newcommand{\nullSpace}[1]{{N(#1)}}
+% #1 The range (column) space
+\newcommand{\colSpace}[1]{C(#1)}
+\newcommand{\csProjector}[1]{{P}_{#1}}
+% #1 Jacobian with: #col > #row
+\newcommand{\csProjectorDef}[1]{\pseudoInverse{#1}#1}
+% #1 Twist of a joint with: #col == 1
+\newcommand{\jcsProjectorDef}[1]{#1\transpose{#1}}
+
+\newcommand{\nsProjector}[1]{{N}_{#1}}
+% #1 Jacobian with: #col > #row
+\newcommand{\nsProjectorDef}[1]{(\identityMatrix - \csProjector{#1})}
+\newcommand{\nsProjectorDefDef}[1]{(\identityMatrix - \csProjectorDef{#1})}
+% #1 Twist of a joint with: #col == 1
+\newcommand{\jnsProjectorDef}[1]{(\identityMatrix - \jcsProjectorDef{#1})}
+
+
+% #1 The row  space
+\newcommand{\rowSpace}[1]{C(\transpose{#1})}
+% #1 The null space of the rows
+\newcommand{\rowNullSpace}[1]{N(\transpose{#1})}
+\newcommand{\rnsProjector}[1]{{N}_{\transpose{#1}}}
+% #1 Jacobian with: #col > #row
+\newcommand{\rnsProjectorDef}[1]{\transpose{(\identityMatrix - \csProjectorDef{#1})}}
+% #1 Twist of a joint with: #col == 1
+\newcommand{\jrnsProjectorDef}[1]{\transpose{(\identityMatrix - \jcsProjectorDef{#1})}}
+
+\newcommand{\rsProjector}[1]{{P}_{\transpose{#1}}}
+\newcommand{\rsProjectorDef}[1]{\transpose{(\csProjector{#1})}}
+% #1 Twist of a joint with: #col == 1
+\newcommand{\jrsProjectorDef}[1]{\transpose{(\jcsProjectorDef{#1})}}
+
+% Joint row null space projector (to obtain the constraint wrench P*LagrangeMultiplier)
+\newcommand{\jcwProjector}{T}
+
+% The joint torque null-space projector of a redundant robot.
+% #1 The Jacobian: v = J \dot{q}
+\newcommand{\jtnsProjector}[1]{N_{\transpose{#1}}}
+\newcommand{\jtnsProjectorDef}[1]{\transpose{(\identityMatrix - \gJacobianInv{#1} #1)}}
+
+% The generalized Jacobain inverse (inertia-weighted pseudoinverse):
+% #1 The Jacobian: v = J \dot{q},
+% \gJacobianInv{J} = J^{-1}, when the manipulator is non-redundant.
+\newcommand{\gJacobianInv}[1]{\overline{#1}}
+\newcommand{\gJacobianInvDef}[1]{\inverse{\inertiaMatrix} \transpose{#1}\osInertia }
+
+% The arguments are: (1) Equivalent frame name (2) Application point of the force
+\newcommand{\forceGraspMatrix}[2]{
+\begin{bmatrix}
+    \rotation{\bs{#1}}{#2}^\top \\
+    \pointer{#1}{#2} \times \rotation{#1}{#2}^\top
+  \end{bmatrix}
+}
+\newcommand{\graspMatrix}[2]{
+  {G_{#1#2}}
+}
+
+\newcommand{\graspMatrixDef}[2]{
+\begin{bmatrix}
+  \rotation{#1}{#2} & 0\\
+  \pointer{#1}{#2} \times \rotation{#1}{#2} & \rotation{#1}{#2}
+\end{bmatrix}
+}
+
+
+\newcommand{\pendulumC}{w}
+\newcommand{\const}{\text{C}}
+\renewcommand{\exp}[1]{e^{#1}}
+
+\newcommand{\pendulumCDef}{\sqrt{\frac{\gSymbol}{\com[][][z]}}}
+
+
+% Hadamard product
+\newcommand{\hProduct}[2]{{#1}\bigodot {#2}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 6. COORDINATE FRAMES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\dFrame}{\text{des}}
+
+% The reference frame
+\newcommand{\rFrame}{\text{ref}}
+
+% Operational space coriolios and centrifugal forces
+
+\newcommand{\coFrame}{\mathcal{C}}
+
+
+
+\newcommand{\hybridFrame}{H}
+\newcommand{\cmmFrame}{\text{G}}
+\newcommand{\fbFrame}{\text{B}}
+\newcommand{\torsoFrame}{\text{t}}
+\newcommand{\inertialFrame}{\text{O}}
+\newcommand{\anchor}{\text{A}} % The anchor frame of a legged robot
+% The inertialFrame
+\newcommand{\iFrame}{\text{O}}
+
+\newcommand{\bodyFrame}{\text{b}}
+\newcommand{\spatialFrame}{\text{s}}
+
+
+\newcommand{\nz}{\text{\bf n}}
+\newcommand{\nzDef}{
+\begin{bmatrix}
+0\\
+0\\
+1
+\end{bmatrix}
+}
+
+\newcommand{\linkFrame}{L}
+\newcommand{\jointFrame}{J}
+
+% Gravity force
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 7. RIGID BODY GEOMETRY
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\epMapDef}[1]{
+\identityMatrix + #1  + \frac{#1^2}{2!}  + \frac{#1^3}{3!} + \ldots
+}
+%%% #1:unit skew matrix #2 realnumber
+\newcommand{\unitSkewExpDef}[2]{
+\identityMatrix + \skewMatrix{#1}sin(#2) + \skewMatrix{#1}^2(1-cos(#2))
+}
+
+%%%%%%%%%%% -------------------------------------- Jacobian:
+%%%% #1 reference frame #2 body frame #3 joint angle
+\newcommand{\transformConfig}[3]{
+  \textcolor{geometricColorVariable}{
+    \transform{#1}{#2}(#3)
+  }}
+\newcommand{\transformConfigDef}[3]{
+  \textcolor{geometricColorVariable}{
+    \epMap{\twist{#1}{#2}#3} \transform{#1}{#2}(0)
+  }}
+
+\newcommand{\transformdConfigDef}[3]{
+  \textcolor{geometricColorVariable}{
+    \twist{#1}{#2} \dot{#3}\epMap{\twist{#1}{#2}#3} \transform{#1}{#2}(0)
+  }}
+\newcommand{\transformdConfigDefTwo}[3]{
+  \textcolor{geometricColorVariable}{
+    \epMap{\twist{#1}{#2}#3}\twist{#1}{#2} \dot{#3} \transform{#1}{#2}(0)
+  }}
+
+\newcommand{\transformddConfigDef}[3]{
+  \textcolor{geometricColorVariable}{
+    % \twist \ddot{#3}\epMap{\twist#3} \transform{#1}{#2}(0)
+    % +\twist \dot{#3}\twist \dot{#3}\epMap{\twist#3} \transform{#1}{#2}(0)
+    (\twist{#1}{#2} \ddot{#3}%\epMap{\twist#3} \transform{#1}{#2}(0)
+    +\twist{#1}{#2} \twist{#1}{#2} \dot{#3}^2)\epMap{\twist{#1}{#2}#3} \transform{#1}{#2}(0)
+  }}
+\newcommand{\transformddConfigDefTwo}[3]{
+  \textcolor{geometricColorVariable}{
+    % \twist \ddot{#3}\epMap{\twist#3} \transform{#1}{#2}(0)
+    % +\twist \dot{#3}\twist \dot{#3}\epMap{\twist#3} \transform{#1}{#2}(0)
+    \epMap{\twist{#1}{#2}#3} (\twist{#1}{#2} \ddot{#3}%\epMap{\twist#3} \transform{#1}{#2}(0)
+    +\twist{#1}{#2} \twist{#1}{#2} \dot{#3}^2)\transform{#1}{#2}(0)
+  }}
+
+% #1:reference frame, #:2 end-effector frame
+\newcommand{\poeDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \twistEp{#1}{1}{1}\twistEp{#1}{2}{2}\ldots\twistEp{#1}{#2}{#2}\transformConfig{#1}{#2}{\zeroVector}
+  }}
+\newcommand{\invPoeDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \transformInvConfig{#1}{#2}{\zeroVector}\invTwistEp{#1}{#2}{#2}\ldots\invTwistEp{#1}{2}{2}\invTwistEp{#1}{1}{1}
+  }}
+
+%%%% #1 reference frame #2 body frame #3 joint angle
+\newcommand{\transformInvConfig}[3]{
+  \textcolor{geometricColorVariable}{
+    \transformInv{#1}{#2}(#3)
+  }}
+\newcommand{\transformdConfig}[3]{
+  \textcolor{geometricColorVariable}{
+    \transformd{#1}{#2}(#3)
+  }}
+\newcommand{\transformddConfig}[3]{
+ \textcolor{geometricColorVariable}{
+   \transformdd{#1}{#2}(#3)
+ }}
+\newcommand{\transformInvConfigDef}[3]{
+  \textcolor{geometricColorVariable}{
+  \transformInv{#1}{#2}(0) \epMap{-\twist{#1}{#2}#3}
+  }}
+
+
+
+%%% Lie bracket
+\newcommand{\epMap}[1]{e^{#1}}
+
+\newcommand{\rotation}[2]{R_{#1 #2}}
+
+
+
+
+\newcommand{\rotationInv}[2]{R^{\top}_{#1 #2}}
+\newcommand{\rotationInvD}[2]{\dot{R}^{\top}_{#1 #2}}
+\newcommand{\rotationInvDD}[2]{\ddot{R}^{\top}_{#1 #2}}
+\newcommand{\rotationd}[2]{\dot{R}_{#1 #2}}
+\newcommand{\rotationdd}[2]{\ddot{R}_{#1 #2}}
+
+% #1 reference frame (point) #2 point
+\newcommand{\translationDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \pointer{#1}{#2} =  #2 - #1
+}}
+
+
+\newcommand{\translation}[2]{
+  \vc{p}_{#1 #2}
+}
+
+\newcommand{\translationInv}[2]{
+   \textcolor{geometricColorVariable}{
+     \translation{#2}{#1}
+     }
+}
+\newcommand{\translationInvSkew}[2]{
+   \textcolor{geometricColorVariable}{
+     \translationSkew{#2}{#1}
+     }
+}
+\newcommand{\translationInvDef}[2]{
+   \textcolor{geometricColorVariable}{
+     -\rotationInv{#1}{#2}\translation{#1}{#2}
+     }
+}
+
+
+% Complexity of an algorithm
+\newcommand{\translationSkew}[2]{\skewMatrix{\vc{p}}_{#1 #2}}
+\newcommand{\translationdSkew}[2]{\skewMatrix{\dot{\vc{p}}}_{#1 #2}}
+\newcommand{\translationd}[2]{\dot{\vc{p}}_{#1 #2}}
+\newcommand{\translationdd}[2]{{\ddot{\vc{p}}_{#1 #2}}}
+
+\newcommand{\identityMatrix}{\mathds{1}} %matrix % alternativ \mathds{1} or {\mathbb{1}}
+\newcommand{\idMatrix}[1]{{\identityMatrix_{#1}}} %matrix % alternativ \mathds{1} or {\mathbb{1}}
+
+\newcommand{\zeroVector}{\mathbf{0}} %matrix % alternativ \mathds{0} or {\mathbb{0}} or \mathcal{O}
+\newcommand{\zeroMatrix}{0} %matrix % alternativ \mathds{0} or {\mathbb{0}} or \mathcal{O}
+
+\newcommand{\transform}[2]{
+  \textcolor{geometricColorVariable}{
+    g_{#1#2}
+  }}
+
+\newcommand{\transformd}[2]{
+ \textcolor{geometricColorVariable}{
+   \dot{g}_{#1#2}
+ }}
+\newcommand{\transformdDef}[2]{
+ \textcolor{geometricColorVariable}{
+   \matrixTwo{
+     \rotationd{#1}{#2}
+   }{
+     \translationd{#1}{#2}
+   }{
+     \zeroVector
+   }{
+     0
+   }
+ }}
+\newcommand{\transformdd}[2]{
+ \textcolor{geometricColorVariable}{
+   \ddot{g}_{#1#2}
+ }}
+\newcommand{\transformddDef}[2]{
+ \textcolor{geometricColorVariable}{
+   \matrixTwo{
+     \rotationdd{#1}{#2}
+   }{
+     \translationdd{#1}{#2}
+   }{
+     \zeroVector
+   }{
+     0
+   }
+ }}
+\newcommand{\transformInv}[2]{
+  \textcolor{geometricColorVariable}{
+    g^{-1}_{#1#2}
+  }}
+\newcommand{\transformInvD}[2]{
+  \textcolor{geometricColorVariable}{
+    % \dot{g}^{-1}_{#1#2}
+    \derivative{g^{-1}_{#1#2}}
+  }}
+\newcommand{\transformInvDConfig}[3]{
+  \textcolor{geometricColorVariable}{
+    % \dot{g}^{-1}_{#1#2}
+    \derivative{g^{-1}_{#1#2}(#3)}
+  }}
+\newcommand{\transformInvDDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \matrixTwo{
+      \rotationInvD{#1}{#2}
+    }{
+      -\rotationInvD{#1}{#2} \translation{#1}{#2}  - \rotationInv{#1}{#2} \translationd{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }}
+
+\newcommand{\transformDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \matrixTwo{
+      \rotation{#1}{#2}
+    }{
+      \translation{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      1
+    }
+  }
+}
+
+\newcommand{\transformInvDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \matrixTwo{
+      \rotationInv{#1}{#2}
+    }{
+      -\rotationInv{#1}{#2} \translation{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      1
+    }
+  }
+}
+\newcommand{\adg}[2]{
+  \textcolor{geometricColorVariable}{
+    Ad_{g_{#1#2}}
+  }
+}
+
+\newcommand{\adgDef}[2]{
+  \textcolor{geometricColorVariable}{
+  \begin{bmatrix}
+    \rotation{#1}{#2} & \translationSkew{#1}{#2}\rotation{#1}{#2} \\
+    \zeroMatrix & \rotation{#1}{#2}
+  \end{bmatrix}
+}}
+
+\newcommand{\adgInv}[2]{
+  \textcolor{geometricColorVariable}{
+  Ad^{-1}_{g_{#1#2}}
+}}
+\newcommand{\adgTwoInv}[2]{
+  \textcolor{geometricColorVariable}{
+  Ad_{g^{-1}_{#1#2}}
+}}
+
+\newcommand{\adgTrans}[2]{
+  \textcolor{geometricColorVariable}{
+  Ad^{\top}_{g_{#1#2}}
+}}
+\newcommand{\adgTransDef}[2]{
+  \textcolor{geometricColorVariable}{
+  \begin{bmatrix}
+    \rotationInv{#1}{#2} & \zeroMatrix \\
+     -\rotationInv{#1}{#2}\translationSkew{#1}{#2} & \rotationInv{#1}{#2}
+\end{bmatrix}
+}}
+
+
+\newcommand{\adgInvDefTwo}[2]{
+  \textcolor{geometricColorVariable}{
+  \begin{bmatrix}
+    \rotationInv{#1}{#2} & -(\rotationInv{#1}{#2}\translation{#1}{#2})^{\skewMatrix{}}\rotationInv{#1}{#2} \\
+    \zeroMatrix & \rotationInv{#1}{#2}
+\end{bmatrix}
+}}
+\newcommand{\adgInvDef}[2]{
+  \textcolor{geometricColorVariable}{
+  \begin{bmatrix}
+    \rotationInv{#1}{#2} & -\rotationInv{#1}{#2}\translationSkew{#1}{#2} \\
+    \zeroMatrix & \rotationInv{#1}{#2}
+\end{bmatrix}
+}}
+
+% From frame #1 to frame #2
+\newcommand{\adgInvTrans}[2]{
+  \textcolor{geometricColorVariable}{
+  Ad^{\top}_{g^{-1}_{#1#2}}
+}}
+
+\newcommand{\adgInvTransDef}[2]{
+  \textcolor{geometricColorVariable}{
+  \begin{bmatrix}
+    \rotation{#1}{#2} & \zeroMatrix \\
+    \translationSkew{#1}{#2}\rotation{#1}{#2}  & \rotation{#1}{#2}
+  \end{bmatrix}
+  }
+}
+
+
+
+\newcommand{\adgTransform}[3]{
+  \textcolor{geometricColorVariable}{
+  \transform{#1}{#2} \skewMatrix{#3} \transformInv{#1}{#2}
+}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 8. SCREW THEORY
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\atanTwo}[2]{
+atan2({#1}, {#2})
+}
+
+
+%%%%%%%%%%% ----------------------------------------Scew
+
+
+%%%%%%%%%%%% Transform defined by a screw
+%%% #1:axis, #2:theta, #3:point, #4:pitch(finite)
+\newcommand{\screwTransform}[4]{
+\matrixTwo{
+  \epMap{\skewMatrix{#1}#2}
+}{
+  (\identityMatrix - \epMap{\skewMatrix{#1}#2})#3
+  + #4 #1 #2
+}{
+\zeroVector
+}{
+1
+}
+}
+
+%%%%%%%%%%%% Wrench defined by a screw
+%%% #1:magnitude, #2:point, #3:direction, #4:pitch(finite)
+%%% #1: reference frame #2: screw name
+\newcommand{\geoWrenchDef}[2]{
+  \screwM_{#2} \vectorTwo{
+    \angularVel_{#2}
+  }{
+    -\cross{\angularVel_{#2}}{\translation{\origin{#1}}{#2}} + \pitch_{#2}\angularVel_{#2}
+  }
+}
+
+%%%%%% When the pitch is infinite:
+%%% #1: screw name
+\newcommand{\geoWrenchDefTwo}[1]{
+  \screwM_{#1} \vectorTwo{
+    \zeroVector
+  }{
+    \angularVel_{#1}
+  }
+}
+
+\newcommand{\distance}{d}
+%%% #1:screw 1, #2:screw 2
+\newcommand{\screwAngle}[2]{
+  \alpha_{#1#2}
+}
+\newcommand{\screwAngleDef}[2]{
+atan2(\inner{(\cross{\angularVel_{#1}}{\angularVel_{#2}})}{\unitVec_{#1#2}}, \inner{\angularVel_{#1}}{\angularVel_{#2}} ).
+}
+\newcommand{\unitVec}{\bs{n}}
+
+% Calculates the reciprocal product
+\newcommand{\recip}[2]{
+  #1 \odot{}   #2
+}
+
+\newcommand{\recipScrewDef}[2]{
+  \screwM_{#1}\screwM_{#2}\left(
+    (\pitch_{#1} + \pitch_{#2})\cos\screwAngle{#1}{#2} - \distance\sin\screwAngle{1}{2}
+  \right)
+}
+
+%%%%%%%%%%%% Pitch:
+\newcommand{\pitch}{
+  h
+}
+
+
+
+% Twist2Screw:  #1 linear vel #2 angular vel
+\newcommand{\pitchTwistDef}[2]{
+  \frac{\innerP{#2}{#1}}{\twoNorm{#2}}
+}
+
+% Wrench2Screw: #1 force #2 moment
+\newcommand{\pitchWrenchDef}[2]{
+  \frac{\innerP{#1}{#2}}{\twoNorm{#1}}
+}
+
+
+\newcommand{\axis}{
+  l
+}
+
+%%% #1:point, #2:angularVel direction
+\newcommand{\screwAxisDef}[2]{
+  \{ #1 + \lambda#2 : \lambda \in \RRv{} \}
+}
+
+% When angularVel is Not zero: #1:linearVel, #2:angularVel, #3:lambda (scalar)
+\newcommand{\axisTwistDefThree}[3]{
+\frac{\cross{#2}{#1}}{\twoNorm{#2}} + \axisTwistDefTwo{#1}{#3}
+}
+
+% When angularVel is zero: #1:linearVel, #2:lambda (scalar)
+\newcommand{\axisTwistDefTwo}[2]{
+   #1 #2
+}
+
+% When force is NOT zero: #1:force, #2:torque, #3:lambda (scalar)
+\newcommand{\axisWrenchDefThree}[3]{
+\frac{\cross{#1}{#2}}{\twoNorm{#1}} + \axisWrenchDefTwo{#2}{#3}
+}
+
+% When force is zero: #1 torque #2: lambda (scalar)
+\newcommand{\axisWrenchDefTwo}[2]{
+   #1 #2
+}
+
+%%%%%%%%%%%% Magnitude:
+\newcommand{\screwM}{
+  M
+}
+
+% Wrench2Screw: #1: force,  if force is nonzero. Otherwise #1 is the torque
+% Twist2Screw: #1: angularVel,  if angularVel is nonzero. Otherwise #1 is the linearVel
+\newcommand{\screwMDef}[1]{
+  \norm{#1}
+}
+%%%%%%%%%%%% Twist:
+
+% #1 axis #2 theta
+\newcommand{\twistE}[2]{
+  e^{\skewMatrix{#1}#2}
+}
+
+
+% Computes the iner product
+\newcommand{\recipVelDef}[4]{
+  \innerP{#1}{#4} + \innerP{#3}{#2}
+}
+
+% Calculates the reciprocal product between two wrenches
+% #1:force,  #2:torque,  #3:force, #4:torque.
+\newcommand{\recipWrenchDef}[4]{
+  \innerP{#1}{#4} + \innerP{#3}{#2}
+}
+
+% Screw
+\newcommand{\screw}{S}
+%%% #1 screw notation
+\newcommand{\screwDef}[1]{
+  (\screwM_{#1}, \pitch_{#1}, \point[][][#1], \angularVel_{#1})
+}
+
+
+% Detail the wrench along a screw
+\newcommand{\wrenchAS}[2]{S}
+
+% Detail the twist about a screw
+%%% #1:axis, #2:\point, #3 pitch
+\newcommand{\linearTwistAS}[3]{
+-\cross{#1}{#2} + #3#1
+}
+
+\newcommand{\linearTwistASTwo}[3]{
+  \cross{#2}{#1} + #3#1
+}
+
+% Detail the twist about a screw, when the pitch is zero:
+%%% #1:axis, #2:\point,
+\newcommand{\linearTwistASRevolute}[2]{
+-\cross{#1}{#2}
+}
+\newcommand{\linearTwistASRevoluteTwo}[2]{
+{#2}\cross{#1}
+}
+
+
+
+%%%%%%%%%%% Composite rigid body (CRB) algorithm:
+\newcommand{\twistDef}[2]{
+  \matrixTwo{
+    #2
+  }{
+    #1
+  }{\zeroVector
+  }{0
+  }
+}
+%%%%%%%%%%%%%%% The exponential map of a twist:
+%% #1 linear part #2 angularPart   #3 theta
+\newcommand{\twistEpDef}[3]{
+  \matrixTwo{
+    \epMap{\skewMatrix{#2} #3}
+  }{
+    (\identityMatrix - \epMap{\skewMatrix{#2} #3})
+    (\cross{#2}{#1})
+    +
+    \projectionDef{#2}#1#3
+  }{
+    \zeroVector
+  }{
+    1
+  }
+}
+%% #1: reference frame, #2 twist notation #3 theta notation
+\newcommand{\twistEp}[3]{
+\epMap{\twist{#1}{#2} \theta_{#3}}
+}
+%% #1: reference frame, #2 twist notation #3 theta notation
+\newcommand{\invTwistEp}[3]{
+\epMap{-\twist{#1}{#2} \theta_{#3}}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%% Dynamics
+%%% #1:index, #2:last index, #3 component
+\newcommand{\twistFromScrew}[1]{
+  \screwM_{#1}\vectorTwo{
+    \linearTwistAS{\angularVel_{#1}}{\point[][][#1]}{\pitch_{#1}}
+  }{
+    \angularVel_{#1}
+  }
+}
+
+\newcommand{\twistFromScrewRevolute}[1]{
+  \screwM_{#1}\vectorTwo{
+    \linearTwistASRevolute{\angularVel_{#1}}{\point[][][#1]}
+  }{
+    \angularVel_{#1}
+  }
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 9. TWIST COORDINATES AND VELOCITIES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\twistVel}{\bs{V}}
+
+
+\newcommand{\twoCases}[4]{
+\begin{dcases}
+  {#1} & {#2} \\
+  {#3} & {#4}
+\end{dcases}
+}
+\newcommand{\crossSixD}[1]{
+  \begin{bmatrix}
+    \cross{\angularVel_{#1}}{} & \cross{\linearVel_{#1}}{}\\
+    0 &\cross{\angularVel_{#1}}{}
+  \end{bmatrix}
+}
+
+\newcommand{\dualCrossSixD}[1]{
+  \begin{bmatrix}
+    \cross{\angularVel_{#1}}{} & 0 \\
+    \cross{\linearVel_{#1}}{} &\cross{\angularVel_{#1}}{}
+  \end{bmatrix}
+}
+
+
+\newcommand{\twist}[2]{
+  \textcolor{spatialVelColor}{
+    \skewMatrix{\xi}_{#1#2}
+  }
+}
+
+%%% #1: infinitesimal translation generator #2:so{3}
+\newcommand{\twistC}[2]{
+  \textcolor{spatialVelColor}{
+    \xi_{#1#2}
+  }
+}
+
+% #1:reference frame, #2:notation of the twist
+\newcommand{\twistCd}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\xi}_{#1#2}
+  }
+}
+
+% #1:reference frame, #2:notation of the twist
+\newcommand{\spatialTwist}[2]{
+  \textcolor{spatialVelColor}{
+    \hat{\xi}'_{#1#2}
+  }}
+
+% #1:reference frame, #2:notation of the twist
+\newcommand{\spatialTwistC}[2]{
+  \textcolor{spatialVelColor}{
+    \xi'_{#1#2}
+  }}
+
+% #1:reference frame, #2:notation of the twist
+\newcommand{\spatialTwistCd}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\xi}'_{#1#2}
+  }}
+
+% #1:reference frame, #2:notation of the twist
+\newcommand{\bodyTwistC}[2]{
+  \textcolor{bodyVelColor}{
+    \xi^{\dagger}_{#1#2}
+  }}
+% #1:reference frame, #2:index of the twist
+\newcommand{\bodyTwistCd}[2]{
+  \textcolor{bodyVelColor}{
+    \dot{\xi}^{\dagger}_{#1#2}
+  }}
+
+\newcommand{\bodyTwist}[2]{
+  \textcolor{bodyVelColor}{
+    \hat{\xi}^{\dagger}_{#1#2}
+  }}
+
+% #1:reference frame, #2:index  of the twist, #3:index of the starting link
+%%% t_0 means that starting time.
+\newcommand{\spatialTwistCDef}[3]{
+  \textcolor{spatialVelColor}{
+    Ad_{\epMap{\twist{#1}{#3(t_0)} \theta_{#3}}\ldots \epMap{\twist{#1}{#2-1(t_0)} \theta_{#2-1}} }\twistC{#1}{#2(t_0)}
+    }
+}
+
+% #1:reference frame, #2:index of the twist, #3:index of the last link
+\newcommand{\bodyTwistCDef}[3]{
+  \textcolor{bodyVelColor}{
+    Ad^{-1}_{\epMap{\twist{#1}{#2(t_0)} \theta_{#2}}\ldots \epMap{\twist{s}{#3(t_0)} \theta_{#3}}\transformConfig{s}{#3}{0} }\twistC{#1}{#2(t_0)}
+    }
+}
+
+
+%%% The twist coordinate
+%%% #1: notation of the joint
+\newcommand{\twistCRevolute}[1]{
+\vectorTwo{
+  \linearTwistASRevolute{\angularVel_{#1}}{\point[][][#1]}
+  }{
+    \angularVel_{#1}
+  }
+}
+
+%%% #1: notation of the joint
+\newcommand{\twistCPrismatic}[1]{
+\vectorTwo{
+  \linearVel_{#1}
+  }{
+    \zeroVector
+  }
+}
+
+%%% #1:linearVel, #2: angularVel
+\newcommand{\twistCDef}[2]{(#1, #2)}
+
+%%% #1:notation of screw
+\newcommand{\vc}[1]{\bs{#1}}
+
+
+\newcommand{\caseTwo}[4]{
+  \begin{cases}
+    #1 & #2 \\
+    #3 & #4
+  \end{cases}
+}
+\newcommand{\caseThree}[6]{
+  \begin{cases}
+    #1 & #2 \\
+    #3 & #4 \\
+    #5 & #6 \\
+  \end{cases}
+}
+
+\newcommand{\translationVel}{
+  \bs{v}
+}
+
+\newcommand{\linearVel}{
+\translationVel
+}
+\newcommand{\linearVelScalar}{
+  v
+}
+
+\newcommand{\angularVel}{
+  \bs{w}
+}
+
+\newcommand{\angularVelScalar}{
+  w
+}
+
+
+
+%%% #1 reference frame #2 body frame
+\newcommand{\spatialVel}[2]{
+  \textcolor{spatialVelColor}{
+    \vc{V}^{\text{s}}_{#1#2}
+  }}
+
+%%% #1 reference frame #2 body frame
+\newcommand{\spatialVelDef}[2]{
+  \textcolor{spatialVelColor}{
+\vectorTwo{
+  \spatialTVDef{#1}{#2}
+  }{
+    % (\rotationd{#1}{#2}\rotationInv{#1}{#2})^{\vee}
+    \spatialRVDef{#1}{#2}
+  }
+}}
+\newcommand{\spatialVelTwistC}[2]{
+  \textcolor{spatialVelColor}{
+\vectorTwo{
+  \spatialTV{#1}{#2}
+  }{
+    % (\rotationd{#1}{#2}\rotationInv{#1}{#2})^{\vee}
+    \spatialRV{#1}{#2}
+  }
+}}
+\newcommand{\bodyVelTwistC}[2]{
+  \textcolor{bodyVelColor}{
+\vectorTwo{
+  \bodyTV{#1}{#2}
+  }{
+    % (\rotationd{#1}{#2}\rotationInv{#1}{#2})^{\vee}
+    \bodyRV{#1}{#2}
+  }
+}}
+
+\newcommand{\spatialVelTwistDefTwo}[2]{
+  \textcolor{spatialVelColor}{
+    \transformdConfig{#1}{#2}{\theta}\transformInvConfig{#1}{#2}{\theta}
+  }}
+
+\newcommand{\bodyVelTwistDefTwo}[2]{
+  \textcolor{spatialVelColor}{
+    \transformInvConfig{#1}{#2}{\theta}\transformdConfig{#1}{#2}{\theta}
+}}
+
+
+% Defines the reference frame and body frame of the angular velocity
+%%% #1 reference frame #2 body frame
+\newcommand{\hybridVel}[2]{
+  \textcolor{spatialVelColor}{
+    \vc{V}^{h}_{#1#2}
+  }}
+
+
+\newcommand{\hybridVelDef}[2]{
+  \textcolor{spatialVelColor}{
+    \vectorTwo{
+      \translationd{#1}{#2}
+    }{
+      \spatialRV{#1}{#2}
+    }
+  }}
+\newcommand{\hybridVelDefDef}[2]{
+  \textcolor{spatialVelColor}{
+    \vectorTwo{
+      \translationd{#1}{#2}
+    }{
+      \spatialRVDef{#1}{#2}
+    }
+  }}
+%%%%%%%%%%%%%%%% Convert hybrid vel to body vel
+%%% #1 Reference frame  #2 body frame
+\newcommand{\hTwoB}[2]{
+  \begin{bmatrix}
+    \rotationInv{#1}{#2} & \zeroMatrix \\
+    \zeroMatrix & \rotationInv{#1}{#2}
+  \end{bmatrix}
+}
+
+%%% #1 Reference frame  #2 body frame
+\newcommand{\bTwoH}[2]{
+  \begin{bmatrix}
+    \rotation{#1}{#2} & \zeroMatrix \\
+    \zeroMatrix & \rotation{#1}{#2}
+  \end{bmatrix}
+}
+
+%%%%%%%%%%%%%%%% Convert hybrid vel to body vel
+\newcommand{\spatialTV}[2]{
+  \textcolor{spatialVelColor}{
+  \translationVel^{\spatialFrame}_{#1#2}
+}}
+\newcommand{\spatialTVDef}[2]{
+  \textcolor{spatialVelColor}{
+    -\rotationd{#1}{#2}\rotationInv{#1}{#2}\translation{#1}{#2} + \translationd{#1}{#2}
+}}
+\newcommand{\spatialTA}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\translationVel}^{\spatialFrame}_{#1#2}
+  }}
+\newcommand{\spatialTADef}[2]{
+  \textcolor{spatialVelColor}{
+    \translationdd{#1}{#2} - \spatialRATwist{#1}{#2}\translation{#1}{#2} - \spatialRVTwist{#1}{#2}\translationd{#1}{#2}
+  }}
+\newcommand{\spatialTADefTwo}[2]{
+  \textcolor{spatialVelColor}{
+    \translationdd{#1}{#2} + \translationSkew{#1}{#2}\spatialRA{#1}{#2} +\translationdSkew{#1}{#2} \spatialRV{#1}{#2}
+  }}
+\newcommand{\spatialTADefDef}[2]{
+  \textcolor{spatialVelColor}{
+\translationdd{#1}{#2} -\rotationdd{#1}{#2}\rotationInv{#1}{#2} \translation{#1}{#2}
+-\rotationd{#1}{#2} \rotationInvD{#1}{#2} \translation{#1}{#2} - \rotationd{#1}{#2}\rotationInv{#1}{#2}\translationd{#1}{#2}
+  }}
+\newcommand{\spatialRADef}[2]{
+  \textcolor{spatialVelColor}{
+    \rotationdd{#1}{#2}\rotationInv{#1}{#2} + \rotationd{#1}{#2}\rotationInvD{#1}{#2}
+  }}
+\newcommand{\bodyRADef}[2]{
+  \textcolor{bodyVelColor}{
+    \rotationInv{#1}{#2}\rotationdd{#1}{#2} + \rotationInvD{#1}{#2}\rotationd{#1}{#2}
+  }}
+\newcommand{\spatialAcc}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\vc{V}}^{\spatialFrame}_{#1#2}
+  }
+}
+\newcommand{\spatialAccTwist}[2]{
+  \textcolor{spatialVelColor}{
+    \skewMatrix{\dot{\vc{V}}}^{\spatialFrame}_{#1#2}
+  }
+}
+\newcommand{\bodyAcc}[2]{
+  \textcolor{bodyVelColor}{
+    \dot{\vc{V}}^{\bodyFrame}_{#1#2}
+  }
+}
+\newcommand{\bodyAccTwist}[2]{
+  \textcolor{bodyVelColor}{
+    \skewMatrix{\dot{\vc{V}}}^{\bodyFrame}_{#1#2}
+  }
+}
+\newcommand{\bodyAccTwistDef}[2]{
+  \textcolor{bodyVelColor}{
+    \matrixTwo{
+      \bodyRATwist{#1}{#2}
+    }{
+      \bodyTA{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }
+}
+\newcommand{\spatialAccTwistDef}[2]{
+  \textcolor{spatialVelColor}{
+    \matrixTwo{
+      \spatialRATwist{#1}{#2}
+    }{
+      \spatialTA{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }
+}
+\newcommand{\spatialAccDef}[2]{
+  \textcolor{spatialVelColor}{
+    \matrixTwo{
+      \spatialRATwist{#1}{#2}
+    }{
+      \translationdd{#1}{#2} - \spatialRATwist{#1}{#2}\translation{#1}{#2} - \spatialRVTwist{#1}{#2}\translationd{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }}
+
+\newcommand{\spatialAccTwistC}[2]{
+  \textcolor{spatialVelColor}{
+    \vectorTwo{
+      \translationdd{#1}{#2} - \spatialRATwist{#1}{#2}\translation{#1}{#2} - \spatialRVTwist{#1}{#2}\translationd{#1}{#2}
+    }{
+      \spatialRA{#1}{#2}
+    }
+  }}
+
+\newcommand{\spatialAccDefDef}[2]{
+  \textcolor{spatialVelColor}{
+    \matrixTwo{
+      \rotationdd{#1}{#2}\rotationInv{#1}{#2} + \rotationd{#1}{#2}\rotationInvD{#1}{#2}
+    }{
+      \translationdd{#1}{#2} -\rotationdd{#1}{#2}\rotationInv{#1}{#2} \translation{#1}{#2}
+      -\rotationd{#1}{#2} \rotationInvD{#1}{#2} \translation{#1}{#2} - \rotationd{#1}{#2}\rotationInv{#1}{#2}\translationd{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }}
+\newcommand{\bodyAccDefDef}[2]{
+  \textcolor{bodyVelColor}{
+    \matrixTwo{
+      \rotationInv{#1}{#2}\rotationdd{#1}{#2} + \rotationInvD{#1}{#2}\rotationd{#1}{#2}
+    }{
+      \rotationInvD{#1}{#2}\translationd{#1}{#2} + \rotationInv{#1}{#2}\translationdd{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }}
+\newcommand{\bodyAccDef}[2]{
+  \textcolor{bodyVelColor}{
+    \matrixTwo{
+      \bodyRATwist{#1}{#2}
+    }{
+      % \bodyTV{#1}{#2} + \rotationInv{#1}{#2}\translationdd{#1}{#2}
+      \bodyTA{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }}
+
+
+\newcommand{\spatialRA}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\angularVel}^{\spatialFrame}_{#1#2}
+  }}
+\newcommand{\spatialRATwist}[2]{
+  \textcolor{spatialVelColor}{
+    \skewMatrix{\dot{\angularVel}}^{\spatialFrame}_{#1#2}
+  }}
+\newcommand{\bodyRATwist}[2]{
+  \textcolor{bodyVelColor}{
+    \skewMatrix{\dot{\angularVel}}^{\bodyFrame}_{#1#2}
+  }}
+
+\newcommand{\spatialRV}[2]{
+  \textcolor{spatialVelColor}{
+    \angularVel^{\spatialFrame}_{#1#2}
+  }}
+
+\newcommand{\spatialRVDef}[2]{
+  \textcolor{spatialVelColor}{
+    (\rotationd{#1}{#2}\rotationInv{#1}{#2})^{\vee}
+}}
+\newcommand{\spatialRVDefTwo}[2]{
+  \textcolor{spatialVelColor}{
+    \rotationd{#1}{#2}\rotationInv{#1}{#2}
+}}
+
+\newcommand{\spatialRVd}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\angularVel}^{\spatialFrame}_{#1#2}
+}}
+
+\newcommand{\spatialTVd}[2]{
+  \textcolor{spatialVelColor}{
+    \dot{\translationVel}^{\spatialFrame}_{#1#2}
+}}
+
+\newcommand{\spatialVelTwist}[2]{
+  \textcolor{spatialVelColor}{
+    \skewMatrix{\vc{V}}^{\spatialFrame}_{#1#2}
+  }}
+
+\newcommand{\spatialVelTwistDef}[2]{
+  \textcolor{spatialVelColor}{
+    \matrixTwo
+    {
+      \spatialRVTwist{#1}{#2}
+    }{
+      \spatialTV{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+}}
+\newcommand{\spatialTVTwist}[2]{
+  \textcolor{spatialVelColor}{
+    \skewMatrix{\vc{v}}^{\spatialFrame}_{#1#2}
+}}
+\newcommand{\spatialRVTwist}[2]{
+  \textcolor{spatialVelColor}{
+    \skewMatrix{\vc{w}}^{\spatialFrame}_{#1#2}
+}}
+\newcommand{\spatialRVdTwist}[2]{
+  \textcolor{spatialVelColor}{
+    \skewMatrix{\dot{\vc{w}}}^{\spatialFrame}_{#1#2}
+  }}
+
+%%% #1 Representation frame, #2 Base frame, and #3 Body frame
+\newcommand{\vel}[3]{
+  \textcolor{velColor}{
+    \vc{V}^{#1}_{#2#3}
+  }}
+\newcommand{\velJacobian}[3]{
+  \textcolor{velColor}{
+    \jacobian^{#1}_{#2#3}
+  }}
+\newcommand{\tV}[3]{
+  \textcolor{velColor}{
+    \vc{v}^{#1}_{#2#3}
+  }}
+
+\newcommand{\rV}[3]{
+  \textcolor{velColor}{
+    \vc{w}^{#1}_{#2#3}
+  }}
+
+%%% #1 Reference frame #2 Body frame
+\newcommand{\bodyVel}[2]{
+  \textcolor{bodyVelColor}{
+    \vc{V}^{\bodyFrame}_{#1#2}
+  }}
+%%% #1 Reference frame #2 Body frame
+\newcommand{\bodyTVDef}[2]{
+  \textcolor{bodyVelColor}{
+    \rotationInv{#1}{#2}\translationd{#1}{#2}
+  }}
+%%% #1 Reference frame #2 Body frame
+\newcommand{\bodyRVDef}[2]{
+  \textcolor{bodyVelColor}{
+      (\rotationInv{#1}{#2}\rotationd{#1}{#2})^{\vee}
+  }}
+
+
+\newcommand{\bodyRVDefTwo}[2]{
+  \textcolor{bodyVelColor}{
+    \rotationInv{#1}{#2}\rotationd{#1}{#2}
+  }}
+
+
+
+%%% #1 Reference frame #2 Body frame
+\newcommand{\bodyVelDef}[2]{
+  \textcolor{bodyVelColor}{
+    \vectorTwo{
+      \bodyTVDef{#1}{#2}
+    }{
+      \bodyRVDef{#1}{#2}
+    }
+  }}
+
+%%% #1:Reference frame of the screw, #2:Body frame attached to the screw motion, #3: angle
+\newcommand{\screwBodyAcc}[3]{
+  \textcolor{bodyVelColor}{
+    \Vee{\twistTransform{#1}{#2(0)}  \twistC{#1}{#2}}\ddot{#3}
+  }}
+%%% #1:Reference frame of the screw, #2:Body frame attached to the screw motion, #3: angle
+\newcommand{\screwBodyVel}[3]{
+  \textcolor{bodyVelColor}{
+    \Vee{\twistTransform{#1}{#2(0)}  \twistC{#1}{#2}}\dot{#3}
+  }}
+%%% #1:Reference frame of the screw, #2:Body frame attached to the screw motion, #3: angle
+\newcommand{\screwSpatialAcc}[3]{
+  \textcolor{spatialVelColor}{
+    \twistC{#1}{#2}\ddot{#3}
+  }}
+
+%%% #1:Reference frame of the screw, #2:Body frame attached to the screw motion, #3: angle
+\newcommand{\screwSpatialVel}[3]{
+  \textcolor{spatialVelColor}{
+    \twistC{#1}{#2}\dot{#3}
+  }}
+
+
+
+\newcommand{\bodyVelTwist}[2]{
+  \textcolor{bodyVelColor}{
+    \skewMatrix{\vc{V}}^{\bodyFrame}_{#1#2}
+  }}
+\newcommand{\bodyVelTwistDef}[2]{
+  \textcolor{bodyVelColor}{
+    \matrixTwo
+    {
+      \bodyRVTwist{#1}{#2}
+    }{
+      \bodyTV{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+  }}
+\newcommand{\bodyVelTwistDefDef}[2]{
+  \textcolor{bodyVelColor}{
+    \matrixTwo
+    {
+      \rotationInv{#1}{#2}\rotationd{#1}{#2}
+    }{
+      \bodyTVDef{#1}{#2}
+    }{
+      \zeroVector
+    }{
+      0
+    }
+}}
+\newcommand{\bodyTV}[2]{
+  \textcolor{bodyVelColor}{
+    \vc{v}^{\bodyFrame}_{#1#2}
+  }}
+\newcommand{\bodyTA}[2]{
+  \textcolor{bodyVelColor}{
+    \dot{\vc{v}}^{\bodyFrame}_{#1#2}
+  }}
+\newcommand{\bodyTADef}[2]{
+  \textcolor{bodyVelColor}{
+    % \rotationInvD{#1}{#2}\translationd{#1}{#2} + \rotationInv{#1}{#2}\translationdd{#1}{#2}
+    \rotationInv{#1}{#2}\translationdd{#1}{#2} - \bodyRVTwist{#1}{#2}\bodyTV{#1}{#2}
+  }}
+\newcommand{\bodyTADefDef}[2]{
+  \textcolor{bodyVelColor}{
+    \rotationInvD{#1}{#2}\translationd{#1}{#2} + \rotationInv{#1}{#2}\translationdd{#1}{#2}
+  }}
+
+
+\newcommand{\bodyRA}[2]{
+  \textcolor{bodyVelColor}{
+    \dot{\angularVel}^{\bodyFrame}_{#1#2}
+  }}
+\newcommand{\bodyTVd}[2]{
+  \textcolor{bodyVelColor}{
+    \dot{\vc{v}}^{\bodyFrame}_{#1#2}
+}}
+\newcommand{\bodyTVTwist}[2]{
+  \textcolor{bodyVelColor}{
+    \skewMatrix{\vc{v}}^{\bodyFrame}_{#1#2}
+}}
+
+\newcommand{\bodyRV}[2]{
+  \textcolor{bodyVelColor}{
+    \vc{w}^{\bodyFrame}_{#1#2}
+}}
+\newcommand{\bodyRVd}[2]{
+  \textcolor{geometricColorVariable}{
+    \dot{\vc{w}}^{\bodyFrame}_{#1#2}
+}}
+
+\newcommand{\bodyForce}{
+\force^{\bodyFrame}
+}
+\newcommand{\bodyTorque}{
+\torque^{\bodyFrame}
+}
+
+\newcommand{\bodyRVTwist}[2]{
+  \textcolor{bodyVelColor}{
+    \skewMatrix{\vc{w}}^{\bodyFrame}_{#1#2}
+}}
+
+
+
+\newcommand{\twistCTransform}[2]{
+  \textcolor{geometricColorVariable}{
+    \twistTransform{#1}{#2}
+  }
+}
+\newcommand{\twistCTransformDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \twistTransformDef{#1}{#2}
+  }
+}
+% transform a point from coordinate #1 to coordinate #2
+\newcommand{\pointTransform}[2]{
+  \textcolor{geometricColorVariable}{
+    \transformInv{#1}{#2}
+  }
+}
+\newcommand{\pointTransformDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \transformInvDef{#1}{#2}
+  }
+}
+\newcommand{\pointTransformTwo}[2]{
+  \textcolor{geometricColorVariable}{
+    \transform{#2}{#1}
+  }
+}
+\newcommand{\pointTransformTwoDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \transformDef{#2}{#1}
+  }
+}
+% transform from coordinate #1 to coordinate #2
+\newcommand{\twistTransformTwo}[2]{
+  \textcolor{geometricColorVariable}{
+    \adg{#2}{#1}
+  }
+}
+
+\newcommand{\twistTransformdTwo}[2]{
+  \textcolor{geometricColorVariable}{
+    \derivative{\adg{#2}{#1}}
+  }
+}
+\newcommand{\twistTransformdTwoDef}[2]{
+  \textcolor{geometricColorVariable}{
+    -\adg{#2}{#1}(\spatialVel{#1}{#2}\times)
+  }
+}
+
+\newcommand{\twistTransformTwoDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \adgDef{#2}{#1}
+  }
+}
+
+\newcommand{\twistTransform}[2]{
+  \textcolor{geometricColorVariable}{
+    \adgInv{#1}{#2}
+  }
+}
+
+
+% The direct transform: re-write the coordinates.
+% #1 current frame, #2 target frame.
+\newcommand{\dTransform}[2]{
+  \textcolor{geometricColorVariable}{
+    \matrixTwo{\tdTransform{#1}{#2}}{0}{0}{\tdTransform{#1}{#2}}
+  }
+}
+
+% #1 current frame, #2 target frame.
+\newcommand{\tdTransform}[2]{
+  \textcolor{geometricColorVariable}{
+    \rotationInv{#1}{#2}
+  }
+}
+
+
+\newcommand{\twistTransformDef}[2]{
+  \adgInvDef{#1}{#2}
+}
+\newcommand{\twistTransformd}[2]{
+  \textcolor{geometricColorVariable}{
+    \derivative{\twistTransform{#1}{#2}}
+    }
+}
+\newcommand{\twistTransformdDef}[2]{
+  \textcolor{geometricColorVariable}{
+    -\twistTransform{#1}{#2}(\spatialVel{#1}{#2}\times)
+    }
+  }
+
+\newcommand{\twistTransformdDefTwo}[2]{
+  \textcolor{geometricColorVariable}{
+    \twistTransform{#1}{#2}(\bodyVel{#2}{#1}\times)
+    }
+}
+
+
+
+
+
+% #1: reference frame , #2 link(body) frame, and #3: New reference frame.
+\newcommand{\spatialVelTransform}[3]{
+  \textcolor{spatialVelColor}{
+    % \spatialVel{#3}{#1} + \spatialVelStaticTransform{#3}{#1}\spatialVel{#1}{#2}
+    \spatialVel{#3}{#1} + \twistTransform{#1}{#3}\spatialVel{#1}{#2}
+  }
+}
+% #1: reference frame , #2 link(body) frame, and #3: New reference frame.
+\newcommand{\spatialAccTransform}[3]{
+  \textcolor{spatialVelColor}{
+    % \spatialVel{#3}{#1} + \spatialVelStaticTransform{#3}{#1}\spatialVel{#1}{#2}
+    \spatialAcc{#3}{#1}
+    +\twistTransform{#1}{#3} (\spatialVelTwist{#1}{#2}\spatialVelTwist{#1}{#3} - \spatialVelTwist{#1}{#3}\spatialVelTwist{#1}{#2})^\vee
+    % +\twistTransform{#1}{#3} (\bodyVelTwist{#3}{#1}\bodyVelTwist{#2}{#1})^\vee
+    + \twistTransform{#1}{#3}\spatialAcc{#1}{#2}
+  }
+}
+% #1: reference frame , #2 link(body) frame, and #3: New reference frame.
+\newcommand{\spatialAccTransformTwo}[3]{
+  \textcolor{spatialVelColor}{
+    \spatialAcc{#3}{#1}
+    +\twistTransform{#1}{#3}(\cross{\spatialVel{#1}{#2}}{\spatialVel{#1}{#3}})
+    + \twistTransform{#1}{#3}\spatialAcc{#1}{#2}
+  }
+}
+
+% #1: reference frame , #2 link(body) frame, and #3: New reference frame.
+\newcommand{\bodyAccTransform}[3]{
+  \textcolor{bodyVelColor}{
+    \bodyAcc{#1}{#2}
+    + \twistTransform{#1}{#2}(
+    \bodyVelTwist{#2}{#1}\bodyVelTwist{#3}{#1}
+    -\bodyVelTwist{#3}{#1}\bodyVelTwist{#2}{#1}
+    )^{\vee}
+    +\twistTransform{#1}{#2}\bodyAcc{#3}{#1}
+  }
+}
+% #1: reference frame , #2 link(body) frame, and #3: New reference frame.
+\newcommand{\bodyAccTransformTwo}[3]{
+  \textcolor{bodyVelColor}{
+    \bodyAcc{#1}{#2}
+    % \twistTransformdDef{#1}{#2}
+    +\twistTransform{#1}{#2}
+    (\cross{\bodyVel{#2}{#1}}
+    {\bodyVel{#3}{#1}})
+    +\twistTransform{#1}{#2}\bodyAcc{#3}{#1}
+  }
+}
+
+\newcommand{\spatialVelTransformTwo}[3]{
+  \textcolor{spatialVelColor}{
+    % \spatialVel{#3}{#1} + \spatialVelStaticTransform{#3}{#1}\spatialVel{#1}{#2}
+    \spatialVel{#3}{#1} +
+    \twistTransformTwo{#1}{#3}\spatialVel{#1}{#2}
+  }
+}
+
+% Expressed in #2
+% #1: reference frame , #2 link(body) frame, and #3: New reference frame.
+\newcommand{\bodyVelTransform}[3]{
+  \textcolor{bodyVelColor}{
+    \twistTransform{#1}{#2}\bodyVel{#3}{#1} + \bodyVel{#1}{#2}
+  }
+}
+\newcommand{\bodyVelTransformTwo}[3]{
+  \textcolor{bodyVelColor}{
+    \twistTransformTwo{#1}{#2}\bodyVel{#3}{#1} + \bodyVel{#1}{#2}
+  }
+}
+
+
+% Transform from #1 to #2
+\newcommand{\bodyWrench}{\bs{W}^{\bodyFrame}}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%% Inertia and momentum:
+%   #1 reference frame name, #2 body frame name
+%  locally, we can specify: #1 body frame: F_i  #2 the local centroidal frame: F_com_i
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 10. SPATIAL VECTOR ALGEBRA (Featherstone)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\svaMT}[2]{
+  \svaFT{#1}{#2}
+}
+
+
+\newcommand{\svaTransform}[2]{
+  \textcolor{svaColorVariable}{
+    {^{#2}T_{#1}}
+  }
+}
+% Transform from #1 to #2
+\newcommand{\svaTransformDef}[2]{
+  \textcolor{svaColorVariable}{
+  \matrixTwo{
+    \rotation{#2}{#1}
+  }{
+    -\rotation{#2}{#1}\translation{#1}{#2}
+  }{
+    \zeroVector
+  }{
+    1
+  }
+  }
+}
+\newcommand{\svaTransformDefTwo}[2]{
+  \textcolor{svaColorVariable}{
+  \matrixTwo{
+    \rotationInv{#1}{#2}
+  }{
+    -\rotationInv{#1}{#2}\translation{#1}{#2}
+  }{
+    \zeroVector
+  }{
+    1
+  }
+  }
+}
+
+\newcommand{\svaT}{
+  \textcolor{svaColorVariable}{
+    \bs{X}
+  }
+}
+
+% Transform from #1 to #2 (#2 is represented in #1)
+\newcommand{\svaVT}[2]{
+  \textcolor{svaColorVariable}{
+  {^{#2}\svaT_{#1}}
+  % \svaT{#1}{#2}
+  }
+}
+
+% Transform Vel from #1 to #2
+\newcommand{\svaVTDef}[2]{
+  % eq.~2.24 of FeatherStone
+  % \matrixTwo{
+  %   \rotationInv{#1}{#2}
+  % }{\zeroMatrix}{
+  %   -\rotationInv{#1}{#2}\translationSkew{#1}{#2}
+  % }
+  % {
+  %   \rotationInv{#1}{#2}
+  % }
+  \textcolor{svaColorVariable}{
+  \matrixTwo{
+    \rotation{#2}{#1}
+  }{\zeroMatrix}{
+    -\rotation{#2}{#1}\translationSkew{#1}{#2}
+  }
+  {
+    \rotation{#2}{#1}
+  }
+  }
+}
+
+% Transform Vel from #1 to #2
+\newcommand{\svaVTDefTwo}[2]{
+  % eq.~2.26 of FeatherStone
+  \textcolor{svaColorVariable}{
+  \matrixTwo{
+    \rotationInv{#1}{#2}
+  }{\zeroMatrix
+  }{
+    \translationSkew{#2}{#1}\rotationInv{#1}{#2}
+  }
+  {
+    \rotationInv{#1}{#2}
+  }
+  }
+}
+
+% Transform from #1 to #2
+\newcommand{\svaFT}[2]{
+  \textcolor{svaColorVariable}{
+    {^{#2}\svaT^{*}_{#1}}
+  }
+}
+
+% Transform from #1 to #2
+\newcommand{\svaFTDef}[2]{
+  % Following eq.2.27 of Featherstone
+  % \matrixTwo
+  % {\rotationInv{#2}{#1}}
+  % {
+  %   \translationSkew{#1}{#2}\rotationInv{#2}{#1}
+  % }{
+  %   \zeroMatrix
+  % }
+  %   {\rotationInv{#2}{#1}}
+  \textcolor{svaColorVariable}{
+  \matrixTwo
+  {\rotationInv{#1}{#2}}
+  {
+    \translationSkew{#2}{#1}\rotationInv{#1}{#2}
+  }{
+    \zeroMatrix
+  }
+  {\rotationInv{#1}{#2}}
+  }
+}
+
+% Transform from #1 to #2
+\newcommand{\svaFTDefTwo}[2]{
+  % Following eq.2.25 of Featherstone
+  % \matrixTwo{
+  %   \rotationInv{#1}{#2}
+  % }{
+  %   -\rotationInv{#1}{#2}\translationSkew{#1}{#2}
+  % }{
+  %   \zeroMatrix
+  % }
+  %   {\rotationInv{#1}{#2}}
+  \textcolor{svaColorVariable}{
+  \matrixTwo{
+    \rotation{#2}{#1}
+  }{
+    -\rotation{#2}{#1}\translationSkew{#1}{#2}
+  }{
+    \zeroMatrix
+  }
+  {\rotation{#2}{#1}}
+  }
+}
+
+% Reference frame: #1, link frame: #2
+\newcommand{\svaBodyGInertiaDef}[2]{
+  \textcolor{svaColorVariable}{
+    \matrixTwo{\bodyMetaInertia{#1}{#2} }{\zeroMatrix}{\zeroMatrix}{\mass_{#2} \identityMatrix}
+  }
+}
+
+
+% #1 Reference frame #2 body frame
+\newcommand{\svaMomentaTransform}[2]{
+  \transpose{\svaVT{#2}{#1}}
+}
+\newcommand{\svaMomentaTransformDef}[2]{
+  \transpose{\svaVTDef{#2}{#1}}
+}
+
+
+% #1 and #2 defines the spatial generalized inertia to be transformed.
+% #1 Reference frame #2 body frame
+% #3 defines the new reference frame
+\newcommand{\svaSpatialGInertiaTransform}[3]{
+  \transpose{\svaVT{#3}{#1}}\spatialGInertia{#1}{#2}\svaVT{#3}{#1}
+}
+
+\newcommand{\svaSpatialCrbInertiaTransform}[3]{
+  \transpose{\svaVT{#3}{#1}}\spatialCrbInertia{#1}{#2}\svaVT{#3}{#1}
+}
+
+%%% Generalized inertia transform
+% #1:new reference frame
+% #2:current reference frame
+% #3:current Generalized inertia
+\newcommand{\svaGInertiaTransform}[3]{
+  \transpose{\svaVT{#1}{#2}}
+  #3
+  \svaVT{#1}{#2}
+}
+
+
+% #1 Reference frame #2 body frame
+\newcommand{\svaSpatialGInertia}[2]{
+  \textcolor{svaColorVariable}{
+    \transpose{\svaVT{#1}{#2}} \bodyGInertia{#1}{#2}\svaVT{#1}{#2}
+  }
+}
+
+% #1 Reference frame #2 body frame
+\newcommand{\svaSpatialGInertiaDef}[2]{
+  \textcolor{svaColorVariable}{
+    \transpose{\svaVTDef{#1}{#2}} \svaBodyGInertiaDef{#1}{#2}\svaVTDef{#1}{#2}
+  }
+}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 11. JOINT KINEMATICS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\svaJointJac}[1]{\bf{\Phi}_{#1}}
+
+
+\newcommand{\applyJangles}[1]{%
+    \IfStrEqCase{#1}{%
+    {actuated}{
+    \bs{\theta}
+    }%
+    {fb}{
+    \bs{q}_{\text{fb}}
+    }%
+    {generalized}{
+    \bs{\mathcal{X}}
+    }%
+    }[\bs{q}] % "default" string
+}
+
+
+\newcommand{\applyJanglesPostscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {current}{
+    {t_k}
+    }%
+    {next}{
+    {t_{k+1}}
+    }%
+    {previous}{
+    {t_{k-1}}
+    }%
+    }[] % "default" string
+}
+
+
+\NewDocumentCommand{\jangles}{O{}O{}O{}O{}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        \applyOverheadSymbols{#1}{\applyJangles{#3}} % Third argument for actuated, fb joints
+        % 'ref', 'mea', 'des'
+        ^{\applySuperscript{#2}}%
+        _{\applyJanglesPostscript{#4}}
+    }
+    }
+}
+
+\newcommand{\jvelocities}{\mathbf{\dot{q}}}
+\newcommand{\jaccelerations}{\mathbf{\ddot{q}}}
+\newcommand{\jtorques}{\boldsymbol{\tau}}
+\newcommand{\omegaVector}{\boldsymbol{\omega}}
+\newcommand{\tsInertia}{\boldsymbol{\Lambda}}
+
+
+
+
+\newcommand{\janglesJump}{\jump \jangles}
+\newcommand{\jvelocitiesJump}{\jump \jvelocities}
+\newcommand{\jangle}{q}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Bound
+\newcommand{\jvelocitiesUpperBound}{\mathbf{\dot{\bar{\jangle}}}}
+\newcommand{\jvelocitiesLowerBound}{\mathbf{\dot{\ubar{\jangle}}}}
+\newcommand{\jvelocitiesJumpUpperBound}{\jump \jvelocitiesUpperBound}
+\newcommand{\jvelocitiesJumpLowerBound}{\jump \jvelocitiesLowerBound}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Def equal
+\newcommand{\jointVel}[2]{\twistVel^{#1}_{J#2}}%
+\newcommand{\jointVelDef}[2]{\spatialVel{#1}{#2}}%
+\newcommand{\jointAcc}[2]{\dot{\twistVel}^{#1}_{J#2}}%
+\newcommand{\jointAccDef}[2]{\spatialAcc{#1}{#2}}%
+
+
+% In Body coordinates: #1 Joint index
+% *predecessor idx: #1 -1  *successor #1
+\newcommand{\jointVelBody}[1]{
+  \textcolor{bodyVelColor}{
+    \twistVel_{J#1}
+  }
+}
+\newcommand{\jointVelBodynew}[2]{
+  \textcolor{bodyVelColor}{
+    \twistVel^{#1}_{J#2}
+  }
+}
+% Defines the Joint frame number. The joint locates on the link #1-1 and does not depend on the #1th joint position
+% #1 Joint index
+\newcommand{\jointFrameDef}[1]{
+  (#1 -1, #1)
+}
+% In Body coordinates: #1 Joint index
+% *predecessor idx: #1 -1  *successor #1
+\newcommand{\jointVelBodyDef}[1]{
+  \bodyVel{\jointFrameDef{#1}}{#1}
+  % \bodyVel{(#1-1, #1)}{#1}
+}
+% In Body coordinates: #1 Reference Frame  #2 Joint index
+% *predecessor idx: #2 -1  *successor #2
+% Due to the rigid link assumption, this formula assumes \bodyVel{(#2-1)}{(#2-1, #2)} = 0.
+\newcommand{\jointVelBodyDefDef}[2]{
+  \bodyVel{#1}{#2} - \twistTransform{(#2-1)}{#2}\bodyVel{#1}{(#2-1)}
+}
+
+% In Body coordinates: #1 Joint index
+% *predecessor idx: #1 -1  *successor #1
+\newcommand{\jointAccBody}[1]{
+  \textcolor{bodyVelColor}{
+    \dot{\twistVel}_{J#1}
+  }
+}
+% In Body coordinates: #1 Joint index
+% *predecessor idx: #1 -1  *successor #1
+\newcommand{\jointAccBodyDef}[2]{
+  \bodyAcc{\jointFrameDef{#1}}{#1}
+}
+
+
+% #1 Spatial frame or body frame, #2 joint index.
+\newcommand{\linkVel}[2]{\twistVel^{#1}_{L#2}}%
+\newcommand{\linkVelBody}[2]{
+  \textcolor{bodyVelColor}{
+    \twistVel^{#1}_{L#2}
+  }
+}%
+\newcommand{\linkAcc}[2]{\dot{\twistVel}^{#1}_{L#2}}%
+
+% The force transmits across a joint.
+% #1 Reference frame, #2 joint index.
+\newcommand{\body}[1]{#1^{b}}
+\newcommand{\spatial}[1]{#1^{s}}
+
+% Joint positions are unified via \jangles[overhead][superscript][type][postscript]:
+%   \jangles             -> \bs{q}              (default, joint position)
+%   \jangles[dot]        -> \dot{\bs{q}}
+%   \jangles[ddot]       -> \ddot{\bs{q}}
+%   \jangles[][][actuated]    -> \bs{\theta}    (actuated joint angles)
+%   \jangles[][][generalized] -> \bs{\mathcal{X}} (floating-base generalized coordinates)
+%   \jangles[][][fb]     -> \bs{q}_{\text{fb}}  (floating-base joint position)
+% Simple symbol aliases for use with subscripts in equations:
+\newcommand{\jointPosition}{\bs{\theta}}
+\newcommand{\jointPositiond}{\dot{\jointPosition}}
+\newcommand{\jointPositiondd}{\ddot{\jointPosition}}
+
+% ################## Coordinate frames
+
+% The frame defined by Christian Ott:
+\newcommand{\jointAngle}{\theta}
+\newcommand{\jointAngled}{\dot{\jointAngle}}
+% \jangles[][][actuated] is now unified as \jangles[][][actuated]
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 12. JACOBIANS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\applyJacobianSubscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {contact}{
+    \contactPoint
+    }%
+    }[#1] % "default" string
+}
+
+\newcommand{\jacobianSymbol}{\text{J}}
+\NewDocumentCommand{\jacobian}{O{}O{}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        \applyOverheadSymbols{#1}{\jacobianSymbol}
+        % 'contact',
+        _{\applyJacobianSubscript{#2}}%
+    }
+    }
+}
+
+
+
+\newcommand{\jacobianVector}{\bs{\jacobian}}
+
+\newcommand{\jac}[1]{\jacobian_{#1}} % Jacobian of a special quantity
+\newcommand{\jacd}[1]{\dot{\jacobian}_{#1}} % Jacobian of a special quantity
+\newcommand{\jacdd}[1]{\ddot{\jacobian}_{#1}} % Jacobian of a special quantity
+
+\newcommand{\jacobianMotion}{\jacobian_{\text{m}}}%
+
+
+%%%%%%%%%%%%%%%% The articulated-body inertia
+% Matrix spans a subspace
+\newcommand{\rVelJac}[2]{{
+  \textcolor{bodyVelColor}{
+    \jacobian^{'\bodyFrame}_{#1#2}
+  }
+}}
+
+% The relative velocity Jacobian: vel = vel(induced by cmm vel) + relative vel
+% #1 inertial frame #2 body frame
+\newcommand{\rVel}[2]{{
+  \textcolor{bodyVelColor}{
+    \vc{V}^{'\bodyFrame}_{#1#2}
+  }
+}}
+% #1 inertial frame #2 body frame
+\newcommand{\rVelJacDef}[2]{{
+    (\bodyJacobian{#1}{#2} - \twistTransform{\cmmFrame}{#2}\bodyJacobian{#1}{\cmmFrame})
+}}
+
+
+
+\newcommand{\appBodyJacobian}[2]{
+  \textcolor{bodyVelColor}{
+    {\tilde{{\jacobian}}^{\bodyFrame\text{t}}_{#1 #2}}
+  }
+}
+\newcommand{\tBodyJacobian}[2]{
+  \textcolor{bodyVelColor}{
+    {\jacobian^{\bodyFrame\text{t}}_{#1 #2}}
+  }
+}
+\newcommand{\rBodyJacobian}[2]{
+  \textcolor{bodyVelColor}{
+    {\jacobian^{\bodyFrame\text{R}}_{#1 #2}}
+  }
+}
+
+%  Define a macro with an optional argument for dot, or more.
+\newcommand{\bodyJacobian}[3][]{
+  \textcolor{bodyVelColor}{
+      #1{\jacobian}^{\bodyFrame}_{#2 #3}
+  }
+}
+
+\newcommand{\bodyJacobiand}[2]{
+  \textcolor{bodyVelColor}{
+    \dot{\jacobian}^{\bodyFrame}_{#1 #2}
+  }
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% QP Control law
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 13. INERTIA, MASS, AND MOMENTUM
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\smm}{
+  \textcolor{bodyVelColor}{
+    \bs{A}
+  }
+}
+
+\newcommand{\systemMomenta}{
+  \textcolor{bodyVelColor}{
+    \bs{h}
+  }
+}
+\newcommand{\momenta}{
+  \bs{h}
+}
+
+% The momentum transform looks the same as the wrench transform
+%%% #1:current frame, #2:target frame
+\newcommand{\geometricMT}[2]{
+  \geometricFT{#1}{#2}
+}
+\newcommand{\geometricMTTwo}[2]{
+  \geometricFTTwo{#1}{#2}
+}
+\newcommand{\systemVel}{
+  \textcolor{bodyVelColor}{
+    \bs{V}
+  }
+}
+\newcommand{\systemJacobian}{
+  \textcolor{bodyVelColor}{
+   \jacobian
+  }
+}
+\newcommand{\systemJacobiand}{
+  \textcolor{bodyVelColor}{
+   \jacobian[dot]
+  }
+}
+
+\newcommand{\momentum}{\bs{h}}
+\newcommand{\momentumd}{\dot{\bs{h}}}
+
+%%% #1 reference frame, #2 link index
+\newcommand{\momentumFrame}[2]{\bs{h}_{#1#2}}
+
+%%% The canonical momenta:
+\newcommand{\canoMomenta}{{\bs{h}_{J}}}
+
+%%% The system momentum per link
+\newcommand{\sMomentum}{{\bs{h}_{s}}}
+
+%%% The contact momentum per contact
+\newcommand{\cMomentum}{{\bs{h}_{c}}}
+
+% #1:reference frame, #2:contact index
+\newcommand{\cMomentumDef}[2]{
+  \equivalentMass_{#2} \spatialVel{#1}{#2}
+}
+
+\newcommand{\cMomentumDefDef}[2]{
+  {\equivalentMassDef{#1}{#2}} \spatialVel{#1}{#2}
+}
+
+
+\newcommand{\cmmMomenta}{
+  \textcolor{bodyVelColor}{
+  \bs{h}_{\cmmFrame}
+ }
+}
+\newcommand{\cmmInertia}{
+  \textcolor{bodyVelColor}{
+    \bs{I}_{\cmmFrame}
+  }
+}
+
+\newcommand{\cmmInertiaDef}{
+  \agg{i}{\dof}{\spatialGInertia{\cmmFrame}{i}}
+}
+\newcommand{\cmmRelativeInertia}{
+  \textcolor{bodyVelColor}{
+    \bs{I}'_{\cmmFrame}
+  }
+}
+\newcommand{\cmmRelativeInertiaDef}{
+  \textcolor{bodyVelColor}{
+    \quadraticObj{\rVelJac{}{}}{\systemInertia}
+  }
+}
+
+\newcommand{\cmmInertiaDefTwo}{
+  \agg{i}{\dof}{\spatialGInertia{\cmmFrame}{i}}
+}
+
+\newcommand{\cmmInertiaDetail}{
+  \textcolor{bodyVelColor}{
+    \bs{I}_{\cmmFrame}
+  }
+}
+
+\newcommand{\linearMomentumSymbol}{P}
+\NewDocumentCommand{\linearMomentum}{O{}O{}O{}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        \applyOverheadSymbols{#1}{\linearMomentumSymbol}
+        % Check the second optional argument for 'ref'
+        ^{\applySuperscript{#2}}
+        \applyPostscript{#3}
+    }
+    }
+}
+%  The angular Momentum
+\newcommand{\angularMomentumSymbol}{\textcolor{textColor}{\mathcal{L}}}
+\NewDocumentCommand{\angularMomentum}{O{}O{}O{}O{}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        \applyOverheadSymbols{#1}{\angularMomentumSymbol}
+        % Check the second optional argument for 'ref'
+        _{#2}
+        ^{\applySuperscript{#3}}
+        \applyPostscript{#4}
+    }
+    }
+}
+
+
+
+%  The linear Momentum
+\newcommand{\aMomentum}{\mathcal{L}}
+
+\newcommand{\cmmSymbol}{
+\textcolor{bodyVelColor}{
+A
+}
+}
+
+
+
+
+\newcommand{\applyCmmSuperscript}[1]{%
+\textcolor{bodyVelColor}{
+    \IfStrEqCase{#1}{%
+    {l}{
+    \text{t}
+    }%
+    {r}{
+    \text{r}
+    }%
+    }[] % "default" string
+    }
+}
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%% EQUATION VARIABLES:
+\NewDocumentCommand{\cmm}{O{}O{default}O{default}O{default}}{%
+{    \ensuremath{%
+        % Check the first optional argument for dot or double dot
+        \applyOverheadSymbols{#1}
+        {\cmmSymbol}_{\textcolor{bodyVelColor}{\cmmFrame}}
+        % Check the second optional argument for linear or angular
+        ^{\applyCmmSuperscript{#2}}%
+         \applyPostscript{#3}
+    }
+    }
+}
+
+
+\newcommand{\cmmt}{
+  \textcolor{bodyVelColor}{
+    A^{\text{t}}_{\cmmFrame}(\jangles)
+  }
+}
+
+
+\newcommand{\cmmr}{
+  \textcolor{bodyVelColor}{
+    A^{\text{r}}_{\cmmFrame}(\jangles)
+  }
+}
+
+\newcommand{\cmmLinear}{A_{\bs{v}\cmmFrame}}
+
+\newcommand{\cmmDot}{
+  \textcolor{bodyVelColor}{
+  \dot{A}_{\cmmFrame}(\jangles[][][actuated])
+}
+}
+
+\newcommand{\cmmPlane}{
+  \textcolor{bodyVelColor}{
+    A_{\cmmFrame_{x,y}}
+  }
+}
+
+\newcommand{\aii}{\bs{\Phi}}
+\newcommand{\aiiDef}[2]{#1 \inverse{(\transpose{#1} #2 #1)}\transpose{#1}}
+% The joint acc of a rigid body constrianed by a joint.
+% #1 the joint jacobian, #2 the inertia
+\newcommand{\aInertia}{{I^A}}%
+
+%%%%%%%%%%%%%%%% Motion constraint:
+
+% The implicit constraint: \Phi(\dot{q}) = 0
+% #1 Joint position
+\newcommand{\fbVel}{
+  \bs{V}_{\fbFrame}
+}
+\newcommand{\fbAcc}{
+  \dot{\bs{V}}_{\fbFrame}
+}
+
+\newcommand{\cmmVel}{
+  \textcolor{bodyVelColor}{
+    \bs{V}_{\cmmFrame}
+  }
+}
+
+\newcommand{\cmmVelDef}{
+  \bodyVel{\inertialFrame}{\cmmFrame}
+}
+\newcommand{\cmmVelDefDef}{
+  \inverse{\cmmInertia} \cmmMomenta
+}
+%%%%%%%%%%%% Exponential Map given unit skew matrix and a real number
+%%% #1:input matrix
+\newcommand{\crbVel}{
+  {^{crb}\bs{V}}
+}
+
+%%% Spatial CRB inertia
+% #1 inertial frame #2 body frame
+\newcommand{\spatialCrbInertia}[2]{
+  {^{crb}I^s_{#1#2}}
+}
+
+%%% CRB inertia
+\newcommand{\crbGInertia}{
+  {^{crb}I}
+}
+
+%%% System inertia
+\newcommand{\systemInertia}{
+  \textcolor{bodyVelColor}{
+    I
+  }
+}
+
+
+%%%%%%%%%%%
+
+\newcommand{\averageVel}{
+  \bar{\systemVel}
+}
+\newcommand{\relativeVel}{{\systemVel'}}
+% The relative velocity Jacobian: vel = vel(induced by cmm vel) + relative vel
+% #1 inertial frame #2 body frame
+\newcommand{\equivalentMass}{{M_{eq}}}
+% The 6-by-6 equivalent inertensor
+\newcommand{\eInertiaTensor}{{I_{eq}}}
+
+\newcommand{\osInertia}{{\Lambda}}
+% The operational space bias force
+\newcommand{\osBias}{{\bs{p}}}
+
+% #1:reference frame #2:contact index
+\newcommand{\equivalentMassDef}[2]{
+  \inverse{\left(
+      \spatialJacobian{#1}{#2} \inverse{\inertiaMatrix}_{#2}
+     \transpose{{\spatialJacobian{#1}{#2}}}
+   \right)}
+}
+
+\newcommand{\geometricFTDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \adgInvTransDef{#2}{#1}
+  }
+}
+
+% From frame #1 to frame #2
+\newcommand{\geometricFTTwo}[2]{
+  \textcolor{geometricColorVariable}{
+    \adgTrans{#1}{#2}
+  }
+}
+\newcommand{\geometricFTTwoDef}[2]{
+  \textcolor{geometricColorVariable}{
+    \adgTransDef{#1}{#2}
+  }
+}
+
+% From frame #1 to frame #2
+\newcommand{\geometricFT}[2]{
+  \textcolor{geometricColorVariable}{
+    \adgInvTrans{#2}{#1}
+  }
+}
+
+% From frame #1 to frame #2
+\newcommand{\geometricFTd}[2]{
+  \textcolor{geometricColorVariable}{
+    \derivative{\adgInvTrans{#2}{#1}}
+  }
+}
+
+% From frame #1 to frame #2
+\newcommand{\geometricFTdDef}[2]{
+  \textcolor{geometricColorVariable}{
+    -\transpose{\cross{\spatialVel{#2}{#1}}{}}\geometricFT{#1}{#2}
+  }
+}
+\newcommand{\geometricFTdDefTwo}[2]{
+  \textcolor{geometricColorVariable}{
+    \dualCross{\spatialVel{#2}{#1}}{}\geometricFT{#1}{#2}
+  }
+}
+\newcommand{\geometricFTdDefThree}[2]{
+  \textcolor{geometricColorVariable}{
+        \transpose{(\bodyVel{#1}{#2}\times)} \transpose{\twistTransform{#2}{#1}}
+  }
+}
+
+\newcommand{\bodyGInertia}[2]{
+\textcolor{bodyVelColor}{
+  \body{\gInertia}_{#1 #2}
+  }
+}
+
+
+\newcommand{\mechanicalConnection}{
+  \bs{A}
+}
+
+
+
+
+\newcommand{\bodyGInertiaDef}[2]{
+  \textcolor{bodyVelColor}{
+    \matrixTwo{\mass_{#2} \identityMatrix }{\zeroMatrix}{\zeroMatrix}{\bodyMetaInertia{#1}{#2}}
+  }
+}
+
+\newcommand{\spatialGInertia}[2]{
+  \textcolor{spatialVelColor}{
+    \spatial{\gInertia}_{#1#2}
+  }
+}
+
+\newcommand{\spatialGInertiad}[2]{
+  \textcolor{spatialVelColor}{
+    \spatial{\dot{\gInertia}}_{#1#2}
+  }
+}
+
+\newcommand{\spatialGInertiadDef}[2]{
+  \textcolor{spatialVelColor}{
+    % -\transpose{(\cross{\spatialVel{#1}{#2}}{})} \spatialGInertia{#1}{#2} - \spatialGInertia{#1}{#2}\cross{\spatialVel{#1}{#2}}{}
+    \dualCrossDef{\spatialVel{#1}{#2}}{\spatialGInertia{#1}{#2}}
+    - \spatialGInertia{#1}{#2}\cross{\spatialVel{#1}{#2}}{}
+  }
+}
+
+\newcommand{\spatialGInertiadDefTwo}[2]{
+  \textcolor{spatialVelColor}{
+    \dualCross{\spatialVel{#1}{#2}}{\spatialGInertia{#1}{#2}}
+    - \spatialGInertia{#1}{#2}\cross{\spatialVel{#1}{#2}}{}
+  }
+}
+
+% #1 Current reference frame #2 New Reference frame
+\newcommand{\momentaTransform}[2]{
+  \transpose{\twistTransform{#2}{#1}}
+}
+\newcommand{\momentaTransformDef}[2]{
+  \transpose{\twistTransformDef{#2}{#1}}
+}
+
+% #1 Current reference frame #2 New Reference frame
+\newcommand{\spatialGInertiaTransform}[3]{
+  \transpose{\twistTransform{#3}{#1}}\spatialGInertia{#1}{#2}\twistTransform{#3}{#1}
+}
+
+% #1 and #2 defines the spatial generalized inertia to be transformed.
+% #1 Reference frame #2 body frame
+% #3 defines the new reference frame
+\newcommand{\spatialCrbInertiaTransform}[3]{
+  \transpose{\twistTransform{#3}{#1}}\spatialCrbInertia{#1}{#2}\twistTransform{#3}{#1}
+}
+
+\newcommand{\gInertiaTransform}[3]{
+  \transpose{\twistTransform{#1}{#2}}
+  #3
+  \twistTransform{#1}{#2}
+}
+
+\newcommand{\spatialGInertiaDef}[2]{
+  \transpose{\twistTransform{#1}{#2}}
+  % \bodyGInertia{#1}{#2}
+  \spatialGInertia{#2}{\com_{#2}}
+  \twistTransform{#1}{#2}
+}
+
+\newcommand{\spatialGInertiaDefTwo}[2]{
+  \transpose{\twistTransformTwo{#1}{#2}}
+  % \bodyGInertia{#1}{#2}
+  \spatialGInertia{#2}{\com_{#2}}
+  \twistTransformTwo{#1}{#2}
+}
+% #1 Reference frame #2 body frame
+\newcommand{\spatialGInertiaDefDef}[2]{
+  % \transpose{{\adgInvDef{#1}{#2}}} \bodyGInertiaDef{#2}\adgInvDef{#1}{#2}
+  \transpose{{\twistTransformDef{#1}{#2}}}
+  \spatialGInertia{#2}{\com_{#2}}
+  % \bodyGInertiaDef{#1}{#2}
+  \twistTransformDef{#1}{#2}
+}
+\newcommand{\spatialGInertiaDefDefTwo}[2]{
+  % \transpose{{\adgInvDef{#1}{#2}}} \bodyGInertiaDef{#2}\adgInvDef{#1}{#2}
+  \transpose{{\twistTransformTwoDef{#1}{#2}}}
+  % \bodyGInertiaDef{#1}{#2}
+  \spatialGInertia{#2}{\com_{#2}}
+  \twistTransformTwoDef{#1}{#2}
+}
+
+% #1 Reference frame #2 body frame
+\newcommand{\spatialGInertiaDetail}[2]{
+  \textcolor{spatialVelColor}{
+\matrixTwo{
+  \mass_{#2} \identityMatrix
+}{
+  \mass_{#2}\transpose{\translationSkew{#1}{#2}}
+}{
+  \mass\translationSkew{#1}{#2}
+}{
+  \mass \translationSkew{#1}{#2} \transpose{\translationSkew{#1}{#2}} + \rotation{#1}{#2}\bodyMetaInertia{#1}{#2}\rotationInv{#1}{#2}
+}
+}
+}
+% #1 Reference frame #2 body frame
+\newcommand{\spatialGInertiaDiagonalDetail}[2]{
+  \textcolor{spatialVelColor}{
+\matrixTwo{
+  \mass_{#2} \identityMatrix
+}{
+  \zeroMatrix
+}{
+  \zeroMatrix
+}{
+  \rotation{#1}{#2}\bodyMetaInertia{#1}{#2}\rotationInv{#1}{#2}
+}
+}
+}
+
+% #1 Reference frame #2 body frame
+\newcommand{\metaInertia}{\mathcal{I}}
+
+
+
+% #1: the reference frame and #2 the link frame
+\newcommand{\spatialMetaInertia}[2]
+{
+\textcolor{spatialVelColor}{
+  \spatial{\metaInertia}_{{#1}{#2}}
+}
+}
+% #1: the reference frame and #2 the link frame
+\newcommand{\bodyMetaInertia}[2]
+{
+  \textcolor{bodyVelColor}{
+      \body{\metaInertia}_{{#1 #2}}
+    }
+}
+\newcommand{\spatialInertia}{\mathcal{I}^{\prime}}
+
+\newcommand{\gInertia}{\mathcal{M}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 14. EQUATIONS OF MOTION
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\numArticulatedJoints}{n}
+\newcommand{\nAJ}{n}
+\newcommand{\ajDim}{\text{n}}
+\newcommand{\actuationMatrix}{\text{B}}
+
+\newcommand{\numLinks}{{n_{L}}}
+\newcommand{\fbDim}{6}
+\newcommand{\jsDim}{(\numArticulatedJoints+\fbDim)}
+\newcommand{\selectionMatrix}{
+  \textcolor{textColor}{
+  \text{S}
+  }
+}
+
+\newcommand{\subspace}{S}
+
+% The apparent inverse inertia. #1 subspace #2 inertia
+\newcommand{\jaccConstrained}[2]{
+  \inverse{(\transpose{#1} #2 #1)}\transpose{#1}(\jaWrench{}{} - #2\dot{#1}\jvelocities - \biasForce )
+}
+
+% #1 Spatial frame, #2 joint index.
+\newcommand{\cwBasis}{T}%
+% The orthonormal basis of the Actuation wrench. T_a \in \RRm{6}{1}
+\newcommand{\awBasis}{{T_a}}%
+% The motion subspace:
+\newcommand{\mBasis}{{S}}%
+
+
+% The projection matrix that describes the connections between different links in a multi-body system
+% The connectivity matrix
+\newcommand{\pMatrix}{
+  \textcolor{spatialVelColor}{
+    P
+  }
+}%
+
+\newcommand{\pMatrixBody}{
+  \textcolor{bodyVelColor}{
+    P
+  }
+}%
+
+
+% The articulated-body inertia
+\newcommand{\ic}[1]{\Phi(#1)}
+
+
+% The constraint kernel: K \dot{q} = 0
+\newcommand{\ick}{K}
+\newcommand{\ickd}{\dot{\ick}}
+%%% #1 Joint position
+\newcommand{\ickDef}[1]{\pd{\ic{#1}}{#1}}
+
+% The explicit constraint:  q = \gamma(x)
+% #1 End-effector position
+\newcommand{\ec}[1]{\gamma(#1)}
+
+% The explicit constraint kernel:  \dot{q} = \eck\dot{x}
+% #1 End-effector position
+\newcommand{\eck}{G}
+\newcommand{\eckDef}[1]{\pd{\ec{#1}}{#1}}
+
+\newcommand{\eckd}{\dot{\eck}}
+
+
+\newcommand{\cForce}{\bs{\lambda}}
+
+\newcommand{\cTorque}{\jtorques_c}
+
+% Dimension of the constriants
+\newcommand{\cDim}{m}
+\newcommand{\cRank}{m_{ic}}
+
+
+%%%%%%%%%%%%%%%%
+
+
+% Contact Vel:
+\newcommand{\gravitySymbol}{\mathbf{g}}
+\newcommand{\gravity}[1][default]{
+    \IfStrEqCase{#1}{%
+        {value}{9.81}%
+        {vec}{\vectorThree{0}{0}{-1g}}%
+    }[\gravitySymbol] % "default" string
+}
+
+% Operational space graviational forces
+\newcommand{\sDim}{\text{n}}
+% input dimension
+\newcommand{\iDim}{\text{m}}
+
+
+% First-order partial derivative #1 quantity, #2 variable
+\newcommand{\gForce}{{\text{\bf g} }}
+\newcommand{\gForceDef}{\vectorThree{0}{0}{-1}g}
+\newcommand{\gValue}{\text{9.81}}
+\newcommand{\gSymbol}{\text{g}}
+
+
+
+
+\newcommand{\dof}{n}
+\newcommand{\jsim}{\inertiaMatrix}
+\newcommand{\inertiaMatrix}{\text{M}}
+\newcommand{\inertiaMatrixFull}{\text{M}(\jangles)}
+\newcommand{\gravityandcoriolis}{\mathbf{N}}
+\newcommand{\gravityandcoriolisFull}{\gravityandcoriolis(\jangles, \jangles[dot])}
+\newcommand{\coriolis}{\mathbf{C}}
+
+\newcommand{\inertiaMatrixd}{\dot{\inertiaMatrix}}
+
+%%% #1:row index, #2:column index
+\newcommand{\inertiaMatrixComponentDef}[2]{
+\sum^\dof_{l = max(#1,#2)}{
+  \transpose{
+    \twistC{S}{#1}(t_0)
+  }\transpose{
+    \twistTransform{#1}{l}
+  }
+  \spatialGInertia{S}{\com_l}(t_0)
+  \twistTransform{#2}{l}\twistC{S}{#2}(t_0)
+}
+}
+
+\newcommand{\inertiaMatrixComponentDefTwo}[2]{
+\sum^\dof_{l = max(#1,#2)}{
+  \transpose{
+    \twistC{S}{#1}(t_0)
+  }\transpose{
+    \adg{l}{#1}
+  }
+  \spatialGInertia{S}{\com_l}(t_0)
+  \adg{l}{#2}
+  \twistC{S}{#2}(t_0)
+}
+}
+
+%%%%%%%%%%%%%%%%%% inertiaMatrix partial derivative:
+%%% #1:row index, #2:column index, #3 theta index
+\newcommand{\inertiaMatrixdComponentDef}[3]{
+  \sum^\dof_{l = max(#1,#2)}{\left(
+      \transpose{
+        \liebra{\adg{#3}{#1}\twistC{S}{#1}}{\twistC{S}{#3}}
+      }
+      \transpose{
+        \adg{l}{#3}
+      }
+      \spatialGInertia{S}{\com_l}(t_0)
+      \adg{l}{#2}
+      \twistC{S}{#2}(t_0)
+      +
+      \transpose{
+        \twistC{S}{#1}(t_0)
+      }\transpose{
+        \adg{l}{#1}
+      }
+      \spatialGInertia{S}{\com_l}(t_0)
+      \adg{l}{#3}\liebra{\adg{#3}{#2}\twistC{S}{#2}}{\twistC{S}{#3}}.
+      % \adg{l}{#2}
+      % \twistC{S}{#2}(t_0)
+    \right)
+  }
+}
+
+
+
+\newcommand{\cMatrix}{C(\jointPosition, \jointPositiond)}
+\newcommand{\nVector}{N}
+\newcommand{\rpTransform}{\mathcal{T}}
+\newcommand{\rpTransformd}[1]{\mathcal{#1}}
+
+\newcommand{\coordinateTransformed}[2]{
+\transpose{{\inverse{#2}}} #1 \inverse{#2}
+}
+
+
+
+\newcommand{\cristoffelSymbol}[3]{\Gamma_{#1#2#3}}
+
+%%% #1 Reference frame: #2 notation
+\newcommand{\cMatrixComponent}[3]{
+  \Gamma_{#1#2#3}
+}
+%%%%%%%%%%% #1:row index, #2:column index, #3 index (between 1 and dof)
+\newcommand{\cMatrixComponentDef}[3]{
+  \frac{1}{2}\left(
+    \pd{\inertiaMatrix_{#1#2}}{\jointPosition_{#3}}
+    +\pd{\inertiaMatrix_{#1#3}}{\jointPosition_{#2}}
+    -\pd{\inertiaMatrix_{#3#2}}{\jointPosition_{#1}}
+  \right)
+}
+
+
+
+% #1:reference frame, #2:notation of the twist
+\newcommand{\biasForce}{\bs{p}}
+
+\newcommand{\kineticEnergy}{T(\jointPosition, \jointPositiond)}
+\newcommand{\potentialEnergy}{V(\jointPosition)}
+\newcommand{\totalEnergy}{H}
+
+\newcommand{\lagR}{\mathcal{L}(\jointPosition, \jointPositiond)}
+
+\newcommand{\lagRDef}{
+  \quadratic{\jointPositiond}{\inertiaMatrix} + \potentialEnergy
+}
+
+%%% #1: dof number
+\newcommand{\lagRDefDef}[1]{
+  \frac{1}{2}\sum^{#1}_{i,j=1}\inertiaMatrix_{ij}(\jointPosition)\jointAngled_i\jointAngled_j - \potentialEnergy
+}
+
+% The Lagrange multipliers
+\newcommand{\lm}{\bs{\lambda}}
+
+%%% #1: link index
+\newcommand{\lagREquations}[1]{
+  \derivative{\pd{\lagR}{\jointAngled_{#1}}} - \pd{\lagR}{\jointPosition_{#1}} = \torque_{#1}
+}
+
+% The Lagrange's equation of a link
+%%% #1: link index
+\newcommand{\lagREquationsDef}[1]{
+  \agg{j}{\dof}{
+  (\inertiaMatrixd_{#1j}\jointPositiond_j  + \inertiaMatrix_{#1j}\jointPositiondd_j)
+}
+- \frac{1}{2}\agg{#1}{\dof}
+{
+  \pd{\inertiaMatrix_{#1j}}{\jointPosition_#1} \jointPositiond_#1\jointPositiond_j
+  - \pd{\potentialEnergy}{\jointPosition_#1}
+}
+  = \torque_{#1}
+}
+
+
+\newcommand{\lagREquationsDefDef}[1]{
+  \agg{j}{\dof}{
+    \inertiaMatrix_{#1j}\jointPositiondd_j
+  }
+  + \frac{1}{2}\agg{j,k}{\dof}{(
+    \pd{\inertiaMatrix_{#1j}}{\jointPosition_k}
+    +\pd{\inertiaMatrix_{#1k}}{\jointPosition_j}
+    - \pd{\inertiaMatrix_{kj}}{\jointPosition_#1}
+    % \christoffelSymbolDef{#1}{j}{k}
+  )\jointPositiond_k\jointPositiond_j}
++ \pd{\potentialEnergy}{\jointPosition_#1}
+  = \torque_{#1}
+}
+%%%% #1 link index #2,#3 iteration index
+\newcommand{\christoffelSymbol}[3]{
+  \Gamma_{#1#2#3}
+}
+\newcommand{\christoffelSymbolDef}[3]{
+  \frac{1}{2}(
+    \pd{\inertiaMatrix_{#1#2}}{\jointPosition_#3}
+    +\pd{\inertiaMatrix_{#1#3}}{\jointPosition_#2}
+    - \pd{\inertiaMatrix_{#3#2}}{\jointPosition_#1})
+}
+
+
+% The argument are: force, torque
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 15. WRENCHES, FORCES, AND TORQUES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\jointForce}[2]{\force^{#1}_{J#2}}%
+\newcommand{\jointWrench}[2]{\wrench^{#1}_{J#2}}%
+
+% #1 Reference frame, #2 joint index.
+\newcommand{\linkWrench}[2]{\wrench^{#1}_{L#2}}%
+
+% The actuation force of a joint
+% #1 Reference frame, #2 joint index.
+\newcommand{\jaForce}[2]{\force^{#1}_{a#2}}%
+\newcommand{\jaWrench}[2]{\wrench^{#1}_{a#2}}%
+% #1 joint index.
+\newcommand{\jaWrenchDef}[1]{\wrench^\jointFrameDef{#1}_{a\jointFrameDef{#1}}}%
+
+
+% The constraint force implements the motion constriant.
+% #1 Reference frame, #2 joint index.
+\newcommand{\jcForce}[2]{\force^{#1}_{c#2}}%
+\newcommand{\jcWrench}[2]{\wrench^{#1}_{c#2}}%
+% #1 joint index.
+\newcommand{\jcWrenchDef}[1]{\wrench^{\jointFrameDef{#1}}_{c\jointFrameDef{#1}}}%
+
+% The orthonormal basis of the constraint wrench. For example, T \in \RRm{6}{5} for a joint. and T \in \RRm{6}{1} for a point contact.
+\newcommand{\inertialWrench}{{\wrench_{\inertialFrame}}}
+\newcommand{\inertialForce}{{\force_{\inertialFrame}}}
+\newcommand{\inertialTorque}{{\torque_{\inertialFrame}}}
+
+\newcommand{\comForce}{{\force_{\com}}}
+\newcommand{\comTorque}{{\torque_{\com}}}
+
+
+% Z direction of the inertial frame
+\newcommand{\cwc}{\bs{C}}
+
+\newcommand{\wrenchC}[2]{
+\begin{bmatrix}
+#1\\
+#2
+\end{bmatrix}
+}
+
+% The argument are: force, torque
+\newcommand{\wrenchR}[2]{
+[#1^\top, #2^\top]^\top
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 16. CONTACT, FRICTION, AND IMPACT DYNAMICS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\impactDuration}{\delta t}
+
+
+
+\newcommand{\nextState}[1]{{#1}_{t_{k+1}}}
+\newcommand{\nextStateB}[2]{{#1}_{#2,t_{k+1}}}
+\newcommand{\nextStateTwo}[1]{{#1(t_{k+1})}}
+
+\newcommand{\jump}{\Delta}
+\newcommand{\impactduration}{\delta t}
+\newcommand{\pointer}[2]{\overrightarrow{{#1}{#2}}}
+\newcommand{\pointerDef}[2]{{\bs{#2}  - \bs{#1}}}
+
+\newcommand{\pointerPerp}[2]{\overrightarrow{#1#2}_{\perp}}
+
+
+\newcommand{\work}[1]{w_{#1}} % work done by #1
+\newcommand{\impulse}{\bs{\iota}}
+\newcommand{\impulseScalar}{\iota}
+
+\newcommand{\quantityJump}{\jump \quantity}
+\newcommand{\jtorquesJump}{\jump \jtorques}
+\newcommand{\eevelocity}{\bs{\dot{x}}}
+\newcommand{\eevelocityJump}{\jump \eevelocity}
+\newcommand{\forceJump}{\jump \force}
+
+\newcommand{\initial}[1]{{#1}_{0}}
+\newcommand{\viable}[1]{{#1}^{\viableSymbol}}
+
+\newcommand{\current}[1]{{#1}_{t_{k}}}
+\newcommand{\currentTwo}[1]{#1(t_{k})}
+\newcommand{\nextTwo}[1]{{#1(t_{k+1})}}
+\newcommand{\previous}[1]{{#1}_{t_{k-1}}}
+
+\newcommand{\impactNormal}{\bs{n}}
+
+\newcommand{\surfaceNormal}{\bs{n}}
+\newcommand{\projection}{P}
+
+\newcommand{\projectionDef}[1]{{#1}{#1}^{\top}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% C++ code
+
+\newcommand{\lcpMass}{\text{M}_{\text{lcp}}}
+\newcommand{\lcpd}{\text{d}_{\text{lcp}}}
+% separation velocity:
+\newcommand{\seVelocity}{\dot{\bs{\xi}}}
+\newcommand{\seDistance}{\bs{\xi}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Impact dynamics:
+
+%%%%% Impact duration and structural dynamics
+
+% The critical impact velocity that leads to visible plastic indentation.
+\newcommand{\icVel}{\contactVel_{cr}}
+
+% The yielding impact velocity that leads to plastic deformations that are not visible.
+\newcommand{\iyVel}{\contactVel_{Y}}
+
+%%%%%
+
+\newcommand{\contactVel}{\bs{v}}
+\newcommand{\nContactVel}{v_n}
+\newcommand{\nContactVelR}{\contactVel_{nr}}
+\newcommand{\nContactVelS}{\contactVel_{ns}}
+\newcommand{\nContactVelL}{\contactVel_{nl}}
+\newcommand{\nContactVelF}{\contactVel_{n,f}}
+% The point where the tangential contactvel and its derivative are collinear.
+\newcommand{\tVelL}{\contactVel_{gl}}
+\newcommand{\tVelZero}{{\tp{\contactVel}}_{0}}
+
+\newcommand{\cln}{\bs{s}}
+
+% notation of the impacting body
+\newcommand{\ib}{1}
+
+% notation of the object
+\newcommand{\ob}{2}
+
+% virtual spring length
+\newcommand{\vSpringL}{x}
+\newcommand{\vSpringLd}{\dot{x}}
+% spring coefficient
+\newcommand{\vSpringC}{k}
+\newcommand{\vDamperC}{c}
+
+% The potential energy stored in the virtual spring
+\newcommand{\pEnergy}{{{E}_p}}
+\newcommand{\dEnergy}{{{E}_d}}
+\newcommand{\dEnergyd}{{\dot{{E}}_d}}
+
+% The kinetic energy
+\newcommand{\kEnergy}{{E_k}}
+\newcommand{\kEnergyd}{{\dot{E}_k}}
+
+% #1 denotes the normal impulse
+\newcommand{\pEnergyIntOne}[1]{\Phi_1(#1)}
+% #1 denotes the normal impulse
+\newcommand{\pEnergyIntTwo}[1]{\Phi_2(#1)}
+
+\newcommand{\pEnergyd}{\dot{E}}
+
+% Impulse at the end of the impact process
+\newcommand{\impulseEnd}{\impulse_r}
+
+% Derivative w.r.t. the normal impulse
+\newcommand{\dni}[1]{\frac{d #1}{d \nImpulse} }
+\newcommand{\dzi}[1]{\frac{d #1}{d \zImpulse} }
+% Inverse inertia matrix
+\newcommand{\iim}{W}
+% The tangential plane iim
+\newcommand{\iimtp}{B}
+\newcommand{\iimtpDef}{\vectorTwo{\transpose{\basisVec{x}}}{\transpose{\basisVec{y}}} \iim \columnTwo{\basisVec{x}}{\basisVec{y}}}
+% The z-axis iim
+\newcommand{\iimcross}{\bs{d}}
+\newcommand{\iimcrossDef}{\vectorTwo{\transpose{\basisVec{x}}}{\transpose{\basisVec{y}}} \iim \basisVec{z}}
+
+\NewDocumentCommand{\coef}{m}{%
+\IfStrEqCase{#1}
+{
+{f}{\mu}% friction
+{s}{\bar{\mu}}% Coefficient of Stick
+{r}{c_{\text{r}}}% Restitution coefficient
+{er}{e_{\text{r}}}% Energetic restitution coefficient
+}[] % "default" string}
+}
+
+\newcommand{\postImpact}[1]{{#1}^{+}}
+\newcommand{\preImpact}[1]{#1^{-}}
+
+% The impulse when the restitution phase ends
+\newcommand{\impulseR}{\impulse_{r}}
+\newcommand{\contactVelR}{\contactVel_{r}}
+\newcommand{\contactVelC}{\contactVel_{c}}
+% The impulse when the collinear condition applies
+\newcommand{\impulseL}{\impulse_{l}}
+
+% tangential direction unit vector
+\newcommand{\tangentialU}{\hat{\bs{t}}}
+
+% normal direction unit vector
+\newcommand{\normalU}{\hat{\bs{n}}}
+
+% The  unit vector of a coordinate system:
+\newcommand{\basisVec}[1]{\widehat{\bs{\bs{#1}}}}
+
+
+% The tangential impulse
+\newcommand{\tImpulse}{\impulseScalar_{t}}
+\newcommand{\tpImpulse}{\tp{\impulse}}
+\newcommand{\tImpulsed}{\dot{\impulseScalar}_{t}}
+% The tangential force
+\newcommand{\tForce}{\forceScalar_{t}}
+
+% Denote the tangential plane:
+\newcommand{\tp}[1]{{#1}_{\perp}}
+
+\newcommand{\tpForce}{\tp{\force}}
+
+% The tangential linear Vel
+\newcommand{\tVel}{\linearVelScalar_{t}}
+\newcommand{\tVels}{\bs{\linearVelScalar}_{t}}
+\newcommand{\hodog}{\dni{\tVels}}
+
+% Curvature of the hodograph
+\newcommand{\hodogC}{\kappa}
+\newcommand{\hodogStepSize}{h}
+
+% The normal linear Vel
+\newcommand{\nVel}{\linearVelScalar_{n}}
+
+% The normal impulse
+\newcommand{\nImpulse}{{\impulseScalar_{n}}}
+\newcommand{\nImpulseIni}{{\impulseScalar_{n,0}}}
+\newcommand{\nImpulseF}{{\impulseScalar_{n,f}}}
+\newcommand{\zImpulse}{{\impulseScalar_{z}}}
+\newcommand{\nImpulsed}{\dot{\impulseScalar}_{n}}
+\newcommand{\zImpulsed}{\dot{\impulseScalar}_{z}}
+\newcommand{\impulseCone}{{^{\impulse}K}}
+\newcommand{\fConeNum}{N_{\coef{f}}}
+
+\newcommand{\applyConeSubscript}[1]{%
+    %% \IfStrEqCase{#1}{%
+    %% {}{
+    %% \coef[f]
+    %% }%
+    %% {contact}{
+    %% \text{sc}
+    %% }%
+    %% }[] % "default" string
+    #1
+}
+\newcommand{\applyConeSuperscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {f}{ % Friction cone
+    \coef{f}
+    }%
+    {cwc}{ % Contact wrench cone
+    \text{cwc}
+    }%
+    }[] % "default" string
+}
+
+\newcommand{\coneSymbol}{\text{K}}
+\NewDocumentCommand{\cone}{O{}O{}}{
+{
+\coneSymbol^{\applyConeSuperscript{#1}}_{\applyConeSubscript{#2}}}
+}
+
+\newcommand{\generator}[1]{{\bs{\lambda}_{#1}}}
+\newcommand{\generatorScalar}[1]{{\lambda_{#1}}}
+
+\newcommand{\frictionCone}{{^{\coef{f}}K}}
+\newcommand{\normalCone}{{^{\surfaceNormal}K}}
+\newcommand{\impulseGenerator}{\bs{\lambda}}
+
+
+% The normal force
+\newcommand{\nForce}{{\forceScalar_{n}}}
+
+
+% The normal impulse when the compression phase ends
+\newcommand{\impulseC}{\impulse_{c}}
+\newcommand{\nImpulseC}{\impulseScalar_{nc}}
+\newcommand{\zImpulseC}{\impulseScalar_{zc}}
+\newcommand{\zImpulseLCE}{\zeta_{zc}}
+\newcommand{\czImpulseR}{\zeta_{r}} % candidate of the \zImpulseR
+\newcommand{\nImpulseCEini}{\tilde{\impulseScalar}_{nc}}
+
+% The normal impulse when the restitution phase ends
+\newcommand{\nImpulseR}{\impulseScalar_{nr}}
+\newcommand{\zImpulseR}{\impulseScalar_{zr}}
+
+\newcommand{\zImpulseL}{\impulseScalar_{zl}}
+
+% The smallest value of normal impulse at which v_t = 0.
+\newcommand{\nImpulseS}{\impulseScalar_{ns}}
+\newcommand{\nImpulseL}{\impulseScalar_{nl}}
+\newcommand{\zImpulseS}{\impulseScalar_{zs}}
+\newcommand{\impulseS}{\impulse_{s}}
+
+% The derivative of impulse w.r.t. normal impulse before I_ns
+\newcommand{\iDniB}{\bs{\delta}}
+% The derivative of impulse w.r.t. normal impulse after the collinear condition applied.
+\newcommand{\iDniL}{\bs{\delta}}
+
+% The derivative of impulse w.r.t. normal impulse after I_ns
+\newcommand{\iDniA}{\bs{\sigma}}
+
+% The potential energy when the collinear condition applies
+\newcommand{\pEnergyL}{\pEnergy_{l}}
+
+% The potential energy when compression phase ends
+\newcommand{\pEnergyC}{\pEnergy_{c}}
+
+% The potential energy when v_t = 0 first holds
+\newcommand{\pEnergyT}{\pEnergy_{s}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% state space models
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 17. LOCOMOTION AND BALANCE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\ankleTorque}{{^a\bs{\tau}}}
+
+% The arguments are: origin(or a point), surface normal
+\newcommand{\plane}[2]{\Pi(#1, #2)}
+
+% It rotates from frame #1 to #2.
+
+%%%%%%%%%%%%%%%%%%%%%%%%% Polynomials
+%% #1-#3 Coeffecients #4 variable name
+\newcommand{\cop}[1][default]{
+        \IfStrEq{#1}{text}{\text{CoP}}{
+        {\text{cop}}
+        }
+}
+
+
+\newcommand{\cmp}{{\textcolor{textColor}{\text{\bf c}}_{\text{mp}}}} % The centroidal moment pivot
+
+
+\newcommand{\height}[1]{{d_{#1}}}
+
+% The divergent component of motion (DCM) or the instantaneous capture point (ICP)
+\newcommand{\dcmDef}{{\com + \frac{\com[dot]}{\pendulumC}}}
+\newcommand{\dcmxDef}{{\com_x + \frac{\com[dot]_x}{\pendulumC}}}
+
+% The center of mass (COM)
+\newcommand{\comText}{{\text{CoM}}\xspace}
+
+
+% stance foot location
+\newcommand{\stanceFL}{{\bs{p}_s}}
+% capture foot location
+\newcommand{\captureFL}{{\bs{p}_c}}
+
+% The arguments are: (1) starting point (2) the ending point. For instance: \vec{a} - \vec{b} = \pointer{b}{a}.
+\newcommand{\areaSymbol}{\mathcal{S}}
+
+\newcommand{\applyAreaSubscript}[1]{%
+    \IfStrEqCase{#1}{%
+    {zmp}{
+     \zmp
+    }%
+    {com}{
+     \com
+    }%
+    {comd}{
+    \com[dot]
+    }%
+    {dcm}{
+     \dcm
+    }%
+    }[] % "default" string
+}
+
+\NewDocumentCommand{\area}{O{}}{%
+{    \ensuremath{%
+        {\areaSymbol}_{\applyAreaSubscript{#1}}
+    }
+    }
+}
+
+\newcommand{\ssRegion}{{\set{\text{ssr}}}}
+
+\newcommand{\controlArea}{{\mathcal{S}_{\com\zmp}}}
+\newcommand{\contactArea}{{\mathcal{S}_{\contactPoint}}}
+\newcommand{\footTask}{p}
+
+% #1 joint number
+\newcommand{\stepIndicator}{{\bf \text{O}}}
+\newcommand{\stepIndicatorSum}{\stepIndicator_{\mpcHorizon}}
+
+% #1 foot index
+\newcommand{\footLocation}[1]{\contactPoint^{#1}}
+
+\newcommand{\fL}{p}
+
+\newcommand{\timeStep}{N}
+% footStep
+\newcommand{\footStep}{M}
+
+
+% footStep
+\newcommand{\step}[2]{
+  {#1^{#2}}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Ellipsoid:
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 18. CONTROL
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\costFunctional}{J}
+\newcommand{\stateWeight}{Q}
+
+\newcommand{\inputWeight}{R}
+
+\newcommand{\discountF}{\gamma}
+
+% Set
+\newcommand{\est}[1]{{\hat{#1}}}
+
+% The damping ratio
+\newcommand{\dRatio}{\xi}
+
+% The critical frequency
+
+\newcommand{\gainConstant}{\text{k}}
+\newcommand{\stiffness}{\text{k}_{\text{s}}}
+
+\newcommand{\pGain}{\gainConstant_{\text{p}}}
+\newcommand{\dGain}{\gainConstant_{\text{d}}}
+\newcommand{\iGain}{\gainConstant_{\text{i}}}
+
+% #1:index of the pole
+\newcommand{\pole}[1]{p_{#1}}
+
+% The system momentum matrix
+\newcommand{\samplingPeriod}{\Delta t}
+\newcommand{\sampletime}{\Delta t}
+\newcommand{\Kinv}{\bs{K}^{-1}}
+\newcommand{\JEstimate}{\bs{K}_{\jvelocitiesJump}}
+\newcommand{\JpinvEstimate}{\Kinv_{\jvelocitiesJump}}
+\newcommand{\LambdaINVEstimate}{\bs{K}_{\impulse}}
+\newcommand{\LambdaEstimate}{\Kinv_{\impulse}}
+
+\newcommand{\weight}{w}
+
+\newcommand{\cFreq}{{\omega_0}}
+% The damped natural frequency
+\newcommand{\dcFreq}{{\omega_d}}
+
+\newcommand{\costate}{\lambda}%
+\newcommand{\hamiltonian}{H}%
+
+\newcommand{\initialTime}{t_0}%
+\newcommand{\finalTime}{t_f}%
+
+% #1 denotes the input weight: R; #2 denotes the state
+\newcommand{\lqrControl}[2]{
+  - \inverse{(#1 + \quadraticObj{B}{P_{n+1}})}\transpose{B}P_{n+1}A#2
+}%
+
+\newcommand{\manifold}{\mathcal{S}}%
+
+% %%%%%%%%%%%%%%%%%%%%%%%%% LCP  VARIABLES:
+\newcommand{\ssDim}{{n_s}}
+
+\newcommand{\ssA}{A}
+\newcommand{\ssB}{B}
+\newcommand{\ssC}{C}
+\newcommand{\ssD}{D}
+
+\newcommand{\ssAd}{{A_d}}
+\newcommand{\ssBd}{{B_d}}
+\newcommand{\ssCd}{{C_d}}
+\newcommand{\ssDd}{{D_d}}
+
+
+\newcommand{\stateSymbol}{\text{\bf x}}
+% #1 derivatives, #2 ref/min/, #3 x/y/xy, #4 current/next/previous
+\NewDocumentCommand{\state}{O{}O{}O{}O{}}{%
+  {    \ensuremath{%
+      % Check the first optional argument for dot or double dot
+      %% \applyOverheadSymbols{#1}\text{\bf z}
+      \applyOverheadSymbols{#1}{\stateSymbol}
+      % Check the second optional argument for 'ref'
+      ^{\applySuperscript{#2}}%
+      _{\applySubscript{#3}}
+      \applyPostscript{#4}
+    }
+  }
+}
+
+% #1 current/next/previous
+\NewDocumentCommand{\randomNoise}{O{}}{%
+  {    \ensuremath{%
+      \epsilon^{\applyPostscript{#1}}
+    }
+  }
+}
+
+
+\newcommand{\ssInput}{\text{\bf u}}
+
+\newcommand{\x}[1]{{#1}_{x}}
+\newcommand{\y}[1]{{#1}_{y}}
+\newcommand{\z}[1]{{#1}_{z}}
+\newcommand{\xy}[1]{{#1}_{x,y}}
+
+\newcommand{\fwAngle}{\theta} % Fly wheel angle
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% QP commands:
+\newcommand{\eqA}[1]{{\text{A}_{#1}}}
+\newcommand{\eqb}[1]{{\text{b}_{#1}}}
+\newcommand{\ieqC}[1]{{\text{C}_{#1}}}
+\newcommand{\ieqd}[1]{{\text{d}_{#1}}}
+\newcommand{\cpFrame}{\text{c}}
+
+% Task-space elastic wrench:
+\newcommand{\eWrench}{\wrenchFrame{\ee}{\Delta}}
+
+
+% Object-level impedance control:
+\newcommand{\ipdMass}{\text{K}_{\text{M}}}
+\newcommand{\ipdDamper}{\text{K}_{\text{D}}}
+
+
+% Operational space inertia matrix
+\newcommand{\osim}[2][default]{
+  \IfStrEq{#1}{def}
+  {
+    % Definition
+    \inverse{(\quadraticObj{\jacobian_{#2}}
+      {\inverse{\jsim}})}
+  }{
+    % Default notation
+    \Lambda_{{#2}}
+  }
+}
+
+
+% The desired frame
+\newcommand{\oscc}[2][default]{%
+  \IfStrEq{#1}{def}{
+    % Gives the definition
+    \transpose[inv]{\jacobian} \coriolis \inverse{\jacobian} - \osim{#2} \jacobian[dot]\inverse{\jacobian}
+  }{
+    \IfStrEq{#1}{dot}{
+      % Defines the derivative
+    }
+    {
+      % The default behavior
+      \Gamma_{#2}}
+  }
+}
+
+
+\newcommand{\osg}[2][default]{
+  \IfStrEq{#1}{def}
+  {
+    % Definition
+    \transpose{\jacobian_{#2}}
+    \gravity
+  }{
+    \eta_{{#2}}
+  }
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% MPC commands:
+\newcommand{\olGain}{{\text{k}}}
+\newcommand{\clGain}{{\text{K}}}
+
+
+
+\newcommand{\totalCost}{{\text{J}_{0}}}
+
+
+% Argument of the Minimum as a function of the perturbations around the i-th (x, u) pair
+\newcommand{\argMinF}{{\text{Q}}}
+
+% The argument denotes the step number
+\newcommand{\costToGo}[1]{{\text{J}_{#1}}}
+\newcommand{\costToGoDef}[1]{{\text{J}_{#1}}(\state, \controlSequence_{#1})}
+
+% Value: the cost-to-go given a minimizing control sequence (not necessarily the optimal one), i.e., an instantiation of the cost-to-go.
+\newcommand{\ctgIns}[1]{{\text{V}}(\state, #1)}
+
+\newcommand{\ctgInsSimple}[1]{{\text{V}}^{#1}}
+
+% #2 specifies the state
+\newcommand{\ctgInsTwo}[2]{{\text{V}}(#2, #1)}
+
+\newcommand{\ctgInsDef}[1]{\min_{\controlSequence_{#1}}\costToGoDef{#1}}
+
+% #2 specifies the state
+\newcommand{\ctgInsDefRecursion}[2]{\min_{\controlInput{#1}}
+  (\runningCostDef{#1} + \ctgInsTwo{#1 + 1}{#2})
+}
+
+
+
+\newcommand{\totalCostDef}{\totalCost(\state, \controlSequence)}
+
+\newcommand{\runningCost}{l}
+\newcommand{\runningCostDef}[1]{\runningCost(\controlInput{#1}, \state_{#1})}
+
+\newcommand{\finalCost}{{\runningCost_{\text{f}}}}
+\newcommand{\finalCostDef}{\runningCost_{\text{f}}(\state_{\timeHL})}
+
+\newcommand{\controlSequence}{{\bf{\text{U}}}}
+
+% time horizon length
+\newcommand{\timeHL}{N}
+
+% time horizon
+\newcommand{\timeH}{\text{T}}
+
+% state dimension
+\newcommand{\controlSequenceDef}[1]{\{\controlInput{#1}, \controlInput{#1 + 1},\ldots, \controlInput{\timeHL-1}\}}
+\newcommand{\controlSequenceDefTwo}{\{\controlInput{0}, \controlInput{1},\ldots, \controlInput{\timeHL-1}\}}
+
+% System Dynamics
+\newcommand{\system}{{\text{f}}}
+
+% Perturbed state
+\newcommand{\perturb}[1]{{\delta #1}}
+\newcommand{\perturbedState}[1]{{#1 + \delta #1}}
+
+\newcommand{\objF}{J}
+
+\newcommand{\mpcHorizon}{N}
+
+\newcommand{\mpcfy}[1]{\bar{\bf #1}}
+
+
+
+\newcommand{\mpcInput}{\mpcfy{\bf \controlInput{}}}
+\newcommand{\mpcState}{\mpcfy{\state}}
+\newcommand{\mpcStateWeight}{\mpcfy{Q}}
+\newcommand{\mpcInputWeight}{\mpcfy{R}}
+
+\newcommand{\mpcA}{\mpcfy{A}}
+\newcommand{\mpcB}{\mpcfy{B}}
+\newcommand{\mpcC}{\mpcfy{C}}
+\newcommand{\mpcD}{\mpcfy{D}}
+
+% Foot Step Location:
+\newcommand{\decisionVariable}{\boldsymbol{\nu}}
+\newcommand{\decisionVar}{\boldsymbol{\nu}}
+
+% #1 velocity #2 mass
+\newcommand{\desired}[1]{#1^{\text{des}}}
+\newcommand{\optimized}[1]{#1^{*}}
+\newcommand{\optimal}[1]{#1^{*}}
+\newcommand{\reff}[1]{#1^{\text{ref}}}
+\newcommand{\measured}[1]{#1^{\circ}}
+\newcommand{\disturb}[1]{\delta{#1}}
+
+
+% integration error
+\newcommand{\iError}[1]{\int{\bs{e}_{#1}}}
+\newcommand{\iErrorDef}[1]{\int{\errorDef{#1}}dt}
+
+% Defines the function to be minimized in a QP
+\newcommand{\function}[1]{\text{f}_{#1}}
+
+\newcommand{\error}[1]{\bs{e}_{#1}}
+\newcommand{\errord}[1]{\dot{\bs{e}}_{#1}}
+\newcommand{\errordd}[1]{\ddot{\bs{e}}_{#1}}
+
+\newcommand{\errorDef}[1]{
+  #1 - \reff{#1}
+}
+
+% The constant term of the error dynamics
+\newcommand{\cTerm}[1]{
+  \text{C}_{#1}
+}
+
+% The quadratic term of the error dynamics
+\newcommand{\qTerm}[1]{
+  \text{Q}_{#1}
+}
+
+% The penalty term of the error dynamics
+\newcommand{\pTerm}[1]{
+  \text{P}_{#1}
+}
+
+
+\newcommand{\errorDefFull}[1]{
+ \selectionMatrix #1 - \selectionMatrix \reff{#1}
+}
+
+% #1:index of the input
+\newcommand{\controlInput}[1]{{\text{\bf{u}}_{#1}}}
+\newcommand{\control}[1]{{\text{\bf{u}}_{#1}}}
+
+%% #1 real part, #2 imaginery part
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 19. STATE ESTIMATION AND OBSERVERS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\oGain}{K_O} % The diagonal observer gain matrix.
+
+\newcommand{\reminder}{\bs{r}_{\text{M}}}
+\newcommand{\reminderd}{\dot{\bs{r}}_{\text{M}}}
+\newcommand{\reminderdDef}{\oGain(\momentum - \est{\momentumd})}
+
+\newcommand{\ext}[1]{{#1}_{\text{ext}}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% special terms
+\newcommand{\bNoise}[1]{\text{b}_{#1}}
+
+% Gaussian noise
+\newcommand{\gNoise}[1]{w_{#1}}
+
+
+% covariance matrix
+\newcommand{\cov}[1]{\text{Q}_{#1}}
+
+% Leg kinematics
+% Distance from the CoM to a contact point i: p_i - com
+\newcommand{\disDef}[1]{\pointer{\com}{\contactPoint_{#1}}}
+\newcommand{\dis}[1]{\text{s}_{#1}}
+
+
+
+% Forward kinematics
+\newcommand{\fk}[1]{\text{lkin}_{#1}(\jangles)}
+
+\newcommand{\imu}{\text{m}}
+
+
+
+% subequations
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Impedance control commands:
+
+% The compliant frame
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 20. COLLISION AVOIDANCE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\link}[1]{\text{l}_{#1}}
+
+
+%  Define a macro with an optional argument for dotting
+\newcommand{\cDist}[3][]{#1{\text{dis}}_{#2,#3}}
+% The secure distance that two links should never reach
+\newcommand{\sDist}[1]{\sigma_{\text{s}, #1}}
+
+% The threshold distance below which, the collision avoidance constraint will be activated
+\newcommand{\tDist}[1]{\sigma_{\text{t}, #1}}
+
+\newcommand{\dConstant}[1]{\text{c}_{#1}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% State estimation commands:
+
+% bias (drift) noise
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 21. MISCELLANEOUS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\uncertain}[1]{\widetilde{#1}}
+
+\newcommand{\eePos}{\bs{x}} % End-effector position
+\newcommand{\eeVel}{\dot{\eePos}}
+\newcommand{\eeAcc}{\ddot{\eePos}}
+\newcommand{\optVars}{\bs{u}}
+
+% The center of pressure (COP) point
+\newcommand{\specialJac}{\mathcal{J}}
+\newcommand{\specialJacTwo}{\mathcal{C}}
+
+%%%%%%%%%%%%%  Different support areas
+\newcommand{\stateVar}{\bs{x}}
+
+% #1 variable with different steps, #2 step number
+\newcommand{\semiAxis}{
+a
+}
+
+\newcommand{\density}{
+\rho
+}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Eigenvalue:
+
+
+\newcommand{\eigV}{
+\sigma
+}
+
+\newcommand{\eigVec}{
+\bs{e}
+}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Rigid body motion
+
+
+\newcommand{\guassD}{\mathcal{D}}
+
+\newcommand{\quantity}{\bs{d}}
+\newcommand{\quantityd}{\dot{\quantity}}
+\newcommand{\quantitydd}{\ddot{\quantity}}
+
+%%%%%%%%%%%% Axis:
+\newcommand{\pre}[1]{
+  \setSymbol^p(#1)
+}
+
+
+%%% all the links between [root and predecessors] while(link.hasPredecessor()){set+=predecessor(link); link = link.predecessor}):
+\newcommand{\recursivePre}[1]{
+  \setSymbol^{rp}(#1)
+}
+
+%%% successor:
+\newcommand{\suc}[1]{
+  \setSymbol^s(#1)
+}
+
+%%% all the links between [root and predecessors] while(link.hasSuccessor()){set+=successor(link); link = link.successor}):
+\newcommand{\recursiveSuc}[1]{
+  \setSymbol^{rs}(#1)
+}
+
+
+%%% CRB vel

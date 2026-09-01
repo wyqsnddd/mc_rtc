@@ -78,6 +78,27 @@ if(EXISTS "${MC_ENV_DESCRIPTION_PATH}")
 endif()
 
 add_robot(jvrc1)
+add_robot(rolling_contact)
+
+set(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/rolling_contact_description"
+)
+set(ROLLING_CONTACT_INSTALL_PATH
+    "${CMAKE_INSTALL_FULL_DATADIR}/mc_rtc/rolling_contact"
+)
+configure_file(
+  rolling_contact_aliases.in.yml
+  "${CMAKE_CURRENT_BINARY_DIR}/aliases/rolling_contact.yml"
+  @ONLY
+)
+install(
+  DIRECTORY rolling_contact_description/
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/mc_rtc/rolling_contact"
+)
+install(
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/aliases/rolling_contact.yml"
+  DESTINATION "${MC_ROBOTS_RUNTIME_INSTALL_PREFIX}/aliases"
+)
 if(TARGET jvrc1)
   set_target_properties(jvrc1 PROPERTIES COMPILE_FLAGS "-DMC_ROBOTS_EXPORTS")
 else()

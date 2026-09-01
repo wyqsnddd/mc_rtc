@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-01",
+  "status": "in_progress",
+  "device": "cpu",
+  "mc_rtc_commit": "fc7df14a96f1273fb1aaff8e1a84ef514455d29c",
+  "cpu": {
+    "model": "AMD Ryzen 9 9950X 16-Core Processor",
+    "physical_cores": 16,
+    "logical_cpus": 32,
+    "numa_nodes": 1
+  },
+  "toolchain": {
+    "compiler": "GCC 13.3.0",
+    "cmake": "3.28.3",
+    "build_type": "RelWithDebInfo"
+  },
+  "dependencies": {
+    "eigen": "3.4.0",
+    "rbdyn": "1.9.5",
+    "tasks": "1.8.4",
+    "tvm": "0.9.5",
+    "spacevecalg": "1.2.10",
+    "eigen_qld": "1.2.7",
+    "ros_distro": "jazzy",
+    "mujoco_archive": "3.4.0",
+    "mc_mujoco": null
+  },
+  "baseline": {
+    "build": {"command": "cmake --build build -j2", "exit_code": 0},
+    "fresh_configure": {
+      "exit_code": 1,
+      "cause": "mixed Conda eigenpy Python 3.13 and system Boost 1.83; missing python313 component"
+    },
+    "ctest": {
+      "total": 89,
+      "passed": 31,
+      "failed_or_not_run": 58,
+      "gpu_hidden": true,
+      "cause": "pre-existing incomplete JVRC convex-hull cache and qhull failure"
+    }
+  },
+  "gpu_runtime_required_by_mc_solver": false,
+  "open_gates": [
+    "toy decision-vector inventory",
+    "mc_mujoco revision",
+    "green or fully isolated full-suite baseline",
+    "dynamic contact coefficient-update proof"
+  ]
+}

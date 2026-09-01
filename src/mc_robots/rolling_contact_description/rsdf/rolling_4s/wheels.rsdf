@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<robot name="rolling_4s">
+  <cylindrical_surface name="FrontLeftWheel" link="front_left_wheel" radius="0.2" width="0.08"><origin rpy="1.5707963267948966 0 0" xyz="0 0 0"/><material name="rubber"/></cylindrical_surface>
+  <cylindrical_surface name="FrontRightWheel" link="front_right_wheel" radius="0.2" width="0.08"><origin rpy="1.5707963267948966 0 0" xyz="0 0 0"/><material name="rubber"/></cylindrical_surface>
+  <cylindrical_surface name="RearLeftWheel" link="rear_left_wheel" radius="0.2" width="0.08"><origin rpy="1.5707963267948966 0 0" xyz="0 0 0"/><material name="rubber"/></cylindrical_surface>
+  <cylindrical_surface name="RearRightWheel" link="rear_right_wheel" radius="0.2" width="0.08"><origin rpy="1.5707963267948966 0 0" xyz="0 0 0"/><material name="rubber"/></cylindrical_surface>
+</robot>

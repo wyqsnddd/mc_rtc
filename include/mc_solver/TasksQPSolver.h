@@ -6,11 +6,17 @@
 
 #include <mc_solver/QPSolver.h>
 
+#include <mc_rtc/clock.h>
+
 #include <Tasks/QPMotionConstr.h>
 #include <Tasks/QPSolver.h>
 
+#include <map>
+
 namespace mc_solver
 {
+
+class RollingContactDynamicsConstraint;
 
 /** This implements the QPSolver interface for the Tasks backend
  *
@@ -156,6 +162,13 @@ struct MC_SOLVER_DLLAPI TasksQPSolver final : public QPSolver
   const Eigen::VectorXd & result() const;
 
 private:
+  friend class RollingContactDynamicsConstraint;
+
+  void registerRollingContacts(const std::string & owner, std::vector<tasks::qp::UnilateralContact> contacts);
+  void unregisterRollingContacts(const std::string & owner);
+  void refreshNrVars();
+  bool solveNoMbcUpdate();
+
   /** The actual solver instance */
   tasks::qp::QPSolver solver_;
   /** Positive lambda constraint */
@@ -164,6 +177,10 @@ private:
   std::vector<tasks::qp::UnilateralContact> uniContacts_;
   /** Holds bilateral contacts in the solver */
   std::vector<tasks::qp::BilateralContact> biContacts_;
+  /** Stable, owner-keyed rolling contacts appended after ordinary contacts */
+  std::map<std::string, std::vector<tasks::qp::UnilateralContact>> rollingContacts_;
+  /** Wall time measured around the complete Tasks QP build-and-solve call. */
+  mc_rtc::duration_ms solveAndBuildDt_{0.0};
   /** Run without feedback (open-loop) */
   bool runOpenLoop();
   /** Run with encoders' feedback */

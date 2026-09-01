@@ -186,3 +186,18 @@ Put in [your mc_rtc configuration]({{site.baseurl}}/tutorials/introduction/confi
 MainRobot: JVRC1
 Enabled: ExternalForces
 ```
+
+# RollingContact
+
+The `RollingContact` sample runs dynamically consistent differential-drive and four-steering rigid-wheel controllers
+with either the Tasks or TVM backend on CPU. It includes hard/soft rolling, friction and torque limits, and safe
+fixed/rolling/sliding/detached transitions.
+
+**Detailed description**: see the [CPU rolling-contact tutorial]({{site.baseurl}}/tutorials/samples/rolling-contact.html).
+
+**Supported robots**: the included `rolling_diff` and `rolling_4s` robot modules.
+
+```yaml
+MainRobot: [RollingContact, /path/to/mc_rtc/src/mc_robots/rolling_contact_description, rolling_diff]
+Enabled: RollingContact
+```

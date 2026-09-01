@@ -241,7 +241,10 @@ void Ticker::run()
   double real_elapsed_t = 0.0;
 
   double target_ratio = config_.sync_ratio;
-  gc_.server().update_rate(gc_.timestep() / target_ratio, gc_.configuration().gui_server_configuration.timestep);
+  if(gc_.configuration().enable_gui_server)
+  {
+    gc_.server().update_rate(gc_.timestep() / target_ratio, gc_.configuration().gui_server_configuration.timestep);
+  }
 
   auto start_ticker = clock::now();
 

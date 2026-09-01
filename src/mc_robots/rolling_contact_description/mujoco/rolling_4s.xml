@@ -1,0 +1,76 @@
+<mujoco model="rolling_4s">
+  <compiler angle="radian" inertiafromgeom="false"/>
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast" cone="pyramidal" jacobian="dense"/>
+  <size memory="64M"/>
+  <default>
+    <joint damping="0.05" armature="0.001"/>
+    <geom condim="4" friction="0.8 0.01 0.001" solref="0.01 1" solimp="0.9 0.95 0.001"/>
+  </default>
+  <worldbody>
+    <body name="chassis" pos="0 0 0.2">
+      <freejoint name="root"/>
+      <inertial pos="0 0 0.08" mass="18" diaginertia="0.75 1.35 1.75"/>
+      <geom name="chassis_visual" type="box" size="0.45 0.275 0.08" contype="0" conaffinity="0"
+            rgba="0.2 0.35 0.75 1"/>
+      <geom name="chassis_collision" type="box" size="0.36 0.20 0.06" rgba="0.2 0.35 0.75 0"/>
+
+      <body name="front_left_knuckle" pos="0.45 0.3 0">
+        <joint name="front_left_steer" type="hinge" axis="0 0 1" damping="0.001" limited="true"
+               range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.3" diaginertia="0.002 0.002 0.002"/>
+        <body name="front_left_wheel">
+          <joint name="front_left_drive" type="hinge" axis="0 1 0" damping="0.05" limited="false"/>
+          <inertial pos="0 0 0" mass="1" diaginertia="0.021 0.040 0.021"/>
+          <geom name="front_left_wheel_collision" type="cylinder" size="0.2 0.04"
+                quat="0.7071067811865476 0.7071067811865476 0 0" rgba="0.12 0.12 0.12 1"/>
+        </body>
+      </body>
+
+      <body name="front_right_knuckle" pos="0.45 -0.3 0">
+        <joint name="front_right_steer" type="hinge" axis="0 0 1" damping="0.001" limited="true"
+               range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.3" diaginertia="0.002 0.002 0.002"/>
+        <body name="front_right_wheel">
+          <joint name="front_right_drive" type="hinge" axis="0 1 0" damping="0.05" limited="false"/>
+          <inertial pos="0 0 0" mass="1" diaginertia="0.021 0.040 0.021"/>
+          <geom name="front_right_wheel_collision" type="cylinder" size="0.2 0.04"
+                quat="0.7071067811865476 0.7071067811865476 0 0" rgba="0.12 0.12 0.12 1"/>
+        </body>
+      </body>
+
+      <body name="rear_left_knuckle" pos="-0.45 0.3 0">
+        <joint name="rear_left_steer" type="hinge" axis="0 0 1" damping="0.001" limited="true"
+               range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.3" diaginertia="0.002 0.002 0.002"/>
+        <body name="rear_left_wheel">
+          <joint name="rear_left_drive" type="hinge" axis="0 1 0" damping="0.05" limited="false"/>
+          <inertial pos="0 0 0" mass="1" diaginertia="0.021 0.040 0.021"/>
+          <geom name="rear_left_wheel_collision" type="cylinder" size="0.2 0.04"
+                quat="0.7071067811865476 0.7071067811865476 0 0" rgba="0.12 0.12 0.12 1"/>
+        </body>
+      </body>
+
+      <body name="rear_right_knuckle" pos="-0.45 -0.3 0">
+        <joint name="rear_right_steer" type="hinge" axis="0 0 1" damping="0.001" limited="true"
+               range="-3.141592653589793 3.141592653589793"/>
+        <inertial pos="0 0 0" mass="0.3" diaginertia="0.002 0.002 0.002"/>
+        <body name="rear_right_wheel">
+          <joint name="rear_right_drive" type="hinge" axis="0 1 0" damping="0.05" limited="false"/>
+          <inertial pos="0 0 0" mass="1" diaginertia="0.021 0.040 0.021"/>
+          <geom name="rear_right_wheel_collision" type="cylinder" size="0.2 0.04"
+                quat="0.7071067811865476 0.7071067811865476 0 0" rgba="0.12 0.12 0.12 1"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="front_left_steer_motor" joint="front_left_steer" gear="1" ctrllimited="true" ctrlrange="-25 25"/>
+    <motor name="front_left_drive_motor" joint="front_left_drive" gear="1" ctrllimited="true" ctrlrange="-35 35"/>
+    <motor name="front_right_steer_motor" joint="front_right_steer" gear="1" ctrllimited="true" ctrlrange="-25 25"/>
+    <motor name="front_right_drive_motor" joint="front_right_drive" gear="1" ctrllimited="true" ctrlrange="-35 35"/>
+    <motor name="rear_left_steer_motor" joint="rear_left_steer" gear="1" ctrllimited="true" ctrlrange="-25 25"/>
+    <motor name="rear_left_drive_motor" joint="rear_left_drive" gear="1" ctrllimited="true" ctrlrange="-35 35"/>
+    <motor name="rear_right_steer_motor" joint="rear_right_steer" gear="1" ctrllimited="true" ctrlrange="-25 25"/>
+    <motor name="rear_right_drive_motor" joint="rear_right_drive" gear="1" ctrllimited="true" ctrlrange="-35 35"/>
+  </actuator>
+</mujoco>

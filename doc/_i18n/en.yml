@@ -175,6 +175,8 @@ tutorials:
       title: Available sample controllers
     sample-admittance:
       title: Admittance sample controller
+    rolling-contact:
+      title: CPU rolling-contact controller
   advanced:
     title: Advanced topics
     desc: These tutorials cover specific topics that most user should not have to deal with.

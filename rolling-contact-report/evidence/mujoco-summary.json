@@ -1,0 +1,2961 @@
+{
+  "schema": 1,
+  "source": {
+    "suite_report": "/tmp/rolling-contact-final-mujoco-v7/suite-report.json",
+    "suite_report_sha256": "d323fc4d1dc179d5be9786e4f2915a5571559abcdfdbf04b672cf3f10eb4ab2c",
+    "runner_sha256": "3b2408b023f015553c78ccabf9fec7dde2544acfc00d4d0caebf9c24a9c2cd1a"
+  },
+  "device": "CPU",
+  "gpu_devices_hidden": true,
+  "timestep_s": 0.005,
+  "repetitions_per_case": 5,
+  "processes": 250,
+  "cycles_per_process": 1000,
+  "warmup_cycles_per_process": 100,
+  "cases": [
+    {
+      "name": "diff-circle-left",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "circle_left",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.050451000000000003,
+        "p95_max": 0.054031000000000003,
+        "p99_max": 0.074040999999999996,
+        "maximum": 0.126082
+      },
+      "real_time_factor_min": 79.469271148056549,
+      "peak_resident_kib_max": 51240,
+      "tracking": {
+        "position_rms_max_m": 0.10092029654812257,
+        "position_p95_max_m": 0.12060682602113063,
+        "position_max_m": 0.12131689798930273,
+        "yaw_rms_max_rad": 0.087098553371791468,
+        "yaw_p95_max_rad": 0.1116503302072317,
+        "yaw_max_rad": 0.11270422686397466
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00050496272710042357,
+        "position_p95_max_m": 0.00093411427684199442,
+        "position_max_m": 0.0010529368397823521,
+        "yaw_rms_max_rad": 0.0018746940985315571,
+        "yaw_p95_max_rad": 0.0033986653936151356,
+        "yaw_max_rad": 0.003637685109712907
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025258887230060007,
+        "rolling_slip_p95_max_mps": 0.00034260470705179742,
+        "rolling_slip_max_mps": 0.00035230013842037797,
+        "lateral_slip_rms_max_mps": 0.0000078789702319614243,
+        "lateral_slip_p95_max_mps": 0.000010534499648725901,
+        "lateral_slip_max_mps": 0.000010953261419984694,
+        "normal_speed_rms_max_mps": 0.0000014046871191618627,
+        "normal_speed_p95_max_mps": 0.0000018511143129917978,
+        "normal_speed_max_mps": 0.00001352465471999171,
+        "normal_force_min_n": 58.730691755870502,
+        "friction_margin_min_n": 18.844580623926717,
+        "drive_torque_max_nm": 0.89598920968799411,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "4a5ae320df6d765b3781385677cba2c6764e684dd69010b3870938af82c011a5"
+    },
+    {
+      "name": "diff-circle-right",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "circle_right",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.050361000000000003,
+        "p95_max": 0.065221000000000001,
+        "p99_max": 0.111771,
+        "maximum": 0.276424
+      },
+      "real_time_factor_min": 77.227288280848654,
+      "peak_resident_kib_max": 51112,
+      "tracking": {
+        "position_rms_max_m": 0.10092029655372267,
+        "position_p95_max_m": 0.12060682602113242,
+        "position_max_m": 0.12131689798937818,
+        "yaw_rms_max_rad": 0.087098553397317341,
+        "yaw_p95_max_rad": 0.11165033020110027,
+        "yaw_max_rad": 0.11270422686267859
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00050496272575406955,
+        "position_p95_max_m": 0.0009341142744979091,
+        "position_max_m": 0.0010529368373237899,
+        "yaw_rms_max_rad": 0.0018746940956776421,
+        "yaw_p95_max_rad": 0.003398665390184491,
+        "yaw_max_rad": 0.0036376851062604743
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025258887224905851,
+        "rolling_slip_p95_max_mps": 0.00034260470692605528,
+        "rolling_slip_max_mps": 0.00035230013836757515,
+        "lateral_slip_rms_max_mps": 0.0000078789702385666228,
+        "lateral_slip_p95_max_mps": 0.00001053449964197574,
+        "lateral_slip_max_mps": 0.000010953261416588241,
+        "normal_speed_rms_max_mps": 0.0000014046869705229681,
+        "normal_speed_p95_max_mps": 0.0000018511143064228676,
+        "normal_speed_max_mps": 0.000013524656610157686,
+        "normal_force_min_n": 58.730691770285063,
+        "friction_margin_min_n": 18.844580629086888,
+        "drive_torque_max_nm": 0.89598920954138661,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "9767f80f2f2bc3cf8d294fb36bac28b6648b06e3921aef4d795698c90ce215f0"
+    },
+    {
+      "name": "diff-contact-loss",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "disturbance",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.049041000000000001,
+        "p95_max": 0.069541000000000006,
+        "p99_max": 0.082670999999999994,
+        "maximum": 0.25533299999999998
+      },
+      "real_time_factor_min": 78.067235125209606,
+      "peak_resident_kib_max": 51292,
+      "tracking": {
+        "position_rms_max_m": 0.071154639718859367,
+        "position_p95_max_m": 0.11599281275177672,
+        "position_max_m": 0.12032562482770737,
+        "yaw_rms_max_rad": 1.5364368716179035E-12,
+        "yaw_p95_max_rad": 2.3269980454448365E-12,
+        "yaw_max_rad": 2.6483865574914135E-12
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00019735134384493624,
+        "position_p95_max_m": 0.0003169423436575336,
+        "position_max_m": 0.00032024096506344524,
+        "yaw_rms_max_rad": 3.6939783024272688E-14,
+        "yaw_p95_max_rad": 5.6477057610026589E-14,
+        "yaw_max_rad": 2.096660581519235E-13
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00019289493486520908,
+        "rolling_slip_p95_max_mps": 0.000044166849057586388,
+        "rolling_slip_max_mps": 0.0045224536298857781,
+        "lateral_slip_rms_max_mps": 4.6368919613405164E-16,
+        "lateral_slip_p95_max_mps": 9.2236709796999718E-16,
+        "lateral_slip_max_mps": 4.4589015730711409E-15,
+        "normal_speed_rms_max_mps": 0.0036822797300064456,
+        "normal_speed_p95_max_mps": 1.7913954783493611E-8,
+        "normal_speed_max_mps": 0.098113178088542696,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": 0,
+        "drive_torque_max_nm": 0.52480927479965589,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "9b1a307dd368ed0c1b1ac291c6199291485c2f4a166a3c3faf33c681f881d91b"
+    },
+    {
+      "name": "diff-forward",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.048181000000000002,
+        "p95_max": 0.073451000000000002,
+        "p99_max": 0.096491999999999994,
+        "maximum": 0.252473
+      },
+      "real_time_factor_min": 71.849574007468249,
+      "peak_resident_kib_max": 50992,
+      "tracking": {
+        "position_rms_max_m": 0.15904858024140084,
+        "position_p95_max_m": 0.16494531686841185,
+        "position_max_m": 0.16505852565406837,
+        "yaw_rms_max_rad": 7.2533253621210589E-13,
+        "yaw_p95_max_rad": 8.5992384789969375E-13,
+        "yaw_max_rad": 9.1142258127814438E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00032377809789397205,
+        "position_p95_max_m": 0.00041468437954264581,
+        "position_max_m": 0.00041801435997487757,
+        "yaw_rms_max_rad": 1.473345822305965E-14,
+        "yaw_p95_max_rad": 2.0472579476684294E-14,
+        "yaw_max_rad": 4.2607950527890254E-14
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000041846400376038969,
+        "rolling_slip_p95_max_mps": 0.000051861771648037402,
+        "rolling_slip_max_mps": 0.00005243362180823441,
+        "lateral_slip_rms_max_mps": 3.7323602756250895E-16,
+        "lateral_slip_p95_max_mps": 8.5054147325977407E-16,
+        "lateral_slip_max_mps": 1.9027509838358407E-15,
+        "normal_speed_rms_max_mps": 2.0647126278503201E-9,
+        "normal_speed_p95_max_mps": 5.4395553060492172E-9,
+        "normal_speed_max_mps": 6.0701128164942779E-9,
+        "normal_force_min_n": 58.846707953300786,
+        "friction_margin_min_n": 46.220325077038716,
+        "drive_torque_max_nm": 0.23668740382778833,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "8da0140c4d74bb51e317baffd896106c61a9b998f95367b0ba5ee0ccc7af0808"
+    },
+    {
+      "name": "diff-hold",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "hold",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.043090999999999997,
+        "p95_max": 0.060941000000000002,
+        "p99_max": 0.101872,
+        "maximum": 0.32577400000000001
+      },
+      "real_time_factor_min": 88.937417887417297,
+      "peak_resident_kib_max": 51332,
+      "tracking": {
+        "position_rms_max_m": 5.4091698645643318E-14,
+        "position_p95_max_m": 5.4092196550728602E-14,
+        "position_max_m": 5.4092268616135779E-14,
+        "yaw_rms_max_rad": 0,
+        "yaw_p95_max_rad": 0,
+        "yaw_max_rad": 0
+      },
+      "odometry": {
+        "position_rms_max_m": 5.4091698645643318E-14,
+        "position_p95_max_m": 5.4092196550728602E-14,
+        "position_max_m": 5.4092268616135779E-14,
+        "yaw_rms_max_rad": 0,
+        "yaw_p95_max_rad": 0,
+        "yaw_max_rad": 0
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0,
+        "rolling_slip_p95_max_mps": 0,
+        "rolling_slip_max_mps": 0,
+        "lateral_slip_rms_max_mps": 3.0076060515560082E-18,
+        "lateral_slip_p95_max_mps": 5.9572542672635471E-18,
+        "lateral_slip_max_mps": 1.5140728618463166E-17,
+        "normal_speed_rms_max_mps": 9.5508277921933254E-15,
+        "normal_speed_p95_max_mps": 9.5741444544852759E-15,
+        "normal_speed_max_mps": 9.6006398417637508E-15,
+        "normal_force_min_n": 58.8599999999998,
+        "friction_margin_min_n": 47.08799999999983,
+        "drive_torque_max_nm": 0,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "4ac2a4e09591b5f2d0638979acddf122a2ce736953431fca144eab9d47b46ecf"
+    },
+    {
+      "name": "diff-lateral-impulse",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "disturbance",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.050331000000000001,
+        "p95_max": 0.075881000000000004,
+        "p99_max": 0.13086200000000001,
+        "maximum": 0.38745499999999999
+      },
+      "real_time_factor_min": 75.755980290718199,
+      "peak_resident_kib_max": 51244,
+      "tracking": {
+        "position_rms_max_m": 0.084688245859062275,
+        "position_p95_max_m": 0.12329689519499837,
+        "position_max_m": 0.12360722750436004,
+        "yaw_rms_max_rad": 0.0020502461622525698,
+        "yaw_p95_max_rad": 0.0026871416153201521,
+        "yaw_max_rad": 0.0027038881146713061
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00025375730454644835,
+        "position_p95_max_m": 0.00034698950540513779,
+        "position_max_m": 0.0003575675269565546,
+        "yaw_rms_max_rad": 0.000022674996140839863,
+        "yaw_p95_max_rad": 0.000028659992345815653,
+        "yaw_max_rad": 0.000086152565993822432
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00017509020351273345,
+        "rolling_slip_p95_max_mps": 0.000060722016699886942,
+        "rolling_slip_max_mps": 0.0054571016814052662,
+        "lateral_slip_rms_max_mps": 0.00058042965672291426,
+        "lateral_slip_p95_max_mps": 8.498745967169366E-7,
+        "lateral_slip_max_mps": 0.017334800097334225,
+        "normal_speed_rms_max_mps": 0.00027820695569170934,
+        "normal_speed_p95_max_mps": 2.1829586230612079E-7,
+        "normal_speed_max_mps": 0.0085442355520139214,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": 0,
+        "drive_torque_max_nm": 0.77567098779934274,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "fb5879c669f5cfeb46602cc4a7f398f6510949ebc374c019eb8155cf9a8d2220"
+    },
+    {
+      "name": "diff-low-friction",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "slip",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.051090999999999998,
+        "p95_max": 0.060731,
+        "p99_max": 0.096781000000000006,
+        "maximum": 0.245473
+      },
+      "real_time_factor_min": 78.549225959432135,
+      "peak_resident_kib_max": 51264,
+      "tracking": {
+        "position_rms_max_m": 0.77058576925006117,
+        "position_p95_max_m": 1.3909968475534185,
+        "position_max_m": 1.4783793946791541,
+        "yaw_rms_max_rad": 1.3626197290783135E-10,
+        "yaw_p95_max_rad": 2.5941999682905944E-10,
+        "yaw_max_rad": 2.7899254229943764E-10
+      },
+      "odometry": {
+        "position_rms_max_m": 0.56314266643478983,
+        "position_p95_max_m": 1.0739693631725182,
+        "position_max_m": 1.1548051379038109,
+        "yaw_rms_max_rad": 1.3500678246997822E-10,
+        "yaw_p95_max_rad": 2.580613270675535E-10,
+        "yaw_max_rad": 2.7761051208662687E-10
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.31290266043316267,
+        "rolling_slip_p95_max_mps": 0.47752534593433377,
+        "rolling_slip_max_mps": 0.48382253479854298,
+        "lateral_slip_rms_max_mps": 5.8571992426231226E-11,
+        "lateral_slip_p95_max_mps": 1.0365013456836368E-10,
+        "lateral_slip_max_mps": 1.0824490147016921E-10,
+        "normal_speed_rms_max_mps": 0.0025025945798107007,
+        "normal_speed_p95_max_mps": 0.0072924397996484936,
+        "normal_speed_max_mps": 0.0096053347247543174,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -2.3033128650687096,
+        "drive_torque_max_nm": 0.69917788993780505,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "detached",
+          "detached"
+        ]
+      ],
+      "config_sha256": "e8ebbcb6aa68d4efa7330a7143bb9d9fa7dda5f024b808dfd683849575e82772"
+    },
+    {
+      "name": "diff-mode-cycle",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "mode_cycle",
+      "kind": "transition",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.054701,
+        "p95_max": 0.074330999999999994,
+        "p99_max": 0.137682,
+        "maximum": 0.31493399999999999
+      },
+      "real_time_factor_min": 75.996322811525971,
+      "peak_resident_kib_max": 51164,
+      "tracking": {
+        "position_rms_max_m": 0.21443552582511916,
+        "position_p95_max_m": 0.45969231292444374,
+        "position_max_m": 0.48495506685727607,
+        "yaw_rms_max_rad": 0.010739554200881676,
+        "yaw_p95_max_rad": 0.017823630640522441,
+        "yaw_max_rad": 0.018131049431565918
+      },
+      "odometry": {
+        "position_rms_max_m": 0.042448339828848276,
+        "position_p95_max_m": 0.060878422280212438,
+        "position_max_m": 0.060951939830502073,
+        "yaw_rms_max_rad": 0.0053378430322771793,
+        "yaw_p95_max_rad": 0.0082016744361864749,
+        "yaw_max_rad": 0.0096174285085805101
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.074484557178775182,
+        "rolling_slip_p95_max_mps": 0.082055666592950077,
+        "rolling_slip_max_mps": 0.42286444005697876,
+        "lateral_slip_rms_max_mps": 0.0027845434687412862,
+        "lateral_slip_p95_max_mps": 0.0024915429271156033,
+        "lateral_slip_max_mps": 0.070405983907689984,
+        "normal_speed_rms_max_mps": 0.057382987742297248,
+        "normal_speed_p95_max_mps": 0.053439625465042273,
+        "normal_speed_max_mps": 0.53659958384296336,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -7.1054273576010019E-15,
+        "drive_torque_max_nm": 9.7074985373229836,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "ffca7f91a5f8a1f869a9cc15a6cef96667062475f399e5b395a867533fb1e7ad"
+    },
+    {
+      "name": "diff-ramp-down",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "reverse",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.047640000000000002,
+        "p95_max": 0.051651000000000002,
+        "p99_max": 0.067791000000000004,
+        "maximum": 0.156612
+      },
+      "real_time_factor_min": 83.47583632478738,
+      "peak_resident_kib_max": 51572,
+      "tracking": {
+        "position_rms_max_m": 0.1790418070410289,
+        "position_p95_max_m": 0.25525546439434338,
+        "position_max_m": 0.25818304302574446,
+        "yaw_rms_max_rad": 7.2340902803504115E-11,
+        "yaw_p95_max_rad": 9.9941563247070044E-11,
+        "yaw_max_rad": 1.1346678967974822E-10
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00074354447942029259,
+        "position_p95_max_m": 0.001190442060401517,
+        "position_max_m": 0.0012978632176218474,
+        "yaw_rms_max_rad": 1.4829094741509101E-12,
+        "yaw_p95_max_rad": 2.2967226922423443E-12,
+        "yaw_max_rad": 3.1902966195018693E-12
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00021653259545810675,
+        "rolling_slip_p95_max_mps": 0.0003000102983713287,
+        "rolling_slip_max_mps": 0.000303026033600525,
+        "lateral_slip_rms_max_mps": 9.9178700767320175E-14,
+        "lateral_slip_p95_max_mps": 2.2029674024406906E-13,
+        "lateral_slip_max_mps": 5.0574651823689978E-13,
+        "normal_speed_rms_max_mps": 1.1615534534561795E-8,
+        "normal_speed_p95_max_mps": 2.4492177449205539E-8,
+        "normal_speed_max_mps": 2.7045505971080202E-8,
+        "normal_force_min_n": 58.540868682350819,
+        "friction_margin_min_n": 39.245706089966149,
+        "drive_torque_max_nm": 1.6136765591829088,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "f4ee3911bd16ace1b8c93c0374292a0a4518da55f521746446248e62ba7decf9"
+    },
+    {
+      "name": "diff-ramp-up",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.047,
+        "p95_max": 0.055530000000000003,
+        "p99_max": 0.093401999999999999,
+        "maximum": 0.28519299999999997
+      },
+      "real_time_factor_min": 82.921712715470903,
+      "peak_resident_kib_max": 50968,
+      "tracking": {
+        "position_rms_max_m": 0.17904180704102887,
+        "position_p95_max_m": 0.25525546439434332,
+        "position_max_m": 0.25818304302574435,
+        "yaw_rms_max_rad": 6.9744606313402519E-11,
+        "yaw_p95_max_rad": 9.6536968001153495E-11,
+        "yaw_max_rad": 1.0531664525505841E-10
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00074354447942026624,
+        "position_p95_max_m": 0.0011904420604014546,
+        "position_max_m": 0.001297863217621778,
+        "yaw_rms_max_rad": 1.4358603982071958E-12,
+        "yaw_p95_max_rad": 2.1928367056991649E-12,
+        "yaw_max_rad": 3.0083210773865183E-12
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00021653259545810667,
+        "rolling_slip_p95_max_mps": 0.00030001030175110584,
+        "rolling_slip_max_mps": 0.00030302603371465734,
+        "lateral_slip_rms_max_mps": 9.6388287382359271E-14,
+        "lateral_slip_p95_max_mps": 2.2001086580947492E-13,
+        "lateral_slip_max_mps": 4.4342282058462324E-13,
+        "normal_speed_rms_max_mps": 1.1615534498283061E-8,
+        "normal_speed_p95_max_mps": 2.449217576813313E-8,
+        "normal_speed_max_mps": 2.7045587034088206E-8,
+        "normal_force_min_n": 58.540868696410364,
+        "friction_margin_min_n": 39.245706089439729,
+        "drive_torque_max_nm": 1.6136765537726923,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "344559cab1e4c96aef08c360c815fa93420d00ef52a2e6b7469e591a96024cfa"
+    },
+    {
+      "name": "diff-reverse",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "reverse",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.048591000000000002,
+        "p95_max": 0.072201000000000001,
+        "p99_max": 0.122791,
+        "maximum": 0.32660400000000001
+      },
+      "real_time_factor_min": 76.100018924552785,
+      "peak_resident_kib_max": 51252,
+      "tracking": {
+        "position_rms_max_m": 0.15904858024140148,
+        "position_p95_max_m": 0.1649453168684123,
+        "position_max_m": 0.16505852565406887,
+        "yaw_rms_max_rad": 3.5202199325059489E-13,
+        "yaw_p95_max_rad": 7.1861791299713426E-13,
+        "yaw_max_rad": 7.4506522752848711E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00032377809789394354,
+        "position_p95_max_m": 0.00041468437954267356,
+        "position_max_m": 0.00041801435997487757,
+        "yaw_rms_max_rad": 7.3519817054693301E-15,
+        "yaw_p95_max_rad": 1.5537672242552759E-14,
+        "yaw_max_rad": 2.7463468307364213E-14
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000041846400376040304,
+        "rolling_slip_p95_max_mps": 0.000051861771646039001,
+        "rolling_slip_max_mps": 0.000052433621791830864,
+        "lateral_slip_rms_max_mps": 3.2801860973759322E-16,
+        "lateral_slip_p95_max_mps": 7.5156099366500137E-16,
+        "lateral_slip_max_mps": 1.8389620504030888E-15,
+        "normal_speed_rms_max_mps": 2.0647126694075312E-9,
+        "normal_speed_p95_max_mps": 5.4395552701933481E-9,
+        "normal_speed_max_mps": 6.070112453053281E-9,
+        "normal_force_min_n": 58.846707953292267,
+        "friction_margin_min_n": 46.220325075562464,
+        "drive_torque_max_nm": 0.23668740383034201,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "189879786c34dfb3d6d6e5afcf44c860ade2df9bfaaeb9afb76c6916ffdd691f"
+    },
+    {
+      "name": "diff-sinusoid",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "sinusoid",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.050471000000000002,
+        "p95_max": 0.058230999999999998,
+        "p99_max": 0.105102,
+        "maximum": 0.26441399999999998
+      },
+      "real_time_factor_min": 76.549221126219464,
+      "peak_resident_kib_max": 50988,
+      "tracking": {
+        "position_rms_max_m": 0.098517893132160583,
+        "position_p95_max_m": 0.12056819730843829,
+        "position_max_m": 0.12129147471297287,
+        "yaw_rms_max_rad": 0.028790246384301992,
+        "yaw_p95_max_rad": 0.050109281817544364,
+        "yaw_max_rad": 0.05059990136407113
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00028092255732703827,
+        "position_p95_max_m": 0.00036797234147835915,
+        "position_max_m": 0.00037041055535396827,
+        "yaw_rms_max_rad": 0.00033647641898159464,
+        "yaw_p95_max_rad": 0.00045184132026855275,
+        "yaw_max_rad": 0.00045342805558413329
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000055657094711343144,
+        "rolling_slip_p95_max_mps": 0.00011390218369074744,
+        "rolling_slip_max_mps": 0.00012067321065416554,
+        "lateral_slip_rms_max_mps": 0.000001924142017713905,
+        "lateral_slip_p95_max_mps": 0.0000037326175838892237,
+        "lateral_slip_max_mps": 0.0000037970080642174264,
+        "normal_speed_rms_max_mps": 5.4288612336408207E-8,
+        "normal_speed_p95_max_mps": 1.0868238190828259E-7,
+        "normal_speed_max_mps": 4.4337982533854196E-7,
+        "normal_force_min_n": 58.835790839068018,
+        "friction_margin_min_n": 33.162618328934258,
+        "drive_torque_max_nm": 0.52614014359223693,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "bf05a5a6659194a2793ec3d19d83342c3de11d4227d337de1432a39c42f76c07"
+    },
+    {
+      "name": "diff-turn-left",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "turn_left",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.048061,
+        "p95_max": 0.070021,
+        "p99_max": 0.11206199999999999,
+        "maximum": 0.28115299999999999
+      },
+      "real_time_factor_min": 79.748660294280924,
+      "peak_resident_kib_max": 51424,
+      "tracking": {
+        "position_rms_max_m": 1.9946889357212448E-18,
+        "position_p95_max_m": 2.9976587431098049E-18,
+        "position_max_m": 3.4133499749023325E-18,
+        "yaw_rms_max_rad": 0.087552287143954299,
+        "yaw_p95_max_rad": 0.11142977831490095,
+        "yaw_max_rad": 0.11244831050856723
+      },
+      "odometry": {
+        "position_rms_max_m": 1.5500045595098674E-19,
+        "position_p95_max_m": 3.2485980993932907E-19,
+        "position_max_m": 3.6493203460934254E-19,
+        "yaw_rms_max_rad": 0.0018549857985900497,
+        "yaw_p95_max_rad": 0.0033802307714605466,
+        "yaw_max_rad": 0.0036190747156923941
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025004786122915953,
+        "rolling_slip_p95_max_mps": 0.00031614394319208776,
+        "rolling_slip_max_mps": 0.00031783428879488305,
+        "lateral_slip_rms_max_mps": 1.2831648223416826E-18,
+        "lateral_slip_p95_max_mps": 2.5444869735519182E-18,
+        "lateral_slip_max_mps": 5.4955497617859006E-18,
+        "normal_speed_rms_max_mps": 6.2937974228364778E-7,
+        "normal_speed_p95_max_mps": 0.000001013296709094529,
+        "normal_speed_max_mps": 0.0000010488599772745204,
+        "normal_force_min_n": 58.859995466067986,
+        "friction_margin_min_n": 18.845415598685548,
+        "drive_torque_max_nm": 0.84973423844362206,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "16fdf11722a87f2ff9532a069d88e9ac0712f1afbe5461b4c5a4442feb022d32"
+    },
+    {
+      "name": "diff-turn-right",
+      "backend": "TVM",
+      "robot": "differential",
+      "scenario": "turn_right",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.046521,
+        "p95_max": 0.070871000000000003,
+        "p99_max": 0.10011100000000001,
+        "maximum": 0.30809399999999998
+      },
+      "real_time_factor_min": 77.479569760907879,
+      "peak_resident_kib_max": 51292,
+      "tracking": {
+        "position_rms_max_m": 5.3886461783292628E-18,
+        "position_p95_max_m": 1.1930687560032014E-17,
+        "position_max_m": 1.6770488715318048E-17,
+        "yaw_rms_max_rad": 0.087552287143954299,
+        "yaw_p95_max_rad": 0.11142977831490095,
+        "yaw_max_rad": 0.11244831050856723
+      },
+      "odometry": {
+        "position_rms_max_m": 1.6723866645548659E-19,
+        "position_p95_max_m": 3.6361740395013469E-19,
+        "position_max_m": 4.4140571719542235E-19,
+        "yaw_rms_max_rad": 0.0018549857985900504,
+        "yaw_p95_max_rad": 0.0033802307714605466,
+        "yaw_max_rad": 0.0036190747156923941
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025004786122915959,
+        "rolling_slip_p95_max_mps": 0.00031614394319208776,
+        "rolling_slip_max_mps": 0.00031783428879488305,
+        "lateral_slip_rms_max_mps": 1.3131057767933304E-18,
+        "lateral_slip_p95_max_mps": 2.6258021364883311E-18,
+        "lateral_slip_max_mps": 5.7056139327049671E-18,
+        "normal_speed_rms_max_mps": 6.2937974228383381E-7,
+        "normal_speed_p95_max_mps": 0.0000010132967090883995,
+        "normal_speed_max_mps": 0.0000010488599772672817,
+        "normal_force_min_n": 58.859995466067986,
+        "friction_margin_min_n": 18.845415598685541,
+        "drive_torque_max_nm": 0.8497342384436215,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "41e56801c5a4ec9b113ad58809b2c25214ff12091ad6c2d83e17e194953cdd38"
+    },
+    {
+      "name": "four-ackermann-left",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "ackermann_left",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.14402200000000001,
+        "p95_max": 0.19709199999999999,
+        "p99_max": 0.25597300000000001,
+        "maximum": 0.432425
+      },
+      "real_time_factor_min": 28.223347924879498,
+      "peak_resident_kib_max": 51812,
+      "tracking": {
+        "position_rms_max_m": 0.12422459596140686,
+        "position_p95_max_m": 0.13525401467455561,
+        "position_max_m": 0.13584964369200464,
+        "yaw_rms_max_rad": 0.041254815358896364,
+        "yaw_p95_max_rad": 0.044418448404928562,
+        "yaw_max_rad": 0.044488347152991575
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00030334656360425324,
+        "position_p95_max_m": 0.00040986698872998563,
+        "position_max_m": 0.00044247789653593689,
+        "yaw_rms_max_rad": 0.00062268232212841232,
+        "yaw_p95_max_rad": 0.0011475848462045857,
+        "yaw_max_rad": 0.0012342017877305655
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00011983249345163948,
+        "rolling_slip_p95_max_mps": 0.0002169118234906952,
+        "rolling_slip_max_mps": 0.00021746447845625788,
+        "lateral_slip_rms_max_mps": 0.00056565132747447551,
+        "lateral_slip_p95_max_mps": 0.00090924904454174941,
+        "lateral_slip_max_mps": 0.00091442180163463802,
+        "normal_speed_rms_max_mps": 0.0000016160845300168556,
+        "normal_speed_p95_max_mps": 0.0000034492966499887324,
+        "normal_speed_max_mps": 0.0000044063141522307531,
+        "normal_force_min_n": 55.491470949141799,
+        "friction_margin_min_n": 19.421209193519896,
+        "drive_torque_max_nm": 0.31401166212766324,
+        "steer_torque_max_nm": 1.0763110940328493
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "7b50093aa2f17d194c91214d01a943b58289779ce333d0d3c2fd99fcbbb7ef89"
+    },
+    {
+      "name": "four-ackermann-right",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "ackermann_right",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.14410100000000001,
+        "p95_max": 0.19665299999999999,
+        "p99_max": 0.230713,
+        "maximum": 1.224675
+      },
+      "real_time_factor_min": 28.908893650569151,
+      "peak_resident_kib_max": 51904,
+      "tracking": {
+        "position_rms_max_m": 0.12412237973443081,
+        "position_p95_max_m": 0.13527613113093476,
+        "position_max_m": 0.1358756071131178,
+        "yaw_rms_max_rad": 0.041220942142000443,
+        "yaw_p95_max_rad": 0.044426816920909301,
+        "yaw_max_rad": 0.044498103611562895
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00030329980420483921,
+        "position_p95_max_m": 0.00041001673587161302,
+        "position_max_m": 0.00044263925480253203,
+        "yaw_rms_max_rad": 0.00062281665033049832,
+        "yaw_p95_max_rad": 0.0011477062219689971,
+        "yaw_max_rad": 0.0012343261013382234
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00011989564213347612,
+        "rolling_slip_p95_max_mps": 0.00021766111906609795,
+        "rolling_slip_max_mps": 0.00021821329879649295,
+        "lateral_slip_rms_max_mps": 0.00056536884402090429,
+        "lateral_slip_p95_max_mps": 0.00090924056244405288,
+        "lateral_slip_max_mps": 0.00091450866165993557,
+        "normal_speed_rms_max_mps": 0.0000016117499777670492,
+        "normal_speed_p95_max_mps": 0.0000034289566954036348,
+        "normal_speed_max_mps": 0.0000043861580724132894,
+        "normal_force_min_n": 55.493711689670405,
+        "friction_margin_min_n": 19.4236979879526,
+        "drive_torque_max_nm": 0.31512990661765794,
+        "steer_torque_max_nm": 1.0762579038833351
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "dffb81ea777e06f53f66dd6d6f3184d0460d7d6091cf403ae327dd73f1d6237c"
+    },
+    {
+      "name": "four-crab",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "crab",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.13631199999999999,
+        "p95_max": 0.18149199999999999,
+        "p99_max": 0.24152299999999999,
+        "maximum": 0.39991500000000002
+      },
+      "real_time_factor_min": 31.076346734040381,
+      "peak_resident_kib_max": 52244,
+      "tracking": {
+        "position_rms_max_m": 0.12189822919033438,
+        "position_p95_max_m": 0.12933235932251555,
+        "position_max_m": 0.12933496999903887,
+        "yaw_rms_max_rad": 9.8174406443141197E-11,
+        "yaw_p95_max_rad": 1.3723188278031345E-10,
+        "yaw_max_rad": 1.3884907750305588E-10
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00025289517617444455,
+        "position_p95_max_m": 0.00028824288807359038,
+        "position_max_m": 0.00028860566561454812,
+        "yaw_rms_max_rad": 2.9069044922162651E-11,
+        "yaw_p95_max_rad": 4.9006917262109397E-11,
+        "yaw_max_rad": 5.0513796537539685E-11
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000027268829653310791,
+        "rolling_slip_p95_max_mps": 0.000032284908152420735,
+        "rolling_slip_max_mps": 0.000032298275573261342,
+        "lateral_slip_rms_max_mps": 5.1169130998875688E-9,
+        "lateral_slip_p95_max_mps": 1.3462048699620766E-8,
+        "lateral_slip_max_mps": 1.589235490543008E-8,
+        "normal_speed_rms_max_mps": 4.4249820087573921E-8,
+        "normal_speed_p95_max_mps": 1.2252091250532285E-7,
+        "normal_speed_max_mps": 1.410639515358794E-7,
+        "normal_force_min_n": 56.222007926114919,
+        "friction_margin_min_n": 44.242628605921425,
+        "drive_torque_max_nm": 0.18550538040533951,
+        "steer_torque_max_nm": 2.6176067580028599E-7
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "092142250bc3d8230b42d9163498d8fb2bdf65a6f0b1a7049f84e9f91c7cc2a7"
+    },
+    {
+      "name": "four-forward",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "forward",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.12735199999999999,
+        "p95_max": 0.17228199999999999,
+        "p99_max": 0.198522,
+        "maximum": 0.45151599999999997
+      },
+      "real_time_factor_min": 32.866479669982191,
+      "peak_resident_kib_max": 52168,
+      "tracking": {
+        "position_rms_max_m": 0.12178190059313181,
+        "position_p95_max_m": 0.1293267021396014,
+        "position_max_m": 0.12933098492987827,
+        "yaw_rms_max_rad": 2.0127917709538579E-19,
+        "yaw_p95_max_rad": 3.7971760978043559E-19,
+        "yaw_max_rad": 4.5737539215073641E-19
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00025276682705224979,
+        "position_p95_max_m": 0.00028779578974524878,
+        "position_max_m": 0.00028816527285785432,
+        "yaw_rms_max_rad": 3.6411045006526183E-18,
+        "yaw_p95_max_rad": 6.207973634615429E-18,
+        "yaw_max_rad": 6.598328403078774E-18
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000027238929071940514,
+        "rolling_slip_p95_max_mps": 0.000032278993651713161,
+        "rolling_slip_max_mps": 0.000032294008453087608,
+        "lateral_slip_rms_max_mps": 2.225958247637754E-18,
+        "lateral_slip_p95_max_mps": 4.6436411815593584E-18,
+        "lateral_slip_max_mps": 9.7016843521435714E-18,
+        "normal_speed_rms_max_mps": 4.21681256967688E-8,
+        "normal_speed_p95_max_mps": 9.8105878882594434E-8,
+        "normal_speed_max_mps": 1.0176641411282351E-7,
+        "normal_force_min_n": 56.413199154618454,
+        "friction_margin_min_n": 44.394984687082406,
+        "drive_torque_max_nm": 0.18574919485339486,
+        "steer_torque_max_nm": 2.3380333083277301E-16
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "1690ae54161596cc30660a702846adc740d39cb1f4b44bfbb559b6b6ae757104"
+    },
+    {
+      "name": "four-lateral-impulse",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "forward",
+      "kind": "disturbance",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.13977100000000001,
+        "p95_max": 0.176812,
+        "p99_max": 0.21163299999999999,
+        "maximum": 0.57058699999999996
+      },
+      "real_time_factor_min": 31.24242117441851,
+      "peak_resident_kib_max": 52124,
+      "tracking": {
+        "position_rms_max_m": 0.077477228232666243,
+        "position_p95_max_m": 0.09179292468708497,
+        "position_max_m": 0.092864485871342967,
+        "yaw_rms_max_rad": 3.8117348028496764E-8,
+        "yaw_p95_max_rad": 6.4193606495732675E-8,
+        "yaw_max_rad": 7.0124456876499595E-8
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00029734782845406273,
+        "position_p95_max_m": 0.00033826766275004143,
+        "position_max_m": 0.00037024287118117251,
+        "yaw_rms_max_rad": 6.8677729277425041E-7,
+        "yaw_p95_max_rad": 8.2050492558966209E-7,
+        "yaw_max_rad": 8.498188653059297E-7
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000045334158821260285,
+        "rolling_slip_p95_max_mps": 0.000067437419271440535,
+        "rolling_slip_max_mps": 0.00028250057957185327,
+        "lateral_slip_rms_max_mps": 0.00064902353471484834,
+        "lateral_slip_p95_max_mps": 1.9833583720937452E-8,
+        "lateral_slip_max_mps": 0.018331899149145923,
+        "normal_speed_rms_max_mps": 0.000039025421554018736,
+        "normal_speed_p95_max_mps": 0.0000025022811123723064,
+        "normal_speed_max_mps": 0.0014263898514656715,
+        "normal_force_min_n": 33.350618314653637,
+        "friction_margin_min_n": 4.7029937032378157,
+        "drive_torque_max_nm": 1.1688242994871292,
+        "steer_torque_max_nm": 0.002894451518935874
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "f01640169b678ba29236ba422d5893be3bfb05139c237c6c4b228bb4851c58bf"
+    },
+    {
+      "name": "four-low-friction",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "forward",
+      "kind": "slip",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.18296200000000001,
+        "p95_max": 0.24080299999999999,
+        "p99_max": 0.33656399999999997,
+        "maximum": 0.59781799999999996
+      },
+      "real_time_factor_min": 24.244578454035167,
+      "peak_resident_kib_max": 51884,
+      "tracking": {
+        "position_rms_max_m": 0.51475558036588787,
+        "position_p95_max_m": 0.92708630460099406,
+        "position_max_m": 0.98306118273297161,
+        "yaw_rms_max_rad": 2.2871837550275279E-12,
+        "yaw_p95_max_rad": 4.0836772305079504E-12,
+        "yaw_max_rad": 6.2763532984665048E-12
+      },
+      "odometry": {
+        "position_rms_max_m": 0.47483738954638316,
+        "position_p95_max_m": 0.85223163433403648,
+        "position_max_m": 0.89708756108525045,
+        "yaw_rms_max_rad": 1.1006376474021765E-10,
+        "yaw_p95_max_rad": 2.0235840748679352E-10,
+        "yaw_max_rad": 2.1630985680673283E-10
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.26812379798872682,
+        "rolling_slip_p95_max_mps": 0.40968767791264693,
+        "rolling_slip_max_mps": 1.2958123064865303,
+        "lateral_slip_rms_max_mps": 8.4358710829078396E-11,
+        "lateral_slip_p95_max_mps": 1.2845942675498218E-10,
+        "lateral_slip_max_mps": 2.5601361416580454E-10,
+        "normal_speed_rms_max_mps": 0.0029533053652077181,
+        "normal_speed_p95_max_mps": 0.006609549293985488,
+        "normal_speed_max_mps": 0.013815159498474377,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -2.1275342771552417,
+        "drive_torque_max_nm": 7.9116524897093168,
+        "steer_torque_max_nm": 9.1003873239853977E-7
+      },
+      "final_modes": [
+        [
+          "detached",
+          "detached",
+          "detached",
+          "detached"
+        ]
+      ],
+      "config_sha256": "83cf346f7782384c94efae9f3719a5f5fda0e2cbd35ff6e213e8ba60d02f164a"
+    },
+    {
+      "name": "four-mode-cycle",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "mode_cycle",
+      "kind": "transition",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.17105300000000001,
+        "p95_max": 0.21402199999999999,
+        "p99_max": 0.245334,
+        "maximum": 0.41797499999999999
+      },
+      "real_time_factor_min": 29.204972200254268,
+      "peak_resident_kib_max": 52200,
+      "tracking": {
+        "position_rms_max_m": 1.5558588078819444,
+        "position_p95_max_m": 3.498313679626726,
+        "position_max_m": 3.5457225841160365,
+        "yaw_rms_max_rad": 6.2988815632698338E-14,
+        "yaw_p95_max_rad": 1.611140085064414E-13,
+        "yaw_max_rad": 1.6504315646659667E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.0032993895613585649,
+        "position_p95_max_m": 0.0077186355291019026,
+        "position_max_m": 0.0078138347434522082,
+        "yaw_rms_max_rad": 7.3237717800994217E-14,
+        "yaw_p95_max_rad": 1.6734573105529388E-13,
+        "yaw_max_rad": 1.9806682913300747E-13
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.0020687268296898024,
+        "rolling_slip_p95_max_mps": 0.0034465887079457858,
+        "rolling_slip_max_mps": 0.047364417720252572,
+        "lateral_slip_rms_max_mps": 2.9147097611325654E-13,
+        "lateral_slip_p95_max_mps": 2.0172866230005259E-13,
+        "lateral_slip_max_mps": 6.7186594439424155E-12,
+        "normal_speed_rms_max_mps": 0.000050205960562069872,
+        "normal_speed_p95_max_mps": 0.00001740134379257501,
+        "normal_speed_max_mps": 0.0014885149868921219,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -7.1054273576010019E-15,
+        "drive_torque_max_nm": 13.317982398422481,
+        "steer_torque_max_nm": 7.2656299091910675E-11
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "5ef4cffc7e2a0211a9c427171b3ff54bfe4c923ecf52f1d2756c557ef9f72485"
+    },
+    {
+      "name": "four-pure-yaw",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "pure_yaw",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.14339199999999999,
+        "p95_max": 0.19478200000000001,
+        "p99_max": 0.225103,
+        "maximum": 0.356074
+      },
+      "real_time_factor_min": 28.094431835881974,
+      "peak_resident_kib_max": 51812,
+      "tracking": {
+        "position_rms_max_m": 0.000029511256373616444,
+        "position_p95_max_m": 0.000059043597323052738,
+        "position_max_m": 0.000064853129736075883,
+        "yaw_rms_max_rad": 0.062658314242712732,
+        "yaw_p95_max_rad": 0.083080005412890692,
+        "yaw_max_rad": 0.084601773148799755
+      },
+      "odometry": {
+        "position_rms_max_m": 6.900681610246137E-7,
+        "position_p95_max_m": 0.0000011057107182870281,
+        "position_max_m": 0.0000011260920637706314,
+        "yaw_rms_max_rad": 0.00040709242208221462,
+        "yaw_p95_max_rad": 0.00071523549236082729,
+        "yaw_max_rad": 0.0007606092906478068
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00013148080618453889,
+        "rolling_slip_p95_max_mps": 0.0002371420271150284,
+        "rolling_slip_max_mps": 0.00023978163435629666,
+        "lateral_slip_rms_max_mps": 0.00069976669896079896,
+        "lateral_slip_p95_max_mps": 0.00099176674900484474,
+        "lateral_slip_max_mps": 0.0010367617417318649,
+        "normal_speed_rms_max_mps": 0.0000010536104944108344,
+        "normal_speed_p95_max_mps": 0.0000017534979351257444,
+        "normal_speed_max_mps": 0.000002040498271455112,
+        "normal_force_min_n": 55.953390558180651,
+        "friction_margin_min_n": 20.317664146065713,
+        "drive_torque_max_nm": 0.49406589013981655,
+        "steer_torque_max_nm": 1.0024354621401446
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "688d506101c2fd59941dffbf054742fe5d79e15b6c8857cab46143b4bdbc30f8"
+    },
+    {
+      "name": "four-ramp-crab",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "crab",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.14536199999999999,
+        "p95_max": 0.203123,
+        "p99_max": 0.23105300000000001,
+        "maximum": 0.44194499999999998
+      },
+      "real_time_factor_min": 28.969572973604034,
+      "peak_resident_kib_max": 52156,
+      "tracking": {
+        "position_rms_max_m": 0.061187651173156908,
+        "position_p95_max_m": 0.063105258919935875,
+        "position_max_m": 0.063124550856362566,
+        "yaw_rms_max_rad": 1.3088550877350226E-8,
+        "yaw_p95_max_rad": 2.0719637818965365E-8,
+        "yaw_max_rad": 2.1744410708011939E-8
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00096163345159800513,
+        "position_p95_max_m": 0.0014096041082911237,
+        "position_max_m": 0.0014649960349714837,
+        "yaw_rms_max_rad": 1.9862523461855417E-7,
+        "yaw_p95_max_rad": 3.3056357753233169E-7,
+        "yaw_max_rad": 3.4852482516168263E-7
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00023844394111748122,
+        "rolling_slip_p95_max_mps": 0.00026342778273747916,
+        "rolling_slip_max_mps": 0.0002770668380621046,
+        "lateral_slip_rms_max_mps": 0.000078928856703012784,
+        "lateral_slip_p95_max_mps": 0.000078932662620897085,
+        "lateral_slip_max_mps": 0.000078932700293773216,
+        "normal_speed_rms_max_mps": 4.572721890837954E-8,
+        "normal_speed_p95_max_mps": 1.3318312093543483E-7,
+        "normal_speed_max_mps": 1.7637367566626598E-7,
+        "normal_force_min_n": 53.229423511467729,
+        "friction_margin_min_n": 37.044074468845338,
+        "drive_torque_max_nm": 1.1019546705578414,
+        "steer_torque_max_nm": 0.0000039735920178495077
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "75c13040ac0404fb485280175ab0f06abe77bbfa13d1d8eb3d4763fcdb6bc6b4"
+    },
+    {
+      "name": "four-reverse",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "reverse",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.126501,
+        "p95_max": 0.16545199999999999,
+        "p99_max": 0.19622200000000001,
+        "maximum": 0.27194400000000002
+      },
+      "real_time_factor_min": 32.869182566372295,
+      "peak_resident_kib_max": 52184,
+      "tracking": {
+        "position_rms_max_m": 0.12178190059313174,
+        "position_p95_max_m": 0.12932670213960129,
+        "position_max_m": 0.12933098492987816,
+        "yaw_rms_max_rad": 1.8898993397062833E-18,
+        "yaw_p95_max_rad": 2.1124875649234972E-18,
+        "yaw_max_rad": 2.1504194730211838E-18
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00025276682705222854,
+        "position_p95_max_m": 0.00028779578974519326,
+        "position_max_m": 0.0002881652728577988,
+        "yaw_rms_max_rad": 5.5512107938204028E-18,
+        "yaw_p95_max_rad": 9.2815893693953532E-18,
+        "yaw_max_rad": 9.5997353928382629E-18
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00002723892907194169,
+        "rolling_slip_p95_max_mps": 0.000032278993651713161,
+        "rolling_slip_max_mps": 0.000032294008453115364,
+        "lateral_slip_rms_max_mps": 2.4578219514990086E-18,
+        "lateral_slip_p95_max_mps": 5.2642230050818162E-18,
+        "lateral_slip_max_mps": 1.5166549223001323E-17,
+        "normal_speed_rms_max_mps": 4.2168125696685282E-8,
+        "normal_speed_p95_max_mps": 9.8105878876775106E-8,
+        "normal_speed_max_mps": 1.017664141019365E-7,
+        "normal_force_min_n": 56.413199154618425,
+        "friction_margin_min_n": 44.394984687082378,
+        "drive_torque_max_nm": 0.18574919485339481,
+        "steer_torque_max_nm": 3.6792163833030556E-16
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "92841829a1092de2cf870dca4059cda9f16601023ed5fc93c2b975d015af5df2"
+    },
+    {
+      "name": "four-steering-rate",
+      "backend": "TVM",
+      "robot": "four-steering",
+      "scenario": "steering_rate",
+      "kind": "maneuver",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.21401200000000001,
+        "p95_max": 0.303624,
+        "p99_max": 0.34686499999999998,
+        "maximum": 0.62783800000000001
+      },
+      "real_time_factor_min": 20.528409134018769,
+      "peak_resident_kib_max": 52312,
+      "tracking": {
+        "position_rms_max_m": 0.52687781497783193,
+        "position_p95_max_m": 0.79091151939051374,
+        "position_max_m": 0.80549546221435209,
+        "yaw_rms_max_rad": 0.00094405341598361662,
+        "yaw_p95_max_rad": 0.0021723535640565715,
+        "yaw_max_rad": 0.0023926779949156934
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00070931281063069313,
+        "position_p95_max_m": 0.00084058238653781465,
+        "position_max_m": 0.00085106486657020699,
+        "yaw_rms_max_rad": 0.0010509589442333504,
+        "yaw_p95_max_rad": 0.0010792544040620681,
+        "yaw_max_rad": 0.0010843968268760464
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00044915640568929453,
+        "rolling_slip_p95_max_mps": 0.00025105468805629392,
+        "rolling_slip_max_mps": 0.013532716548074952,
+        "lateral_slip_rms_max_mps": 0.00071256694871587938,
+        "lateral_slip_p95_max_mps": 0.00091040100562028974,
+        "lateral_slip_max_mps": 0.012597221845349955,
+        "normal_speed_rms_max_mps": 0.00056217621146017159,
+        "normal_speed_p95_max_mps": 0.0000035174497675793123,
+        "normal_speed_max_mps": 0.020900942201631943,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": 0,
+        "drive_torque_max_nm": 3.3177735734322154,
+        "steer_torque_max_nm": 4.2989825678415343
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "8733c2330c15dfeb0443222b9edf5deaea1a72e793ec4442111642f1e5c6e6e6"
+    },
+    {
+      "name": "diff-circle-left",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "circle_left",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.049521000000000003,
+        "p95_max": 0.053860999999999999,
+        "p99_max": 0.097731999999999999,
+        "maximum": 0.25037300000000001
+      },
+      "real_time_factor_min": 80.969173804801144,
+      "peak_resident_kib_max": 49956,
+      "tracking": {
+        "position_rms_max_m": 0.10098607181339027,
+        "position_p95_max_m": 0.12060867868264567,
+        "position_max_m": 0.12131937458326461,
+        "yaw_rms_max_rad": 0.087468432704852883,
+        "yaw_p95_max_rad": 0.11132085673857241,
+        "yaw_max_rad": 0.11233698947546836
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00049736512842101595,
+        "position_p95_max_m": 0.00091960163297852098,
+        "position_max_m": 0.0010378481998466313,
+        "yaw_rms_max_rad": 0.0018579566950387197,
+        "yaw_p95_max_rad": 0.0033840833518536118,
+        "yaw_max_rad": 0.0036229627508439499
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025280044587802213,
+        "rolling_slip_p95_max_mps": 0.00034447867147076479,
+        "rolling_slip_max_mps": 0.00035238082317336585,
+        "lateral_slip_rms_max_mps": 0.0000079496028363698864,
+        "lateral_slip_p95_max_mps": 0.000010606081581423833,
+        "lateral_slip_max_mps": 0.000010966126740680867,
+        "normal_speed_rms_max_mps": 6.3425840813075903E-7,
+        "normal_speed_p95_max_mps": 0.0000010995757081788654,
+        "normal_speed_max_mps": 0.0000012425144698366858,
+        "normal_force_min_n": 58.785762494864031,
+        "friction_margin_min_n": 18.823443548179178,
+        "drive_torque_max_nm": 0.89621681290781974,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "1c2786eb0e1f83019f5b4a4a23094d175b4633f499ea43d74e4707934f91ad00"
+    },
+    {
+      "name": "diff-circle-right",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "circle_right",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.049001000000000003,
+        "p95_max": 0.053450999999999999,
+        "p99_max": 0.084931000000000006,
+        "maximum": 0.19165199999999999
+      },
+      "real_time_factor_min": 81.518087208734514,
+      "peak_resident_kib_max": 49700,
+      "tracking": {
+        "position_rms_max_m": 0.10098607182019748,
+        "position_p95_max_m": 0.1206086786826519,
+        "position_max_m": 0.12131937458332381,
+        "yaw_rms_max_rad": 0.087468432739213092,
+        "yaw_p95_max_rad": 0.1113208567349358,
+        "yaw_max_rad": 0.11233698947637788
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00049736512656370108,
+        "position_p95_max_m": 0.00091960162949090692,
+        "position_max_m": 0.0010378481961608916,
+        "yaw_rms_max_rad": 0.0018579566904486609,
+        "yaw_p95_max_rad": 0.0033840833462188136,
+        "yaw_max_rad": 0.0036229627451889179
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025280044576199038,
+        "rolling_slip_p95_max_mps": 0.00034447867137214793,
+        "rolling_slip_max_mps": 0.00035238082313598067,
+        "lateral_slip_rms_max_mps": 0.0000079496028434090215,
+        "lateral_slip_p95_max_mps": 0.000010606081575027718,
+        "lateral_slip_max_mps": 0.000010966126737653761,
+        "normal_speed_rms_max_mps": 6.3425840865369769E-7,
+        "normal_speed_p95_max_mps": 0.0000010995757391208824,
+        "normal_speed_max_mps": 0.000001242514529779649,
+        "normal_force_min_n": 58.785762494891003,
+        "friction_margin_min_n": 18.823443552761518,
+        "drive_torque_max_nm": 0.89621681281080001,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "761d46b297e7f8941f47212e35f930fb6f3a9ccd0e9c372395746c98d0bf5d8e"
+    },
+    {
+      "name": "diff-contact-loss",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "disturbance",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.047220999999999999,
+        "p95_max": 0.0567,
+        "p99_max": 0.077101000000000003,
+        "maximum": 0.37718499999999999
+      },
+      "real_time_factor_min": 81.787002828260057,
+      "peak_resident_kib_max": 49708,
+      "tracking": {
+        "position_rms_max_m": 0.071353047471936215,
+        "position_p95_max_m": 0.11619064177179213,
+        "position_max_m": 0.12058609823670899,
+        "yaw_rms_max_rad": 7.5628764140421176E-14,
+        "yaw_p95_max_rad": 1.5661457409887436E-13,
+        "yaw_max_rad": 1.6560070478690851E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00019647874386803578,
+        "position_p95_max_m": 0.00031682645366593043,
+        "position_max_m": 0.00032017881778162449,
+        "yaw_rms_max_rad": 1.1682062752904532E-14,
+        "yaw_p95_max_rad": 1.412418698761437E-14,
+        "yaw_max_rad": 1.6322706681332656E-14
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00018932983671803697,
+        "rolling_slip_p95_max_mps": 0.000044045500684777861,
+        "rolling_slip_max_mps": 0.0044116884292510483,
+        "lateral_slip_rms_max_mps": 5.7955420581805423E-17,
+        "lateral_slip_p95_max_mps": 1.3262751693476334E-16,
+        "lateral_slip_max_mps": 3.1998860968727651E-16,
+        "normal_speed_rms_max_mps": 0.0036822753068277612,
+        "normal_speed_p95_max_mps": 1.7543616229055908E-8,
+        "normal_speed_max_mps": 0.098113039656593778,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": 0,
+        "drive_torque_max_nm": 0.51390965901174246,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "1de9c0d77df09f9c520c34b76069b886c41234e950e9f5b27844aac12bec6d5e"
+    },
+    {
+      "name": "diff-forward",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.046821000000000002,
+        "p95_max": 0.063850000000000004,
+        "p99_max": 0.099951999999999999,
+        "maximum": 0.191303
+      },
+      "real_time_factor_min": 82.311594029209232,
+      "peak_resident_kib_max": 49840,
+      "tracking": {
+        "position_rms_max_m": 0.15904858306223674,
+        "position_p95_max_m": 0.1649453181882376,
+        "position_max_m": 0.16505852685690181,
+        "yaw_rms_max_rad": 3.492987934985697E-14,
+        "yaw_p95_max_rad": 6.9565556378721965E-14,
+        "yaw_max_rad": 1.1927918034289551E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00032377809924875677,
+        "position_p95_max_m": 0.00041468437853653395,
+        "position_max_m": 0.00041801436241342693,
+        "yaw_rms_max_rad": 1.153922860537966E-15,
+        "yaw_p95_max_rad": 2.5395198239267941E-15,
+        "yaw_max_rad": 7.5784760340398095E-15
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000041846400515884183,
+        "rolling_slip_p95_max_mps": 0.000051861772737582523,
+        "rolling_slip_max_mps": 0.000052433622122510792,
+        "lateral_slip_rms_max_mps": 8.8963388966363791E-17,
+        "lateral_slip_p95_max_mps": 1.9985997626882773E-16,
+        "lateral_slip_max_mps": 5.6170738647551402E-16,
+        "normal_speed_rms_max_mps": 2.0647123657534897E-9,
+        "normal_speed_p95_max_mps": 5.4395547882922384E-9,
+        "normal_speed_max_mps": 6.0701118252746269E-9,
+        "normal_force_min_n": 58.846707954540371,
+        "friction_margin_min_n": 46.220325076324812,
+        "drive_torque_max_nm": 0.23668740372926553,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "2a34761f59a9ca88c519003873886fc0305befbdafc5854d505be668a0a32220"
+    },
+    {
+      "name": "diff-hold",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "hold",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.042111000000000003,
+        "p95_max": 0.053469999999999997,
+        "p99_max": 0.075911000000000006,
+        "maximum": 0.22228300000000001
+      },
+      "real_time_factor_min": 89.78709504448868,
+      "peak_resident_kib_max": 49840,
+      "tracking": {
+        "position_rms_max_m": 5.4440236100512789E-14,
+        "position_p95_max_m": 5.4488217333784406E-14,
+        "position_max_m": 5.448831823732803E-14,
+        "yaw_rms_max_rad": 4.7343299301205507E-16,
+        "yaw_p95_max_rad": 5.0210807892261858E-16,
+        "yaw_max_rad": 5.0516082139444424E-16
+      },
+      "odometry": {
+        "position_rms_max_m": 5.4440024689667094E-14,
+        "position_p95_max_m": 5.4488032543985118E-14,
+        "position_max_m": 5.4488056621271079E-14,
+        "yaw_rms_max_rad": 1.2106307151535616E-15,
+        "yaw_p95_max_rad": 1.2159285786551616E-15,
+        "yaw_max_rad": 1.216026234113717E-15
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 2.0677207913716978E-18,
+        "rolling_slip_p95_max_mps": 3.7863032989765133E-18,
+        "rolling_slip_max_mps": 1.7539010137118934E-17,
+        "lateral_slip_rms_max_mps": 5.3213819531623787E-18,
+        "lateral_slip_p95_max_mps": 7.7808364710577451E-18,
+        "lateral_slip_max_mps": 4.3706468812467479E-17,
+        "normal_speed_rms_max_mps": 9.550674419721276E-15,
+        "normal_speed_p95_max_mps": 9.5658789487861002E-15,
+        "normal_speed_max_mps": 1.0624810631380674E-14,
+        "normal_force_min_n": 58.859999999990052,
+        "friction_margin_min_n": 47.087999999989435,
+        "drive_torque_max_nm": 3.8552022410215122E-15,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "8a7d32d71e10f06e124705dd6c4c5874fddb5a9fd651e8688892198d1837a569"
+    },
+    {
+      "name": "diff-lateral-impulse",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "disturbance",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.048591000000000002,
+        "p95_max": 0.069041000000000005,
+        "p99_max": 0.079181000000000001,
+        "maximum": 0.22895299999999999
+      },
+      "real_time_factor_min": 76.564002353209986,
+      "peak_resident_kib_max": 49572,
+      "tracking": {
+        "position_rms_max_m": 0.099282321858876102,
+        "position_p95_max_m": 0.12329689988945458,
+        "position_max_m": 0.12360723209087802,
+        "yaw_rms_max_rad": 0.0000047542308269135817,
+        "yaw_p95_max_rad": 0.0000058895473255450061,
+        "yaw_max_rad": 0.0000059299039739238848
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00025274893822912006,
+        "position_p95_max_m": 0.00033974916860235612,
+        "position_max_m": 0.00035647321344212319,
+        "yaw_rms_max_rad": 2.2067053957954389E-7,
+        "yaw_p95_max_rad": 2.662669417412518E-7,
+        "yaw_max_rad": 2.6704504435397048E-7
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000036747024708816786,
+        "rolling_slip_p95_max_mps": 0.000059944983756952148,
+        "rolling_slip_max_mps": 0.00041281386990739817,
+        "lateral_slip_rms_max_mps": 0.0004544325534869325,
+        "lateral_slip_p95_max_mps": 5.1424634334731496E-11,
+        "lateral_slip_max_mps": 0.013533567259958607,
+        "normal_speed_rms_max_mps": 0.00027323127995379341,
+        "normal_speed_p95_max_mps": 2.7477013593028591E-8,
+        "normal_speed_max_mps": 0.011052994156998392,
+        "normal_force_min_n": 44.405958036908494,
+        "friction_margin_min_n": 2.7867227827175114,
+        "drive_torque_max_nm": 0.79057740144799482,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "b852b0516daea37c9029259776ec1260e8156dc37c3e8b4f5a0b7d58011f789f"
+    },
+    {
+      "name": "diff-low-friction",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "slip",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.053220000000000003,
+        "p95_max": 0.081221000000000002,
+        "p99_max": 0.110401,
+        "maximum": 0.25020300000000001
+      },
+      "real_time_factor_min": 73.684937912997697,
+      "peak_resident_kib_max": 49452,
+      "tracking": {
+        "position_rms_max_m": 0.77058569946197431,
+        "position_p95_max_m": 1.3909967046778891,
+        "position_max_m": 1.4783792396309019,
+        "yaw_rms_max_rad": 1.951985813863041E-12,
+        "yaw_p95_max_rad": 3.7005662665769698E-12,
+        "yaw_max_rad": 3.9799243427929494E-12
+      },
+      "odometry": {
+        "position_rms_max_m": 0.56314259418796653,
+        "position_p95_max_m": 1.0739692216623973,
+        "position_max_m": 1.1548049860509844,
+        "yaw_rms_max_rad": 2.1830624044100912E-12,
+        "yaw_p95_max_rad": 4.0344640232725404E-12,
+        "yaw_max_rad": 4.3570511627573688E-12
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.31290262015414549,
+        "rolling_slip_p95_max_mps": 0.47752529486948991,
+        "rolling_slip_max_mps": 0.48382247707687687,
+        "lateral_slip_rms_max_mps": 8.8102643699827467E-13,
+        "lateral_slip_p95_max_mps": 1.5674749493761382E-12,
+        "lateral_slip_max_mps": 1.8399795676906219E-12,
+        "normal_speed_rms_max_mps": 0.0025025945792308477,
+        "normal_speed_p95_max_mps": 0.0072924397986522315,
+        "normal_speed_max_mps": 0.0096053346912382456,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -2.3033125435955082,
+        "drive_torque_max_nm": 0.69917780809849572,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "detached",
+          "detached"
+        ]
+      ],
+      "config_sha256": "4168a406aad2e50366efcf362818be754a659296c02f79eebf15839e40921dc4"
+    },
+    {
+      "name": "diff-mode-cycle",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "mode_cycle",
+      "kind": "transition",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.049091000000000003,
+        "p95_max": 0.065120999999999998,
+        "p99_max": 0.101072,
+        "maximum": 0.35452400000000001
+      },
+      "real_time_factor_min": 82.114919008002587,
+      "peak_resident_kib_max": 49632,
+      "tracking": {
+        "position_rms_max_m": 0.20365726126788614,
+        "position_p95_max_m": 0.43529645592482114,
+        "position_max_m": 0.46038490139177229,
+        "yaw_rms_max_rad": 1.2797264408013322E-12,
+        "yaw_p95_max_rad": 2.0677304528052013E-12,
+        "yaw_max_rad": 2.1182848282223932E-12
+      },
+      "odometry": {
+        "position_rms_max_m": 0.046712285914743051,
+        "position_p95_max_m": 0.069529473002258868,
+        "position_max_m": 0.06973373232215252,
+        "yaw_rms_max_rad": 1.772514533074912E-11,
+        "yaw_p95_max_rad": 2.4201101347335766E-11,
+        "yaw_max_rad": 2.420296959425208E-11
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.082295282999445607,
+        "rolling_slip_p95_max_mps": 0.14908706257471876,
+        "rolling_slip_max_mps": 0.43347548559905319,
+        "lateral_slip_rms_max_mps": 3.1168762610510335E-13,
+        "lateral_slip_p95_max_mps": 9.9547304014771839E-14,
+        "lateral_slip_max_mps": 2.4026299861968018E-12,
+        "normal_speed_rms_max_mps": 0.060125644924780786,
+        "normal_speed_p95_max_mps": 0.082425600003764213,
+        "normal_speed_max_mps": 0.46499816048661446,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": 0,
+        "drive_torque_max_nm": 8.4993929928907388,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "6975b24b4894da1032336ce3432a4a235a8cbcb17a665be756851499eefe7263"
+    },
+    {
+      "name": "diff-ramp-down",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "reverse",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.045440000000000001,
+        "p95_max": 0.049850999999999999,
+        "p99_max": 0.086210999999999996,
+        "maximum": 0.147482
+      },
+      "real_time_factor_min": 86.408350171152549,
+      "peak_resident_kib_max": 49304,
+      "tracking": {
+        "position_rms_max_m": 0.17904188745570668,
+        "position_p95_max_m": 0.25525557711337743,
+        "position_max_m": 0.25818314111902751,
+        "yaw_rms_max_rad": 3.8991827429212927E-13,
+        "yaw_p95_max_rad": 9.2748776961611671E-13,
+        "yaw_max_rad": 1.2865797038223026E-12
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00074354444400197305,
+        "position_p95_max_m": 0.0011904416980552113,
+        "position_max_m": 0.0012978628723661484,
+        "yaw_rms_max_rad": 1.1398641383113105E-14,
+        "yaw_p95_max_rad": 2.4445653612240483E-14,
+        "yaw_max_rad": 4.4094679681748603E-14
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.0002165325916693148,
+        "rolling_slip_p95_max_mps": 0.00030001029857854695,
+        "rolling_slip_max_mps": 0.00030302604050009836,
+        "lateral_slip_rms_max_mps": 1.712577050000473E-15,
+        "lateral_slip_p95_max_mps": 3.7567316773445407E-15,
+        "lateral_slip_max_mps": 1.0331150723533649E-14,
+        "normal_speed_rms_max_mps": 1.1615527862110651E-8,
+        "normal_speed_p95_max_mps": 2.449216783318269E-8,
+        "normal_speed_max_mps": 2.7045498513351512E-8,
+        "normal_force_min_n": 58.540868730651006,
+        "friction_margin_min_n": 39.245706357981433,
+        "drive_torque_max_nm": 1.6136764944315047,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "d42b8aa51fdc33c993af45fa3554d40c289e308b80956f4f139029ee150de005"
+    },
+    {
+      "name": "diff-ramp-up",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "forward",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.045301000000000001,
+        "p95_max": 0.065571000000000004,
+        "p99_max": 0.106781,
+        "maximum": 0.19406200000000001
+      },
+      "real_time_factor_min": 81.319730754274886,
+      "peak_resident_kib_max": 49804,
+      "tracking": {
+        "position_rms_max_m": 0.17904188745570662,
+        "position_p95_max_m": 0.25525557711337732,
+        "position_max_m": 0.25818314111902751,
+        "yaw_rms_max_rad": 3.064633009726998E-13,
+        "yaw_p95_max_rad": 6.0092790264842466E-13,
+        "yaw_max_rad": 7.7446576426337883E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00074354444400204439,
+        "position_p95_max_m": 0.0011904416980552668,
+        "position_max_m": 0.0012978628723662039,
+        "yaw_rms_max_rad": 1.0069931128357074E-14,
+        "yaw_p95_max_rad": 2.0435715703680923E-14,
+        "yaw_max_rad": 3.4932079050460334E-14
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00021653259166931512,
+        "rolling_slip_p95_max_mps": 0.00030001029858007773,
+        "rolling_slip_max_mps": 0.00030302604053238162,
+        "lateral_slip_rms_max_mps": 1.7241464037160814E-15,
+        "lateral_slip_p95_max_mps": 3.9198356655509485E-15,
+        "lateral_slip_max_mps": 8.8678205683524471E-15,
+        "normal_speed_rms_max_mps": 1.1615527847488811E-8,
+        "normal_speed_p95_max_mps": 2.4492166616318217E-8,
+        "normal_speed_max_mps": 2.7045497108357634E-8,
+        "normal_force_min_n": 58.540868730979042,
+        "friction_margin_min_n": 39.24570635564838,
+        "drive_torque_max_nm": 1.6136764941866384,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "063db6dbbc89af982fcdec8c9656e204bd729afab627f62ee128218f0c30132a"
+    },
+    {
+      "name": "diff-reverse",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "reverse",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.04657,
+        "p95_max": 0.066600000000000006,
+        "p99_max": 0.095751000000000003,
+        "maximum": 0.20319300000000001
+      },
+      "real_time_factor_min": 80.983966859028499,
+      "peak_resident_kib_max": 50040,
+      "tracking": {
+        "position_rms_max_m": 0.15904858306223657,
+        "position_p95_max_m": 0.16494531818823771,
+        "position_max_m": 0.16505852685690192,
+        "yaw_rms_max_rad": 1.0023787154779904E-13,
+        "yaw_p95_max_rad": 1.4660052548436204E-13,
+        "yaw_max_rad": 1.52386755016094E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00032377809924875303,
+        "position_p95_max_m": 0.0004146843785365617,
+        "position_max_m": 0.00041801436241345469,
+        "yaw_rms_max_rad": 2.1856613935574975E-15,
+        "yaw_p95_max_rad": 3.0497471007885785E-15,
+        "yaw_max_rad": 7.9295271529376066E-15
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000041846400515884298,
+        "rolling_slip_p95_max_mps": 0.0000518617727354731,
+        "rolling_slip_max_mps": 0.000052433622121705881,
+        "lateral_slip_rms_max_mps": 8.0698522601930571E-17,
+        "lateral_slip_p95_max_mps": 1.7502290850240563E-16,
+        "lateral_slip_max_mps": 6.2158322079854304E-16,
+        "normal_speed_rms_max_mps": 2.0647123728255952E-9,
+        "normal_speed_p95_max_mps": 5.4395547875398804E-9,
+        "normal_speed_max_mps": 6.070111857677079E-9,
+        "normal_force_min_n": 58.846707954540705,
+        "friction_margin_min_n": 46.220325076513021,
+        "drive_torque_max_nm": 0.23668740374303374,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "95cb61c367c77ff4b1138c25b2daf86f608e87df22f16f71cefbeb11e40ef41a"
+    },
+    {
+      "name": "diff-sinusoid",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "sinusoid",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.050181000000000003,
+        "p95_max": 0.070511000000000004,
+        "p99_max": 0.082200999999999996,
+        "maximum": 0.23710300000000001
+      },
+      "real_time_factor_min": 79.265881260153833,
+      "peak_resident_kib_max": 49808,
+      "tracking": {
+        "position_rms_max_m": 0.098516826488885059,
+        "position_p95_max_m": 0.12056865784875127,
+        "position_max_m": 0.12129188843394316,
+        "yaw_rms_max_rad": 0.028762581496613458,
+        "yaw_p95_max_rad": 0.049899677722528027,
+        "yaw_max_rad": 0.050390036018686322
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00028112044056857386,
+        "position_p95_max_m": 0.00036808021892352163,
+        "position_max_m": 0.00037056629487822412,
+        "yaw_rms_max_rad": 0.00033736541394982017,
+        "yaw_p95_max_rad": 0.00045257023759862763,
+        "yaw_max_rad": 0.00045417627468453958
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000055955152877542482,
+        "rolling_slip_p95_max_mps": 0.00011333655716725614,
+        "rolling_slip_max_mps": 0.00011800277747332547,
+        "lateral_slip_rms_max_mps": 0.0000019311486361474484,
+        "lateral_slip_p95_max_mps": 0.0000036888466708949168,
+        "lateral_slip_max_mps": 0.0000037527661205735563,
+        "normal_speed_rms_max_mps": 5.2971554176597717E-8,
+        "normal_speed_p95_max_mps": 1.1200669834650963E-7,
+        "normal_speed_max_mps": 2.7506601678968425E-7,
+        "normal_force_min_n": 58.837372900850951,
+        "friction_margin_min_n": 33.171700013271305,
+        "drive_torque_max_nm": 0.54498661988177077,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "11bd7315ce11bc9caeb7f3a42a0fe2923624d1c81892712c013a0354f065d09a"
+    },
+    {
+      "name": "diff-turn-left",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "turn_left",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.044170000000000001,
+        "p95_max": 0.055771000000000001,
+        "p99_max": 0.068280999999999994,
+        "maximum": 0.23067299999999999
+      },
+      "real_time_factor_min": 80.275591886790039,
+      "peak_resident_kib_max": 49544,
+      "tracking": {
+        "position_rms_max_m": 1.9252290272879926E-16,
+        "position_p95_max_m": 3.488671282390801E-16,
+        "position_max_m": 3.6759036915764067E-16,
+        "yaw_rms_max_rad": 0.0874890683498869,
+        "yaw_p95_max_rad": 0.11132131317400189,
+        "yaw_max_rad": 0.1123365224760242
+      },
+      "odometry": {
+        "position_rms_max_m": 9.9651732100199499E-19,
+        "position_p95_max_m": 2.5931535271467754E-18,
+        "position_max_m": 2.7895558983124078E-18,
+        "yaw_rms_max_rad": 0.0018564978359493823,
+        "yaw_p95_max_rad": 0.0033824395874454682,
+        "yaw_max_rad": 0.0036213170335059057
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025017170854946166,
+        "rolling_slip_p95_max_mps": 0.00031619696272829913,
+        "rolling_slip_max_mps": 0.00031788080547984383,
+        "lateral_slip_rms_max_mps": 1.2967901312216544E-18,
+        "lateral_slip_p95_max_mps": 2.5309344463958494E-18,
+        "lateral_slip_max_mps": 5.1770653736182837E-18,
+        "normal_speed_rms_max_mps": 6.2983128662531845E-7,
+        "normal_speed_p95_max_mps": 0.0000010139211847656902,
+        "normal_speed_max_mps": 0.0000010500773975047706,
+        "normal_force_min_n": 58.859995456783494,
+        "friction_margin_min_n": 18.839399970504331,
+        "drive_torque_max_nm": 0.84988524769907781,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "ee1dac2361a6262245d4410e25e10702a398cee8743b84dbb4c4a3c5c5ceb483"
+    },
+    {
+      "name": "diff-turn-right",
+      "backend": "Tasks",
+      "robot": "differential",
+      "scenario": "turn_right",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.043529999999999999,
+        "p95_max": 0.062121000000000003,
+        "p99_max": 0.087100999999999998,
+        "maximum": 0.19931299999999999
+      },
+      "real_time_factor_min": 87.662492950182383,
+      "peak_resident_kib_max": 49508,
+      "tracking": {
+        "position_rms_max_m": 2.0390808886825037E-16,
+        "position_p95_max_m": 3.6341760900271167E-16,
+        "position_max_m": 3.8378411891877057E-16,
+        "yaw_rms_max_rad": 0.0874890683498869,
+        "yaw_p95_max_rad": 0.11132131317400186,
+        "yaw_max_rad": 0.11233652247602417
+      },
+      "odometry": {
+        "position_rms_max_m": 1.0217113309444268E-18,
+        "position_p95_max_m": 2.646781001998308E-18,
+        "position_max_m": 2.8938535835224984E-18,
+        "yaw_rms_max_rad": 0.0018564978359493717,
+        "yaw_p95_max_rad": 0.0033824395874454405,
+        "yaw_max_rad": 0.003621317033505878
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00025017170854946182,
+        "rolling_slip_p95_max_mps": 0.00031619696272828694,
+        "rolling_slip_max_mps": 0.00031788080547984221,
+        "lateral_slip_rms_max_mps": 1.3114947262286459E-18,
+        "lateral_slip_p95_max_mps": 2.7088113653192525E-18,
+        "lateral_slip_max_mps": 5.2380517458205933E-18,
+        "normal_speed_rms_max_mps": 6.2983128662542941E-7,
+        "normal_speed_p95_max_mps": 0.0000010139211847667977,
+        "normal_speed_max_mps": 0.0000010500773975057663,
+        "normal_force_min_n": 58.859995456783494,
+        "friction_margin_min_n": 18.839399970504331,
+        "drive_torque_max_nm": 0.84988524769908036,
+        "steer_torque_max_nm": 0
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "acf414daf059990228eab73deb4e6f9a02dec87b0c59d5ecf2f12eae301a8e0a"
+    },
+    {
+      "name": "four-ackermann-left",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "ackermann_left",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.11654100000000001,
+        "p95_max": 0.124801,
+        "p99_max": 0.16145200000000001,
+        "maximum": 0.32327400000000001
+      },
+      "real_time_factor_min": 36.488910622332781,
+      "peak_resident_kib_max": 50024,
+      "tracking": {
+        "position_rms_max_m": 0.12421687775623123,
+        "position_p95_max_m": 0.13523297709106447,
+        "position_max_m": 0.13582626426112845,
+        "yaw_rms_max_rad": 0.041247448047734343,
+        "yaw_p95_max_rad": 0.044402658266808025,
+        "yaw_max_rad": 0.044471653869726346
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00030396696918899536,
+        "position_p95_max_m": 0.00041192279186133746,
+        "position_max_m": 0.00044486802620311201,
+        "yaw_rms_max_rad": 0.00062611723487739079,
+        "yaw_p95_max_rad": 0.0011535752629621976,
+        "yaw_max_rad": 0.0012405412632495172
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00012404306381473887,
+        "rolling_slip_p95_max_mps": 0.00022290786495287378,
+        "rolling_slip_max_mps": 0.00022353249141526333,
+        "lateral_slip_rms_max_mps": 0.00056384870707916425,
+        "lateral_slip_p95_max_mps": 0.00090465344071554755,
+        "lateral_slip_max_mps": 0.00090963400048548718,
+        "normal_speed_rms_max_mps": 0.0000016143304487604065,
+        "normal_speed_p95_max_mps": 0.0000034420529310847961,
+        "normal_speed_max_mps": 0.0000043836998006283555,
+        "normal_force_min_n": 55.514055895519505,
+        "friction_margin_min_n": 19.422500972477824,
+        "drive_torque_max_nm": 0.32460454801272437,
+        "steer_torque_max_nm": 1.0768274773056181
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "72ac78ef0c72aa5dcfadb7fbbb1b14e34e85eca547b9e00cb4fda75f33e69481"
+    },
+    {
+      "name": "four-ackermann-right",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "ackermann_right",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.116191,
+        "p95_max": 0.12837200000000001,
+        "p99_max": 0.182612,
+        "maximum": 0.38738400000000001
+      },
+      "real_time_factor_min": 35.957427786266315,
+      "peak_resident_kib_max": 50100,
+      "tracking": {
+        "position_rms_max_m": 0.12422983284932808,
+        "position_p95_max_m": 0.1352635521482787,
+        "position_max_m": 0.13585895943972395,
+        "yaw_rms_max_rad": 0.041251806669899825,
+        "yaw_p95_max_rad": 0.044413088698728037,
+        "yaw_max_rad": 0.044482842978714687
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00030396024499735214,
+        "position_p95_max_m": 0.00041193390774256153,
+        "position_max_m": 0.0004448830247555073,
+        "yaw_rms_max_rad": 0.00062612754970805802,
+        "yaw_p95_max_rad": 0.0011536015998020455,
+        "yaw_max_rad": 0.0012405751226099715
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00012409683974171464,
+        "rolling_slip_p95_max_mps": 0.00022370638206097954,
+        "rolling_slip_max_mps": 0.00022433383115306329,
+        "lateral_slip_rms_max_mps": 0.00056382571201491676,
+        "lateral_slip_p95_max_mps": 0.00090476149740536876,
+        "lateral_slip_max_mps": 0.00090974779116162496,
+        "normal_speed_rms_max_mps": 0.0000016138367558813305,
+        "normal_speed_p95_max_mps": 0.0000034417483268319394,
+        "normal_speed_max_mps": 0.0000043832228425532128,
+        "normal_force_min_n": 55.515102109977022,
+        "friction_margin_min_n": 19.423401613009048,
+        "drive_torque_max_nm": 0.32580535099629326,
+        "steer_torque_max_nm": 1.0768045767499206
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "b3a959c6c3b502ab7a48d80fb616f5c7c95b4ea9cf78f6222e04286b4db5f5e8"
+    },
+    {
+      "name": "four-crab",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "crab",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.118092,
+        "p95_max": 0.15731200000000001,
+        "p99_max": 0.183252,
+        "maximum": 0.35916500000000001
+      },
+      "real_time_factor_min": 35.248240527676906,
+      "peak_resident_kib_max": 50408,
+      "tracking": {
+        "position_rms_max_m": 0.12189823097387356,
+        "position_p95_max_m": 0.12933236032761575,
+        "position_max_m": 0.12933497099209332,
+        "yaw_rms_max_rad": 1.2902755006415728E-10,
+        "yaw_p95_max_rad": 1.8477567269257262E-10,
+        "yaw_max_rad": 1.8748144229830718E-10
+      },
+      "odometry": {
+        "position_rms_max_m": 0.0002528951770153349,
+        "position_p95_max_m": 0.00028824289146609942,
+        "position_max_m": 0.00028860566902708421,
+        "yaw_rms_max_rad": 2.6921430839091109E-11,
+        "yaw_p95_max_rad": 4.5810050621418309E-11,
+        "yaw_max_rad": 4.7584456890094748E-11
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000027268829861340111,
+        "rolling_slip_p95_max_mps": 0.000032284907219410481,
+        "rolling_slip_max_mps": 0.000032298274777803241,
+        "lateral_slip_rms_max_mps": 5.1168306213978127E-9,
+        "lateral_slip_p95_max_mps": 1.3464209817659576E-8,
+        "lateral_slip_max_mps": 1.5891800926692197E-8,
+        "normal_speed_rms_max_mps": 4.4249818501292181E-8,
+        "normal_speed_p95_max_mps": 1.2252091800971074E-7,
+        "normal_speed_max_mps": 1.4106394097622836E-7,
+        "normal_force_min_n": 56.222007934351794,
+        "friction_margin_min_n": 44.242628717520034,
+        "drive_torque_max_nm": 0.18550535810382257,
+        "steer_torque_max_nm": 2.4838653522978696E-7
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "27f3d7e50da66c418087d4402b701cc62e8eb724f1335935d00e20d33c653f9c"
+    },
+    {
+      "name": "four-forward",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "forward",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.109541,
+        "p95_max": 0.12882199999999999,
+        "p99_max": 0.16387199999999999,
+        "maximum": 0.36639500000000003
+      },
+      "real_time_factor_min": 38.124997960312641,
+      "peak_resident_kib_max": 50152,
+      "tracking": {
+        "position_rms_max_m": 0.12189822603402534,
+        "position_p95_max_m": 0.12933235896633266,
+        "position_max_m": 0.12933496970054081,
+        "yaw_rms_max_rad": 5.9451306259404169E-19,
+        "yaw_p95_max_rad": 9.0074011882673009E-19,
+        "yaw_max_rad": 9.810504034369772E-19
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00025289378140841282,
+        "position_p95_max_m": 0.00028824143830108451,
+        "position_max_m": 0.00028860419863241393,
+        "yaw_rms_max_rad": 5.2443281091569985E-18,
+        "yaw_p95_max_rad": 8.0500981660512618E-18,
+        "yaw_max_rad": 8.5110139431804688E-18
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000027268817617627648,
+        "rolling_slip_p95_max_mps": 0.000032284894931094987,
+        "rolling_slip_max_mps": 0.000032298266715941049,
+        "lateral_slip_rms_max_mps": 2.1126483314064396E-18,
+        "lateral_slip_p95_max_mps": 4.2375814112058614E-18,
+        "lateral_slip_max_mps": 1.2238653047996608E-17,
+        "normal_speed_rms_max_mps": 4.2031272575364151E-8,
+        "normal_speed_p95_max_mps": 9.730618872060005E-8,
+        "normal_speed_max_mps": 1.0099147980868367E-7,
+        "normal_force_min_n": 56.413591988539793,
+        "friction_margin_min_n": 44.395895924509958,
+        "drive_torque_max_nm": 0.18550535680274174,
+        "steer_torque_max_nm": 1.115552900958236E-14
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "9f28f266f4b2fabd120e59f45395ad97d310b2ef1f812d868f14b2c52e00875c"
+    },
+    {
+      "name": "four-lateral-impulse",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "forward",
+      "kind": "disturbance",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.112391,
+        "p95_max": 0.12015099999999999,
+        "p99_max": 0.19581200000000001,
+        "maximum": 0.35156399999999999
+      },
+      "real_time_factor_min": 38.071588459590899,
+      "peak_resident_kib_max": 50280,
+      "tracking": {
+        "position_rms_max_m": 0.077536499683992191,
+        "position_p95_max_m": 0.091911042384552,
+        "position_max_m": 0.092951434929010618,
+        "yaw_rms_max_rad": 3.8216484363033489E-8,
+        "yaw_p95_max_rad": 6.3897925537342429E-8,
+        "yaw_max_rad": 6.9611768969687587E-8
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00029737810989984991,
+        "position_p95_max_m": 0.00033843219312647347,
+        "position_max_m": 0.00037048933667064405,
+        "yaw_rms_max_rad": 6.7705004618277923E-7,
+        "yaw_p95_max_rad": 8.0900912208745409E-7,
+        "yaw_max_rad": 8.384494534756537E-7
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000045129279459233587,
+        "rolling_slip_p95_max_mps": 0.00006738209109348486,
+        "rolling_slip_max_mps": 0.00027916386801736618,
+        "lateral_slip_rms_max_mps": 0.00064902345662471946,
+        "lateral_slip_p95_max_mps": 1.9441536110446536E-8,
+        "lateral_slip_max_mps": 0.018331901168690375,
+        "normal_speed_rms_max_mps": 0.000039024481451341201,
+        "normal_speed_p95_max_mps": 0.0000024514559879402759,
+        "normal_speed_max_mps": 0.0014263841254308083,
+        "normal_force_min_n": 33.351303446766394,
+        "friction_margin_min_n": 4.7038398768783622,
+        "drive_torque_max_nm": 1.1594803980628836,
+        "steer_torque_max_nm": 0.0028483347485749014
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "0b66014fc25853e7357454043a5121fad390be4416e116ef5c8d2ea4f86fa3f9"
+    },
+    {
+      "name": "four-low-friction",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "forward",
+      "kind": "slip",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.15518199999999999,
+        "p95_max": 0.22600300000000001,
+        "p99_max": 0.280694,
+        "maximum": 0.50708600000000004
+      },
+      "real_time_factor_min": 29.643062372364785,
+      "peak_resident_kib_max": 50088,
+      "tracking": {
+        "position_rms_max_m": 0.51475561846292117,
+        "position_p95_max_m": 0.92708636743514483,
+        "position_max_m": 0.98306125051389248,
+        "yaw_rms_max_rad": 4.0825811682496036E-14,
+        "yaw_p95_max_rad": 5.7472616253696243E-14,
+        "yaw_max_rad": 5.8933312663168357E-14
+      },
+      "odometry": {
+        "position_rms_max_m": 0.47483731931081063,
+        "position_p95_max_m": 0.85223155851093679,
+        "position_max_m": 0.89708749028793,
+        "yaw_rms_max_rad": 2.9433494145978265E-13,
+        "yaw_p95_max_rad": 5.1778837133147724E-13,
+        "yaw_max_rad": 5.2152805337239232E-13
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.26812372149644875,
+        "rolling_slip_p95_max_mps": 0.40968757013693846,
+        "rolling_slip_max_mps": 1.2958109645363096,
+        "lateral_slip_rms_max_mps": 5.7945586696472964E-13,
+        "lateral_slip_p95_max_mps": 1.1765400412895763E-12,
+        "lateral_slip_max_mps": 1.7162469618000492E-12,
+        "normal_speed_rms_max_mps": 0.0029533053766009538,
+        "normal_speed_p95_max_mps": 0.0066095492932923949,
+        "normal_speed_max_mps": 0.013815161646507319,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -2.1275338548566691,
+        "drive_torque_max_nm": 7.9116426314332822,
+        "steer_torque_max_nm": 1.0423222939624564E-9
+      },
+      "final_modes": [
+        [
+          "detached",
+          "detached",
+          "detached",
+          "detached"
+        ]
+      ],
+      "config_sha256": "7168b7169fd4b2edcbb830fd46951cae7361d727a149f2ca30a88acdedf79813"
+    },
+    {
+      "name": "four-mode-cycle",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "mode_cycle",
+      "kind": "transition",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.141402,
+        "p95_max": 0.21590300000000001,
+        "p99_max": 0.23705300000000001,
+        "maximum": 0.59591799999999995
+      },
+      "real_time_factor_min": 30.846076793603149,
+      "peak_resident_kib_max": 49836,
+      "tracking": {
+        "position_rms_max_m": 1.555858805863976,
+        "position_p95_max_m": 3.4983136745654559,
+        "position_max_m": 3.5457225779329384,
+        "yaw_rms_max_rad": 4.2955185924977974E-14,
+        "yaw_p95_max_rad": 1.0630264066822702E-13,
+        "yaw_max_rad": 1.0743915557963505E-13
+      },
+      "odometry": {
+        "position_rms_max_m": 0.0032993895581270591,
+        "position_p95_max_m": 0.007718635528118245,
+        "position_max_m": 0.0078138347409884013,
+        "yaw_rms_max_rad": 6.8031904845260073E-15,
+        "yaw_p95_max_rad": 9.6301899365128495E-15,
+        "yaw_max_rad": 1.0038123032940797E-14
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.0020687268296274365,
+        "rolling_slip_p95_max_mps": 0.0034465886889978314,
+        "rolling_slip_max_mps": 0.047364417719970131,
+        "lateral_slip_rms_max_mps": 5.646501442033212E-14,
+        "lateral_slip_p95_max_mps": 1.4592466899300962E-13,
+        "lateral_slip_max_mps": 4.0094439469933452E-13,
+        "normal_speed_rms_max_mps": 0.000050205960209737349,
+        "normal_speed_p95_max_mps": 0.000017401343794224631,
+        "normal_speed_max_mps": 0.0014885149869084426,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -7.1054273576010019E-15,
+        "drive_torque_max_nm": 13.317982377023522,
+        "steer_torque_max_nm": 1.8463005463865525E-10
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "d7ed935ae3899113d0782264760ba8bcc419adb48163d26b314a9863dfff4fde"
+    },
+    {
+      "name": "four-pure-yaw",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "pure_yaw",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.11482199999999999,
+        "p95_max": 0.18596199999999999,
+        "p99_max": 0.23402300000000001,
+        "maximum": 0.40562500000000001
+      },
+      "real_time_factor_min": 34.034494750029467,
+      "peak_resident_kib_max": 50336,
+      "tracking": {
+        "position_rms_max_m": 0.000030163494814429863,
+        "position_p95_max_m": 0.000060324289251879156,
+        "position_max_m": 0.000066250135222275378,
+        "yaw_rms_max_rad": 0.062605102754958133,
+        "yaw_p95_max_rad": 0.082928124848497126,
+        "yaw_max_rad": 0.084437511206021526
+      },
+      "odometry": {
+        "position_rms_max_m": 7.021438423906998E-7,
+        "position_p95_max_m": 0.0000011236833848997855,
+        "position_max_m": 0.0000011441254690079593,
+        "yaw_rms_max_rad": 0.00040834093723060479,
+        "yaw_p95_max_rad": 0.00071778075269937625,
+        "yaw_max_rad": 0.00076333280760967903
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00013173206883911899,
+        "rolling_slip_p95_max_mps": 0.00023743861915536004,
+        "rolling_slip_max_mps": 0.00024010249077867173,
+        "lateral_slip_rms_max_mps": 0.00069949986938433039,
+        "lateral_slip_p95_max_mps": 0.00099098574965449603,
+        "lateral_slip_max_mps": 0.0010362652752127957,
+        "normal_speed_rms_max_mps": 0.0000010555833442207663,
+        "normal_speed_p95_max_mps": 0.0000017547148324513281,
+        "normal_speed_max_mps": 0.0000020500547076682681,
+        "normal_force_min_n": 55.944718639602314,
+        "friction_margin_min_n": 20.287702984652704,
+        "drive_torque_max_nm": 0.49463402875231333,
+        "steer_torque_max_nm": 1.0041932001652567
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "aa96d852f6abe92d517be4e0b7029ffbe234042c455f960fcc9eb8602380807a"
+    },
+    {
+      "name": "four-ramp-crab",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "crab",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.117852,
+        "p95_max": 0.15726200000000001,
+        "p99_max": 0.175652,
+        "maximum": 0.36972500000000003
+      },
+      "real_time_factor_min": 35.976798907761683,
+      "peak_resident_kib_max": 50352,
+      "tracking": {
+        "position_rms_max_m": 0.061187775690716088,
+        "position_p95_max_m": 0.063105386707067668,
+        "position_max_m": 0.063124678644989426,
+        "yaw_rms_max_rad": 1.2759205515488123E-8,
+        "yaw_p95_max_rad": 2.0199004098884981E-8,
+        "yaw_max_rad": 2.1198751865475081E-8
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00096163346480627023,
+        "position_p95_max_m": 0.0014096041352583489,
+        "position_max_m": 0.0014649960619532118,
+        "yaw_rms_max_rad": 1.9862887535755526E-7,
+        "yaw_p95_max_rad": 3.3056902674675451E-7,
+        "yaw_max_rad": 3.4853048491902309E-7
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.00023844395554505123,
+        "rolling_slip_p95_max_mps": 0.0002634280486856631,
+        "rolling_slip_max_mps": 0.0002770671172758637,
+        "lateral_slip_rms_max_mps": 0.000078928856565456274,
+        "lateral_slip_p95_max_mps": 0.000078932604768151704,
+        "lateral_slip_max_mps": 0.000078932642556321284,
+        "normal_speed_rms_max_mps": 4.5727247690580184E-8,
+        "normal_speed_p95_max_mps": 1.3318344384949361E-7,
+        "normal_speed_max_mps": 1.7637352552448207E-7,
+        "normal_force_min_n": 53.22942263002669,
+        "friction_margin_min_n": 37.044076620756059,
+        "drive_torque_max_nm": 1.1019541271289863,
+        "steer_torque_max_nm": 0.000003978744743480919
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "ab1b0d15f9c454e7fcc2c98e27daccdd9bf7aebfb2311448d9e6b7ce6ebff0a4"
+    },
+    {
+      "name": "four-reverse",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "reverse",
+      "kind": "nominal",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.107961,
+        "p95_max": 0.11324099999999999,
+        "p99_max": 0.124652,
+        "maximum": 0.26487300000000003
+      },
+      "real_time_factor_min": 38.783034603518864,
+      "peak_resident_kib_max": 50280,
+      "tracking": {
+        "position_rms_max_m": 0.12189822603402534,
+        "position_p95_max_m": 0.12933235896633266,
+        "position_max_m": 0.12933496970054081,
+        "yaw_rms_max_rad": 5.3858293992798475E-19,
+        "yaw_p95_max_rad": 6.5383999456743066E-19,
+        "yaw_max_rad": 6.700799677048114E-19
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00025289378140845966,
+        "position_p95_max_m": 0.00028824143830114002,
+        "position_max_m": 0.00028860419863246944,
+        "yaw_rms_max_rad": 5.0183365646921051E-18,
+        "yaw_p95_max_rad": 8.3014117457494954E-18,
+        "yaw_max_rad": 8.7740732573319257E-18
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.000027268817617628472,
+        "rolling_slip_p95_max_mps": 0.000032284894931094987,
+        "rolling_slip_max_mps": 0.000032298266715885537,
+        "lateral_slip_rms_max_mps": 2.1959681634785658E-18,
+        "lateral_slip_p95_max_mps": 4.3497030022390193E-18,
+        "lateral_slip_max_mps": 1.0272458758138747E-17,
+        "normal_speed_rms_max_mps": 4.2031272575314189E-8,
+        "normal_speed_p95_max_mps": 9.7306188721658179E-8,
+        "normal_speed_max_mps": 1.0099147979010761E-7,
+        "normal_force_min_n": 56.413591988539736,
+        "friction_margin_min_n": 44.395895924509908,
+        "drive_torque_max_nm": 0.18550535680274172,
+        "steer_torque_max_nm": 1.1381380871939642E-14
+      },
+      "final_modes": [
+        [
+          "rolling",
+          "rolling",
+          "rolling",
+          "rolling"
+        ]
+      ],
+      "config_sha256": "a3190f5cbb676cfb2d161461e1926fc638441b7b3338b5967288461575a7e988"
+    },
+    {
+      "name": "four-steering-rate",
+      "backend": "Tasks",
+      "robot": "four-steering",
+      "scenario": "steering_rate",
+      "kind": "maneuver",
+      "status": "pass",
+      "repetitions": 5,
+      "finite_state": true,
+      "controller_failures": 0,
+      "missed_deadlines": 0,
+      "cycle_wall_ms": {
+        "median_max": 0.181503,
+        "p95_max": 0.20427200000000001,
+        "p99_max": 0.25700299999999998,
+        "maximum": 0.40355600000000003
+      },
+      "real_time_factor_min": 26.943963593488856,
+      "peak_resident_kib_max": 50332,
+      "tracking": {
+        "position_rms_max_m": 0.28576695440536032,
+        "position_p95_max_m": 0.51109808325940154,
+        "position_max_m": 0.52699532496593338,
+        "yaw_rms_max_rad": 0.0014924925935902449,
+        "yaw_p95_max_rad": 0.0028458729352776823,
+        "yaw_max_rad": 0.0030164276927247447
+      },
+      "odometry": {
+        "position_rms_max_m": 0.00060508330270421951,
+        "position_p95_max_m": 0.00095209676209266104,
+        "position_max_m": 0.00099174721798224019,
+        "yaw_rms_max_rad": 0.00090337816106656399,
+        "yaw_p95_max_rad": 0.002816591027709679,
+        "yaw_max_rad": 0.0033645908175416804
+      },
+      "contact": {
+        "rolling_slip_rms_max_mps": 0.0032541711453447303,
+        "rolling_slip_p95_max_mps": 0.002151307454547619,
+        "rolling_slip_max_mps": 0.070344245784618023,
+        "lateral_slip_rms_max_mps": 0.0033861330292336116,
+        "lateral_slip_p95_max_mps": 0.0038375860317473626,
+        "lateral_slip_max_mps": 0.038208078430997362,
+        "normal_speed_rms_max_mps": 0.0014555524196355925,
+        "normal_speed_p95_max_mps": 0.0015315376821356836,
+        "normal_speed_max_mps": 0.019990832300087368,
+        "normal_force_min_n": 0,
+        "friction_margin_min_n": -1.4210854715202004E-14,
+        "drive_torque_max_nm": 5.7625128647706898,
+        "steer_torque_max_nm": 5.7582128246644633
+      },
+      "final_modes": [
+        [
+          "detached",
+          "detached",
+          "detached",
+          "detached"
+        ]
+      ],
+      "config_sha256": "7a56a6cbe1ee7713bdaea5687d31bb6e6f6bfbcaed09bd825f09d0d1062f4229"
+    }
+  ]
+}

@@ -220,6 +220,21 @@ endif()
 # ######################################################################################
 mc_rtc_test(test_mc_rbdyn_robots mc_rbdyn)
 mc_rtc_test(test_mc_rbdyn_surface mc_rbdyn)
+mc_rtc_test(testRollingContact mc_rbdyn)
+mc_rtc_test(testRollingContactRobot mc_rbdyn)
+target_compile_definitions(
+  testRollingContactRobot
+  PRIVATE
+    ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description"
+)
+add_dependencies(testRollingContactRobot rolling_contact)
+mc_rtc_test(testRollingContactSolver mc_solver mc_tasks)
+target_compile_definitions(
+  testRollingContactSolver
+  PRIVATE
+    ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description"
+)
+add_dependencies(testRollingContactSolver rolling_contact)
 
 # ######################################################################################
 # -- Network test -- #

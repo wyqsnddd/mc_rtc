@@ -1,0 +1,29 @@
+MainRobot: [RollingContact, src/mc_robots/rolling_contact_description, rolling_diff]
+Enabled: [RollingContact]
+Default: RollingContact
+Timestep: 0.005
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-rolling-differential
+ClearControllerModulePath: true
+ControllerModulePaths: [build/src/mc_control/samples/RollingContact]
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+ObserverPipelines: []
+GUIServer:
+  Enable: false
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
+RollingContact:
+  scenario: forward
+  linearSpeed: 0.2
+  yawRate: 0.35
+  velocityGain: 20.0
+  postureStiffness: 5.0
+  postureWeight: 100.0
+  longitudinal: hard
+  terrainNormal: [0.0, 0.0, 1.0]
