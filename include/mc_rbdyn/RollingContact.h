@@ -152,6 +152,13 @@ struct MC_RBDYN_DLLAPI RollingContactKinematics
   Eigen::Vector3d carrierNormalAcceleration = Eigen::Vector3d::Zero();
   Eigen::MatrixXd carrierJacobian;
   Eigen::RowVectorXd wheelSelector;
+  /** Row selecting the steering (yaw) joint rate, empty for a non-steering wheel.
+   *
+   * When non-empty it must have the same size as wheelSelector. It addresses the
+   * second rotating velocity of a steering wheel: see the rotational coupling
+   * omega_{w/c} = theta_dot * l + delta_dot * n of the rolling-contact report.
+   */
+  Eigen::RowVectorXd steeringSelector;
   Eigen::VectorXd generalizedVelocity;
   double radius = 0.0;
   double width = 0.0;
@@ -190,6 +197,10 @@ struct MC_RBDYN_DLLAPI RollingContactGeometryResult
   Eigen::Vector3d rhs = Eigen::Vector3d::Zero();
   double orthonormalError = 0.0;
   double rightHandedError = 0.0;
+  /** Measured rolling (pitch) rate, wheelSelector * generalizedVelocity. */
+  double measuredRollingRate = 0.0;
+  /** Measured steering (yaw) rate, steeringSelector * generalizedVelocity; zero without a steering joint. */
+  double measuredSteeringRate = 0.0;
 };
 
 /** Allocation-stable CPU rolling-geometry calculator for one wheel. */

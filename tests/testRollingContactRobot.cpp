@@ -19,6 +19,12 @@ namespace
 mc_rbdyn::RobotModulePtr loadModule(const std::string & variant)
 {
   configureRobotLoader();
+  if(variant == "rolling_diff") { return mc_rbdyn::RobotLoader::get_robot_module("RollingContactDifferential"); }
+  if(variant == "rolling_4s") { return mc_rbdyn::RobotLoader::get_robot_module("RollingContactFourSteering"); }
+  if(variant == "ranger_mini_v3")
+  {
+    return mc_rbdyn::RobotLoader::get_robot_module("RollingContactRangerMiniV3");
+  }
   return mc_rbdyn::RobotLoader::get_robot_module(
       "RollingContact", std::string(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH), variant);
 }
@@ -59,6 +65,10 @@ BOOST_AUTO_TEST_CASE(LoadDifferentialRollingRobot)
   auto module = loadModule("rolling_diff");
   BOOST_REQUIRE(module);
   BOOST_CHECK_EQUAL(module->name, "rolling_diff");
+  BOOST_REQUIRE_EQUAL(module->parameters().size(), 1);
+  BOOST_CHECK_EQUAL(module->parameters()[0], "RollingContactDifferential");
+  BOOST_REQUIRE_EQUAL(module->canonicalParameters().size(), 3);
+  BOOST_CHECK_EQUAL(module->canonicalParameters()[2], "rolling_diff");
   BOOST_CHECK_EQUAL(module->ref_joint_order().size(), 2);
   BOOST_CHECK_CLOSE(module->_default_attitude[6], 0.2, 1e-12);
 
@@ -133,6 +143,66 @@ BOOST_AUTO_TEST_CASE(LoadFourSteeringRollingRobot)
   BOOST_CHECK(robot.hasSurface("FrontRightWheel"));
   BOOST_CHECK(robot.hasSurface("RearLeftWheel"));
   BOOST_CHECK(robot.hasSurface("RearRightWheel"));
+  checkBodyInertias(robot);
+}
+
+BOOST_AUTO_TEST_CASE(LoadRangerMiniV3RollingRobot)
+{
+  auto module = loadModule("ranger_mini_v3");
+  BOOST_REQUIRE(module);
+  BOOST_CHECK_EQUAL(module->name, "ranger_mini_v3");
+  BOOST_REQUIRE_EQUAL(module->parameters().size(), 1);
+  BOOST_CHECK_EQUAL(module->parameters()[0], "RollingContactRangerMiniV3");
+  BOOST_REQUIRE_EQUAL(module->canonicalParameters().size(), 3);
+  BOOST_CHECK_EQUAL(module->canonicalParameters()[2], "ranger_mini_v3");
+  BOOST_CHECK_CLOSE(module->_default_attitude[6], 0.16, 1e-12);
+  BOOST_CHECK_EQUAL(module->ref_joint_order().size(), 8);
+
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+  BOOST_CHECK_EQUAL(robot.mb().nrDof(), 14);
+  // The free-joint/body-sensor origin is the chassis link origin. Keep this
+  // explicit: a non-zero sensor transform makes the visual floating-base
+  // marker and the controller's chassis task disagree even when FK succeeds.
+  BOOST_REQUIRE(robot.hasBodySensor("FloatingBase"));
+  const auto & floatingBase = robot.bodySensor("FloatingBase");
+  BOOST_CHECK_EQUAL(floatingBase.parentBody(), "chassis");
+  BOOST_CHECK_SMALL((floatingBase.X_b_s().matrix() - sva::PTransformd::Identity().matrix()).norm(), 1e-12);
+  BOOST_CHECK_SMALL((robot.posW().matrix() - robot.frame("chassis").position().matrix()).norm(), 1e-12);
+  BOOST_REQUIRE_EQUAL(module->_visual.at("chassis").size(), 1);
+  BOOST_CHECK_SMALL(module->_visual.at("chassis").front().origin.translation().norm(), 1e-12);
+  BOOST_CHECK_SMALL(
+      (module->_visual.at("chassis").front().origin.rotation() - Eigen::Matrix3d::Identity()).norm(), 1e-12);
+  BOOST_REQUIRE_EQUAL(module->_collision.at("chassis").size(), 1);
+  BOOST_CHECK_SMALL(module->_collision.at("chassis").front().origin.translation().norm(), 1e-12);
+  BOOST_CHECK_SMALL(
+      (module->_collision.at("chassis").front().origin.rotation() - Eigen::Matrix3d::Identity()).norm(), 1e-12);
+  const std::array<std::string, 4> corners = {"front_left", "front_right", "rear_left", "rear_right"};
+  constexpr double halfPi = 1.5707963267948966;
+  const std::array<Eigen::Vector2d, 4> expectedOffsets = {Eigen::Vector2d{0.247, 0.182},
+                                                         Eigen::Vector2d{0.247, -0.182},
+                                                         Eigen::Vector2d{-0.247, 0.182},
+                                                         Eigen::Vector2d{-0.247, -0.182}};
+  for(size_t i = 0; i < corners.size(); ++i)
+  {
+    const auto & corner = corners[i];
+    BOOST_CHECK(robot.hasJoint(corner + "_steer"));
+    BOOST_CHECK(robot.hasJoint(corner + "_drive"));
+    BOOST_CHECK(robot.hasBody(corner + "_knuckle"));
+    BOOST_CHECK(robot.hasBody(corner + "_wheel"));
+    BOOST_CHECK(robot.hasFrame(corner + "_carrier"));
+    const Eigen::Vector3d offset = robot.frame(corner + "_carrier").position().translation()
+                                   - robot.frame("chassis").position().translation();
+    BOOST_CHECK_SMALL((offset.head<2>() - expectedOffsets[i]).norm(), 1e-12);
+    BOOST_CHECK_CLOSE(offset.z(), -0.035, 1e-12);
+    const auto steer = robot.jointIndexByName(corner + "_steer");
+    BOOST_CHECK_CLOSE(robot.ql()[steer][0], -halfPi, 1e-5);
+    BOOST_CHECK_CLOSE(robot.qu()[steer][0], halfPi, 1e-5);
+  }
+  const auto * wheel = dynamic_cast<const mc_rbdyn::CylindricalSurface *>(&robot.surface("FrontLeftWheel"));
+  BOOST_REQUIRE(wheel);
+  BOOST_CHECK_CLOSE(wheel->radius(), 0.125, 1e-12);
+  BOOST_CHECK_CLOSE(wheel->width(), 0.08, 1e-12);
   checkBodyInertias(robot);
 }
 
@@ -236,6 +306,65 @@ BOOST_AUTO_TEST_CASE(ResolvedRollingBiasMatchesMatrixDirectionalDerivative)
   const Eigen::Vector3d finiteDifference = (plusMatrix * velocity - minusMatrix * velocity) / (2.0 * step);
   BOOST_TEST_MESSAGE("A-dot alpha error: " << (finiteDifference - expectedBias).norm());
   BOOST_CHECK_SMALL((finiteDifference - expectedBias).norm(), 1e-5);
+}
+
+BOOST_AUTO_TEST_CASE(SteeringSelectorAddressesTheSteeringDof)
+{
+  auto module = loadModule("rolling_4s");
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+
+  mc_rbdyn::RollingContactRobotGeometry geometry(robot, frontLeftDescription());
+  geometry.update(robot, Eigen::Vector3d::UnitZ());
+
+  const auto & selector = geometry.kinematics().steeringSelector;
+  const auto steeringDof = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")));
+  const auto driveDof = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_drive")));
+  BOOST_REQUIRE_EQUAL(selector.size(), robot.mb().nrDof());
+  BOOST_CHECK_CLOSE(selector(steeringDof), 1.0, 1e-12);
+  BOOST_CHECK_SMALL(selector(driveDof), 1e-12);
+  BOOST_CHECK_CLOSE(selector.sum(), 1.0, 1e-12);
+}
+
+BOOST_AUTO_TEST_CASE(MeasuredRotatingRatesFollowJointVelocities)
+{
+  auto module = loadModule("rolling_4s");
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+  const auto steeringJoint = robot.jointIndexByName("front_left_steer");
+  const auto driveJoint = robot.jointIndexByName("front_left_drive");
+
+  mc_rbdyn::RollingContactRobotGeometry geometry(robot, frontLeftDescription());
+
+  robot.mbc().alpha[driveJoint][0] = 2.5;
+  robot.mbc().alpha[steeringJoint][0] = -0.75;
+  robot.forwardKinematics();
+  robot.forwardVelocity();
+
+  const auto & result = geometry.update(robot, Eigen::Vector3d::UnitZ());
+  BOOST_CHECK_CLOSE(result.measuredRollingRate, 2.5, 1e-9);
+  BOOST_CHECK_CLOSE(result.measuredSteeringRate, -0.75, 1e-9);
+}
+
+BOOST_AUTO_TEST_CASE(DifferentialWheelHasEmptySteeringSelector)
+{
+  auto module = loadModule("rolling_diff");
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+
+  mc_rbdyn::RollingContactDescription description;
+  description.name = "left";
+  description.carrierFrame = "left_carrier";
+  description.wheelBody = "left_wheel";
+  description.driveJoint = "left_drive";
+  description.radius = 0.2;
+  description.width = 0.08;
+
+  mc_rbdyn::RollingContactRobotGeometry geometry(robot, description);
+  const auto & result = geometry.update(robot, Eigen::Vector3d::UnitZ());
+
+  BOOST_CHECK_EQUAL(geometry.kinematics().steeringSelector.size(), 0);
+  BOOST_CHECK_EQUAL(result.measuredSteeringRate, 0.0);
 }
 
 BOOST_AUTO_TEST_CASE(FourSteeringResolvedGeometryAcceptsAckermannTwist)

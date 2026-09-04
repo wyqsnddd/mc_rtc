@@ -292,6 +292,12 @@ const RollingContactGeometryResult & RollingContactGeometry::update(const Rollin
   {
     throw std::invalid_argument("Rolling contact wheelSelector must be 1 x nrDof");
   }
+  if(input.steeringSelector.size() != 0
+     && (input.steeringSelector.rows() != 1 || input.steeringSelector.cols() != nrDof_))
+  {
+    throw std::invalid_argument("Rolling contact steeringSelector must be empty or 1 x nrDof");
+  }
+  if(input.steeringSelector.size() != 0) { requireFinite(input.steeringSelector, "steeringSelector"); }
   if(input.generalizedVelocity.size() != nrDof_)
   {
     throw std::invalid_argument("Rolling contact generalizedVelocity size does not match nrDof");
@@ -360,6 +366,9 @@ const RollingContactGeometryResult & RollingContactGeometry::update(const Rollin
 
   result_.rollingMatrix.row(0).noalias() = result_.rollingDirection.transpose() * input.carrierJacobian;
   result_.rollingMatrix.row(0) -= input.radius * input.spinSign * input.wheelSelector;
+  result_.measuredRollingRate = input.wheelSelector.dot(input.generalizedVelocity);
+  result_.measuredSteeringRate =
+      input.steeringSelector.size() == 0 ? 0.0 : input.steeringSelector.dot(input.generalizedVelocity);
   result_.rollingMatrix.row(1).noalias() = result_.lateralDirection.transpose() * input.carrierJacobian;
   result_.rollingMatrix.row(2).noalias() = result_.normalDirection.transpose() * input.carrierJacobian;
   result_.velocityResidual.noalias() = result_.rollingMatrix * input.generalizedVelocity;
@@ -409,11 +418,17 @@ struct RollingContactRobotGeometry::Impl
         throw std::invalid_argument("Rolling contact steeringJoint must be a one-DoF revolute joint: "
                                     + description.steeringJoint);
       }
+      steeringDof = robot.mb().jointPosInDof(static_cast<int>(steeringIndex));
     }
 
     input.carrierJacobian.setZero(3, robot.mb().nrDof());
     input.wheelSelector.setZero(robot.mb().nrDof());
     input.wheelSelector(driveDof) = 1.0;
+    if(steeringDof >= 0)
+    {
+      input.steeringSelector.setZero(robot.mb().nrDof());
+      input.steeringSelector(steeringDof) = 1.0;
+    }
     input.generalizedVelocity.setZero(robot.mb().nrDof());
     input.radius = description.radius;
     input.width = description.width;
@@ -434,6 +449,7 @@ struct RollingContactRobotGeometry::Impl
   unsigned int wheelBodyIndex;
   unsigned int driveJointIndex;
   int driveDof;
+  int steeringDof = -1;
   rbd::Jacobian carrierJacobian;
   Eigen::MatrixXd fullJacobian;
   RollingContactKinematics input;
