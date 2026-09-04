@@ -21,6 +21,9 @@
       "uniqueItems": true,
       "items": { "type": "string" }
     },
+    "trackRotatingRates": { "type": "boolean", "default": false },
+    "rollingRateWeight": { "type": "number", "minimum": 0, "default": 200 },
+    "steeringRateWeight": { "type": "number", "minimum": 0, "default": 200 },
     "wheels":
     {
       "type": "array",

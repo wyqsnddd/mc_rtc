@@ -618,6 +618,14 @@ BOOST_AUTO_TEST_CASE(RollingRateReferencesRoundTripAndValidate)
   mc_solver::RollingContactConstraintOptions nanSteering = options;
   nanSteering.steeringRateWeight = std::numeric_limits<double>::quiet_NaN();
   BOOST_CHECK_THROW(nanSteering.validate(4), std::invalid_argument);
+
+  mc_solver::RollingContactConstraintOptions infRolling = options;
+  infRolling.rollingRateWeight = std::numeric_limits<double>::infinity();
+  BOOST_CHECK_THROW(infRolling.validate(4), std::invalid_argument);
+
+  mc_solver::RollingContactConstraintOptions infSteering = options;
+  infSteering.steeringRateWeight = std::numeric_limits<double>::infinity();
+  BOOST_CHECK_THROW(infSteering.validate(4), std::invalid_argument);
 }
 
 BOOST_AUTO_TEST_CASE(RollingConstraintConfigurationLoaders)
@@ -632,6 +640,9 @@ BOOST_AUTO_TEST_CASE(RollingConstraintConfigurationLoaders)
   rollingConfig.add("rollingWeight", 321.0);
   rollingConfig.add("constrainNormal", false);
   rollingConfig.add("differentialPlanar", true);
+  rollingConfig.add("trackRotatingRates", true);
+  rollingConfig.add("rollingRateWeight", 42.0);
+  rollingConfig.add("steeringRateWeight", 43.0);
   const auto loadedRolling = mc_solver::ConstraintSetLoader::load(solver, rollingConfig);
   const auto rolling = std::dynamic_pointer_cast<mc_solver::RollingContactConstraint>(loadedRolling);
   BOOST_REQUIRE(rolling);
@@ -643,6 +654,17 @@ BOOST_AUTO_TEST_CASE(RollingConstraintConfigurationLoaders)
   BOOST_CHECK_CLOSE(rolling->rollingWeight(), 321.0, 1e-12);
   BOOST_CHECK(!rolling->options().constrainNormal);
   BOOST_CHECK(rolling->options().differentialPlanar);
+  BOOST_CHECK(rolling->options().trackRotatingRates);
+  BOOST_CHECK_CLOSE(rolling->options().rollingRateWeight, 42.0, 1e-12);
+  BOOST_CHECK_CLOSE(rolling->options().steeringRateWeight, 43.0, 1e-12);
+
+  auto defaultRateConfig = rollingConfiguration("rollingContact", differentialWheels());
+  const auto loadedDefaultRates = mc_solver::ConstraintSetLoader::load(solver, defaultRateConfig);
+  const auto defaultRates = std::dynamic_pointer_cast<mc_solver::RollingContactConstraint>(loadedDefaultRates);
+  BOOST_REQUIRE(defaultRates);
+  BOOST_CHECK(!defaultRates->options().trackRotatingRates);
+  BOOST_CHECK_CLOSE(defaultRates->options().rollingRateWeight, 200.0, 1e-12);
+  BOOST_CHECK_CLOSE(defaultRates->options().steeringRateWeight, 200.0, 1e-12);
 
   auto dynamicsConfig = rollingConfiguration("rollingContactDynamics", differentialWheels());
   const Eigen::Vector3d rampNormal = Eigen::Vector3d{0.1, -0.2, 1.0}.normalized();

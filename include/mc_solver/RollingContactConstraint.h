@@ -109,6 +109,8 @@ public:
 
   /** Set the predicted-rate references for one wheel.
    *
+   * `steeringRate` is ignored for wheels without a steering joint.
+   *
    * @throws std::out_of_range if the wheel is unknown.
    * @throws std::invalid_argument if either value is not finite.
    */

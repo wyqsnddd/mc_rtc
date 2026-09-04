@@ -62,11 +62,11 @@ void RollingContactConstraintOptions::validate(size_t wheelCount) const
   {
     throw std::invalid_argument("RollingContactConstraint planar specializations are mutually exclusive");
   }
-  // !(x >= 0.0) rather than x < 0.0: also rejects NaN weights, which a bare
-  // less-than comparison would silently let through.
-  if(!(rollingRateWeight >= 0.0) || !(steeringRateWeight >= 0.0))
+  // isfinite first so NaN and +/-inf are both rejected; a bare x < 0.0 would let NaN through.
+  if(!std::isfinite(rollingRateWeight) || rollingRateWeight < 0.0 || !std::isfinite(steeringRateWeight)
+     || steeringRateWeight < 0.0)
   {
-    throw std::invalid_argument("Rolling contact rate weights must be non-negative and finite");
+    throw std::invalid_argument("RollingContactConstraint rate weights must be non-negative and finite");
   }
 }
 
@@ -373,7 +373,12 @@ struct RollingContactConstraint::Impl
   std::vector<double> activations;
   std::vector<double> rollingRateReferences;
   std::vector<double> steeringRateReferences;
-  // Set by Task 3 from solver.dt() to scale the predicted-rate soft rows; unused until then.
+  /** Control period cached from solver.dt() in update().
+   *
+   * fillRow() is const and also runs from the constructor, where no solver is
+   * available, so the period cannot be read at the point of use. Currently
+   * unused: the predicted-rate rows that consume it are not emitted yet.
+   */
   double dt = 0.0;
   std::vector<Row> hardRows;
   std::vector<Row> softRows;
@@ -584,7 +589,7 @@ void RollingContactConstraint::rotatingRateReference(const std::string & wheel, 
   {
     throw std::invalid_argument("Rolling contact rate references must be finite");
   }
-  const auto index = impl_->wheelIndex(wheel);
+  const size_t index = impl_->wheelIndex(wheel);
   impl_->rollingRateReferences[index] = rollingRate;
   impl_->steeringRateReferences[index] = steeringRate;
 }
@@ -698,6 +703,9 @@ static auto rolling_contact_registered = mc_solver::ConstraintSetLoader::registe
       options.differentialPlanar = config("differentialPlanar", false);
       options.steeringPlanar = config("steeringPlanar", false);
       options.steeringPlanarWheels = config("steeringPlanarWheels", std::vector<std::string>{});
+      options.trackRotatingRates = config("trackRotatingRates", false);
+      options.rollingRateWeight = config("rollingRateWeight", 200.0);
+      options.steeringRateWeight = config("steeringRateWeight", 200.0);
       return std::make_shared<mc_solver::RollingContactConstraint>(
           solver.robots(), robotIndex, mc_solver::details::loadRollingWheels(config), options);
     });
