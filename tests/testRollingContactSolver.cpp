@@ -676,6 +676,49 @@ BOOST_AUTO_TEST_CASE(RotatingRateRowsMatchTheAffinePrediction)
   solver.removeConstraintSet(rolling);
 }
 
+BOOST_AUTO_TEST_CASE(RotatingRateRowsFollowTheBlockWeight)
+{
+  constexpr double dt = 0.005;
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, dt);
+  const auto & robot = solver.robot(0);
+  const Eigen::Index steerDof =
+      robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")));
+  mc_solver::RollingContactConstraintOptions options;
+  options.steeringPlanar = true;
+  options.trackRotatingRates = true;
+  options.rollingWeight = 1000.0;
+  options.steeringRateWeight = 40.0;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+  solver.addConstraintSet(rolling);
+  rolling.update(solver);
+
+  // Rate rows are the only rows whose scale depends on the block weight, so a
+  // rollingWeight() change must re-derive them or the realised weight drifts.
+  auto realisedSteeringRateWeight = [&]()
+  {
+    const auto & labels = rolling.softRowLabels();
+    const auto label = std::find(labels.begin(), labels.end(), "front_left/steering-rate");
+    BOOST_REQUIRE(label != labels.end());
+    const Eigen::Index row = std::distance(labels.begin(), label);
+    const double scale = rolling.softMatrix()(row, steerDof) / dt;
+    return rolling.rollingWeight() * scale * scale;
+  };
+
+  const double before = realisedSteeringRateWeight();
+  const size_t layoutRevision = rolling.layoutRevision();
+  rolling.rollingWeight(4000.0);
+  rolling.update(solver);
+  const double after = realisedSteeringRateWeight();
+  BOOST_TEST_MESSAGE("Realised steering-rate weight before rollingWeight(4000): " << before << ", after: " << after);
+  BOOST_CHECK_CLOSE(before, 40.0, 1e-9);
+  BOOST_CHECK_CLOSE(after, 40.0, 1e-9);
+  // The row set is unchanged, so re-deriving the scales must not churn the layout.
+  BOOST_CHECK_EQUAL(rolling.layoutRevision(), layoutRevision);
+  BOOST_REQUIRE(solve(solver, rolling));
+  solver.removeConstraintSet(rolling);
+}
+
 BOOST_AUTO_TEST_CASE(RotatingRateRowsAreAbsentWhenDisabledOrDetached)
 {
   auto robots = loadFourSteeringRobot();
@@ -708,6 +751,15 @@ BOOST_AUTO_TEST_CASE(RotatingRateRowsAreAbsentWhenDisabledOrDetached)
   BOOST_CHECK(std::find(labels.begin(), labels.end(), "front_left/rolling-rate") == labels.end());
   BOOST_CHECK(std::find(labels.begin(), labels.end(), "front_left/steering-rate") == labels.end());
   BOOST_CHECK(std::find(labels.begin(), labels.end(), "rear_right/rolling-rate") != labels.end());
+  BOOST_CHECK(std::find(labels.begin(), labels.end(), "rear_right/steering-rate") != labels.end());
+
+  // A fully de-activated wheel drops its rate rows even while it stays Rolling:
+  // the zero activation would otherwise scale them to nothing anyway.
+  rolling.activation("rear_left", 0.0);
+  rolling.update(solver);
+  BOOST_CHECK(rolling.mode("rear_left") == mc_rbdyn::RollingContactMode::Rolling);
+  BOOST_CHECK(std::find(labels.begin(), labels.end(), "rear_left/rolling-rate") == labels.end());
+  BOOST_CHECK(std::find(labels.begin(), labels.end(), "rear_left/steering-rate") == labels.end());
   BOOST_CHECK(std::find(labels.begin(), labels.end(), "rear_right/steering-rate") != labels.end());
   solver.removeConstraintSet(rolling);
 }
@@ -1382,4 +1434,55 @@ BOOST_AUTO_TEST_CASE(RollingTVMRotatingRateRowsReachTheSolver)
   // The posture task regularizes the same acceleration, so the observed value is
   // about 1.48 rad/s^2: the threshold keeps a comfortable margin below it.
   BOOST_CHECK_GT(tracked, 1.0);
+}
+
+BOOST_AUTO_TEST_CASE(RollingTVMRotatingRateRowsRebuildOnLayoutChange)
+{
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TVMQPSolver solver(robots, 0.005);
+  const auto wheels = fourSteeringWheels();
+  mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = 5.0;
+  options.steeringPlanar = true;
+  options.steeringPlanarWheels = {"front_left", "rear_left"};
+  options.trackRotatingRates = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  mc_tasks::PostureTask posture(solver, 0, 5.0, 100.0);
+  solver.addConstraintSet(dynamics);
+  solver.addConstraintSet(rolling);
+  solver.addTask(&posture);
+
+  // A mode or activation change adds or drops rate rows, so the TVM function
+  // must be rebuilt at the new size or the solver reads a stale block.
+  auto checkSoftFunctionMatchesRows = [&](size_t expectedRateRows)
+  {
+    const auto & labels = rolling.softRowLabels();
+    const size_t rateRows = static_cast<size_t>(
+        std::count_if(labels.begin(), labels.end(),
+                      [](const std::string & label) { return label.find("-rate") != std::string::npos; }));
+    BOOST_CHECK_EQUAL(rateRows, expectedRateRows);
+    const auto * soft = rolling.tvmSoftFunction();
+    BOOST_REQUIRE(soft != nullptr);
+    BOOST_CHECK_EQUAL(static_cast<Eigen::Index>(soft->size()), rolling.softMatrix().rows());
+    BOOST_CHECK_SMALL((soft->matrix() - rolling.softMatrix()).norm(), 1e-12);
+    BOOST_CHECK_SMALL((soft->rhs() - rolling.softRhs()).norm(), 1e-12);
+  };
+
+  BOOST_REQUIRE(solver.run());
+  checkSoftFunctionMatchesRows(8);
+
+  rolling.mode("front_left", mc_rbdyn::RollingContactMode::Detached);
+  dynamics.mode("front_left", mc_rbdyn::RollingContactMode::Detached);
+  BOOST_REQUIRE(solver.run());
+  checkSoftFunctionMatchesRows(6);
+
+  rolling.mode("front_left", mc_rbdyn::RollingContactMode::Rolling, 0.5);
+  dynamics.mode("front_left", mc_rbdyn::RollingContactMode::Rolling);
+  BOOST_REQUIRE(solver.run());
+  checkSoftFunctionMatchesRows(8);
+
+  solver.removeTask(&posture);
+  solver.removeConstraintSet(rolling);
+  solver.removeConstraintSet(dynamics);
 }

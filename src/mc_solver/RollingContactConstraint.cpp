@@ -173,7 +173,11 @@ struct RollingContactConstraint::Impl
     bool fixedLongitudinal;
     bool driveLock;
     double scale;
-    /** Objective weight this row realises; kept for diagnostics, `scale` carries it into the QP. */
+    /** Nominal objective weight requested for this row, for diagnostics only.
+     *
+     * `scale` is what reaches the QP, and it also folds in the activation, so the
+     * realised weight is this value only at activation 1.0.
+     */
     double weight;
   };
 
@@ -310,7 +314,13 @@ struct RollingContactConstraint::Impl
       {
         if(wheels[i].mode == mc_rbdyn::RollingContactMode::Detached || activations[i] <= 0.0) { continue; }
         addRow(i, 4, false, false, false, options.rollingRateWeight);
-        if(!wheels[i].steeringJoint.empty()) { addRow(i, 5, false, false, false, options.steeringRateWeight); }
+        // Guard on the resolved selector rather than on the description: it is the
+        // exact precondition fillRow needs, so an axis-5 row can never outrun the
+        // steeringSelector it reads.
+        if(geometries[i].kinematics().hasSteering())
+        {
+          addRow(i, 5, false, false, false, options.steeringRateWeight);
+        }
       }
     }
     hardA.setZero(static_cast<Eigen::Index>(hardRows.size()), robot.mb().nrDof());
@@ -344,7 +354,8 @@ struct RollingContactConstraint::Impl
       const auto & result = results[row.wheel];
       const bool steering = row.axis == 5;
       // rate^+ = rate + dt * (S * alphaD); track (rate^+ - reference). dt is zero
-      // until the first update(), which only zeroes the row: it never misreports.
+      // until the first update(): the row then contributes nothing to the QP, but
+      // softRhs() still shows the residual next to the all-zero coefficients.
       A = dt * (steering ? kinematics.steeringSelector : kinematics.wheelSelector);
       const double measured = steering ? result.measuredSteeringRate : result.measuredRollingRate;
       const double reference = steering ? steeringRateReferences[row.wheel] : rollingRateReferences[row.wheel];
@@ -417,8 +428,9 @@ struct RollingContactConstraint::Impl
    *
    * fillRow() is const and also runs from the constructor, where no solver is
    * available, so the period cannot be read at the point of use. It stays zero
-   * until the first update(), which leaves the predicted-rate rows empty rather
-   * than wrong.
+   * until the first update(); the predicted-rate rows then have all-zero
+   * coefficients and contribute nothing to the QP, though their right-hand side
+   * still carries the rate residual.
    */
   double dt = 0.0;
   std::vector<Row> hardRows;
@@ -587,6 +599,11 @@ void RollingContactConstraint::rollingWeight(double weight)
   next.rollingWeight = weight;
   next.validate(impl_->wheels.size());
   impl_->options.rollingWeight = weight;
+  // Rate rows carry their per-row weight as sqrt(rowWeight / rollingWeight), so
+  // the block weight has to be re-divided out of their scale here. The row set is
+  // unchanged, and buildRowLayout only bumps the revision when the labels move,
+  // so this is safe to call while the constraint sits in a solver.
+  impl_->buildRowLayout();
   if(impl_->softTask) { impl_->softTask->weight(weight); }
   if(impl_->tvmSoftTask) { impl_->tvmSoftTask->requirements.weight() = weight; }
 }
