@@ -173,6 +173,8 @@ struct RollingContactConstraint::Impl
     bool fixedLongitudinal;
     bool driveLock;
     double scale;
+    /** Objective weight this row realises; kept for diagnostics, `scale` carries it into the QP. */
+    double weight;
   };
 
   static const char * axisName(int axis)
@@ -180,15 +182,28 @@ struct RollingContactConstraint::Impl
     if(axis == 0) { return "longitudinal"; }
     if(axis == 1) { return "lateral"; }
     if(axis == 2) { return "normal"; }
+    // Axis numbering is part of the row labels several callers match on: never renumber.
+    if(axis == 4) { return "rolling-rate"; }
+    if(axis == 5) { return "steering-rate"; }
     return "drive-lock";
   }
 
-  void addRow(size_t wheel, int axis, bool hard, bool fixedLongitudinal = false, bool driveLock = false)
+  void addRow(size_t wheel,
+              int axis,
+              bool hard,
+              bool fixedLongitudinal = false,
+              bool driveLock = false,
+              double weight = -1.0)
   {
-    const double scale = hard ? 1.0 : std::sqrt(activations[wheel]);
+    const double blockWeight = options.rollingWeight;
+    const double rowWeight = weight < 0.0 ? blockWeight : weight;
+    // A soft row scaled by s contributes blockWeight * s^2 * residual^2, so
+    // s = sqrt(rowWeight / blockWeight) realises the requested per-row weight.
+    const double weightScale = hard || blockWeight <= 0.0 ? 1.0 : std::sqrt(rowWeight / blockWeight);
+    const double scale = (hard ? 1.0 : std::sqrt(activations[wheel])) * weightScale;
     auto & rows = hard ? hardRows : softRows;
     auto & labels = hard ? hardLabels : softLabels;
-    rows.push_back({wheel, axis, fixedLongitudinal, driveLock, scale});
+    rows.push_back({wheel, axis, fixedLongitudinal, driveLock, scale, rowWeight});
     labels.push_back(wheels[wheel].name + "/" + axisName(axis));
   }
 
@@ -285,6 +300,19 @@ struct RollingContactConstraint::Impl
     {
       if(wheels[i].mode == mc_rbdyn::RollingContactMode::Fixed) { addModeRow(i, 3, true, false, true); }
     }
+    // Predicted rotating-rate objectives. The wheel and steering rates are
+    // generalized coordinates, so rate^+ = rate + dt * (S * alphaD) is affine in
+    // alphaD and each tracked rate is one extra soft row: never a hard one, and
+    // never a second copy of the kinematic identity S itself.
+    if(options.trackRotatingRates)
+    {
+      for(size_t i = 0; i < wheels.size(); ++i)
+      {
+        if(wheels[i].mode == mc_rbdyn::RollingContactMode::Detached || activations[i] <= 0.0) { continue; }
+        addRow(i, 4, false, false, false, options.rollingRateWeight);
+        if(!wheels[i].steeringJoint.empty()) { addRow(i, 5, false, false, false, options.steeringRateWeight); }
+      }
+    }
     hardA.setZero(static_cast<Eigen::Index>(hardRows.size()), robot.mb().nrDof());
     hardB.setZero(static_cast<Eigen::Index>(hardRows.size()));
     softA.setZero(static_cast<Eigen::Index>(softRows.size()), robot.mb().nrDof());
@@ -309,6 +337,18 @@ struct RollingContactConstraint::Impl
       const double rate = geometries[row.wheel].kinematics().wheelSelector.dot(
           geometries[row.wheel].kinematics().generalizedVelocity);
       rhs(rowIndex) = -options.velocityGain * rate;
+    }
+    else if(row.axis == 4 || row.axis == 5)
+    {
+      const auto & kinematics = geometries[row.wheel].kinematics();
+      const auto & result = results[row.wheel];
+      const bool steering = row.axis == 5;
+      // rate^+ = rate + dt * (S * alphaD); track (rate^+ - reference). dt is zero
+      // until the first update(), which only zeroes the row: it never misreports.
+      A = dt * (steering ? kinematics.steeringSelector : kinematics.wheelSelector);
+      const double measured = steering ? result.measuredSteeringRate : result.measuredRollingRate;
+      const double reference = steering ? steeringRateReferences[row.wheel] : rollingRateReferences[row.wheel];
+      rhs(rowIndex) = reference - measured;
     }
     else
     {
@@ -376,8 +416,9 @@ struct RollingContactConstraint::Impl
   /** Control period cached from solver.dt() in update().
    *
    * fillRow() is const and also runs from the constructor, where no solver is
-   * available, so the period cannot be read at the point of use. Currently
-   * unused: the predicted-rate rows that consume it are not emitted yet.
+   * available, so the period cannot be read at the point of use. It stays zero
+   * until the first update(), which leaves the predicted-rate rows empty rather
+   * than wrong.
    */
   double dt = 0.0;
   std::vector<Row> hardRows;
@@ -411,6 +452,8 @@ RollingContactConstraint::~RollingContactConstraint() = default;
 
 void RollingContactConstraint::update(QPSolver & solver)
 {
+  // Cache the period before anything that can reach fillRow through updateGeometry().
+  impl_->dt = solver.dt();
   if(solver.backend() != backend_) { throw std::logic_error("RollingContactConstraint backend mismatch"); }
   if(backend_ == QPSolver::Backend::TVM && impl_->tvmLayoutDirty)
   {

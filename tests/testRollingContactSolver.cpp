@@ -628,6 +628,145 @@ BOOST_AUTO_TEST_CASE(RollingRateReferencesRoundTripAndValidate)
   BOOST_CHECK_THROW(infSteering.validate(4), std::invalid_argument);
 }
 
+BOOST_AUTO_TEST_CASE(RotatingRateRowsMatchTheAffinePrediction)
+{
+  constexpr double dt = 0.005;
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, dt);
+  auto & robot = solver.robot(0);
+  const auto drive = robot.jointIndexByName("front_left_drive");
+  const auto steer = robot.jointIndexByName("front_left_steer");
+  robot.mbc().alpha[drive][0] = 1.5;
+  robot.mbc().alpha[steer][0] = 0.25;
+  robot.forwardKinematics();
+  robot.forwardVelocity();
+  const Eigen::Index driveDof = robot.mb().jointPosInDof(static_cast<int>(drive));
+  const Eigen::Index steerDof = robot.mb().jointPosInDof(static_cast<int>(steer));
+
+  mc_solver::RollingContactConstraintOptions options;
+  options.steeringPlanar = true;
+  options.trackRotatingRates = true;
+  options.rollingWeight = 1000.0;
+  options.rollingRateWeight = 250.0;
+  options.steeringRateWeight = 40.0;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+  solver.addConstraintSet(rolling);
+  rolling.rotatingRateReference("front_left", 4.5, -0.75);
+  rolling.update(solver);
+
+  const auto & labels = rolling.softRowLabels();
+  const auto rollingLabel = std::find(labels.begin(), labels.end(), "front_left/rolling-rate");
+  const auto steeringLabel = std::find(labels.begin(), labels.end(), "front_left/steering-rate");
+  BOOST_REQUIRE(rollingLabel != labels.end());
+  BOOST_REQUIRE(steeringLabel != labels.end());
+  const Eigen::Index rollingRow = std::distance(labels.begin(), rollingLabel);
+  const Eigen::Index steeringRow = std::distance(labels.begin(), steeringLabel);
+  BOOST_REQUIRE_EQUAL(rolling.softMatrix().rows(), static_cast<Eigen::Index>(labels.size()));
+
+  // A soft row scaled by s contributes rollingWeight * s^2 * residual^2, so the
+  // per-row weight is realised by s = sqrt(rowWeight / rollingWeight).
+  const double rollingScale = std::sqrt(250.0 / 1000.0);
+  const double steeringScale = std::sqrt(40.0 / 1000.0);
+  BOOST_CHECK_CLOSE(rolling.softMatrix()(rollingRow, driveDof), rollingScale * dt, 1e-9);
+  BOOST_CHECK_SMALL(rolling.softMatrix()(rollingRow, steerDof), 1e-14);
+  BOOST_CHECK_CLOSE(rolling.softRhs()(rollingRow), rollingScale * (4.5 - 1.5), 1e-9);
+  BOOST_CHECK_CLOSE(rolling.softMatrix()(steeringRow, steerDof), steeringScale * dt, 1e-9);
+  BOOST_CHECK_SMALL(rolling.softMatrix()(steeringRow, driveDof), 1e-14);
+  BOOST_CHECK_CLOSE(rolling.softRhs()(steeringRow), steeringScale * (-0.75 - 0.25), 1e-9);
+  solver.removeConstraintSet(rolling);
+}
+
+BOOST_AUTO_TEST_CASE(RotatingRateRowsAreAbsentWhenDisabledOrDetached)
+{
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  const auto wheels = fourSteeringWheels();
+  mc_solver::RollingContactConstraintOptions options;
+  options.steeringPlanar = true;
+
+  {
+    mc_solver::RollingContactConstraint disabled(solver.robots(), 0, wheels, options);
+    // Partial activations demote every row to the soft block, so the absence of
+    // rate labels below is a real observation and not an empty-set vacuity.
+    for(const auto & wheel : wheels) { disabled.activation(wheel.name, 0.5); }
+    solver.addConstraintSet(disabled);
+    disabled.update(solver);
+    BOOST_REQUIRE_GT(disabled.softRowLabels().size(), 0u);
+    for(const auto & label : disabled.softRowLabels())
+    {
+      BOOST_CHECK(label.find("-rate") == std::string::npos);
+    }
+    solver.removeConstraintSet(disabled);
+  }
+
+  options.trackRotatingRates = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  rolling.mode("front_left", mc_rbdyn::RollingContactMode::Detached, 0.0);
+  solver.addConstraintSet(rolling);
+  rolling.update(solver);
+  const auto & labels = rolling.softRowLabels();
+  BOOST_CHECK(std::find(labels.begin(), labels.end(), "front_left/rolling-rate") == labels.end());
+  BOOST_CHECK(std::find(labels.begin(), labels.end(), "front_left/steering-rate") == labels.end());
+  BOOST_CHECK(std::find(labels.begin(), labels.end(), "rear_right/rolling-rate") != labels.end());
+  BOOST_CHECK(std::find(labels.begin(), labels.end(), "rear_right/steering-rate") != labels.end());
+  solver.removeConstraintSet(rolling);
+}
+
+BOOST_AUTO_TEST_CASE(RotatingRateRowsSkipSteeringOnDifferentialWheels)
+{
+  auto robots = loadDifferentialRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  const auto wheels = differentialWheels();
+  mc_solver::RollingContactConstraintOptions options;
+  options.differentialPlanar = true;
+  options.trackRotatingRates = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  solver.addConstraintSet(rolling);
+  rolling.update(solver);
+  const auto & labels = rolling.softRowLabels();
+  for(const auto & wheel : wheels)
+  {
+    BOOST_CHECK(std::find(labels.begin(), labels.end(), wheel.name + "/rolling-rate") != labels.end());
+    BOOST_CHECK(std::find(labels.begin(), labels.end(), wheel.name + "/steering-rate") == labels.end());
+  }
+  solver.removeConstraintSet(rolling);
+}
+
+BOOST_AUTO_TEST_CASE(RotatingRateRowsSteerTowardsTheReference)
+{
+  // Without the rate rows the steering column is identically zero in every
+  // rolling row, so the QP has no equation touching the steering acceleration.
+  auto steeringAcceleration = [](bool trackRotatingRates)
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, 0.005);
+    auto & robot = solver.robot(0);
+    const auto wheels = fourSteeringWheels();
+    mc_solver::RollingContactConstraintOptions options;
+    options.velocityGain = 0.0;
+    options.steeringPlanar = true;
+    options.steeringPlanarWheels = {"front_left", "rear_left"};
+    options.trackRotatingRates = trackRotatingRates;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+    TargetAccelerationTask targetTask(robot.mb(), 0);
+    targetTask.target(Eigen::VectorXd::Zero(robot.mb().nrDof()));
+    solver.addTask(&targetTask);
+    solver.addConstraintSet(rolling);
+    for(const auto & wheel : wheels) { rolling.rotatingRateReference(wheel.name, 0.0, 0.6); }
+    BOOST_REQUIRE(solve(solver, rolling));
+    const Eigen::VectorXd solution = solver.solver().alphaDVec(0);
+    solver.removeConstraintSet(rolling);
+    solver.removeTask(&targetTask);
+    return solution(robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer"))));
+  };
+
+  const double tracked = steeringAcceleration(true);
+  const double untracked = steeringAcceleration(false);
+  BOOST_TEST_MESSAGE("Steering acceleration with rate tracking: " << tracked << ", without: " << untracked);
+  BOOST_CHECK_SMALL(untracked, 1e-12);
+  BOOST_CHECK_GT(tracked, 0.4);
+}
+
 BOOST_AUTO_TEST_CASE(RollingConstraintConfigurationLoaders)
 {
   auto robots = loadDifferentialRobot();
@@ -1195,4 +1334,52 @@ BOOST_AUTO_TEST_CASE(RollingTVMFourSteeringRepeatedLifecycle)
     solver.removeConstraintSet(rolling);
     solver.removeConstraintSet(dynamics);
   }
+}
+
+BOOST_AUTO_TEST_CASE(RollingTVMRotatingRateRowsReachTheSolver)
+{
+  auto steeringAcceleration = [](bool trackRotatingRates)
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TVMQPSolver solver(robots, 0.005);
+    auto & robot = solver.robot(0);
+    const auto wheels = fourSteeringWheels();
+    mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+    mc_solver::RollingContactConstraintOptions options;
+    options.velocityGain = 5.0;
+    options.steeringPlanar = true;
+    options.steeringPlanarWheels = {"front_left", "rear_left"};
+    options.trackRotatingRates = trackRotatingRates;
+    options.steeringRateWeight = 50000.0;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+    mc_tasks::PostureTask posture(solver, 0, 5.0, 100.0);
+    solver.addConstraintSet(dynamics);
+    solver.addConstraintSet(rolling);
+    solver.addTask(&posture);
+    for(const auto & wheel : wheels) { rolling.rotatingRateReference(wheel.name, 0.0, 0.6); }
+    BOOST_REQUIRE(solver.run());
+    if(trackRotatingRates)
+    {
+      const auto * soft = rolling.tvmSoftFunction();
+      BOOST_REQUIRE(soft != nullptr);
+      BOOST_CHECK_EQUAL(static_cast<Eigen::Index>(soft->size()), rolling.softMatrix().rows());
+      BOOST_CHECK_SMALL((soft->matrix() - rolling.softMatrix()).norm(), 1e-12);
+      const auto & labels = rolling.softRowLabels();
+      BOOST_CHECK(std::find(labels.begin(), labels.end(), "front_left/steering-rate") != labels.end());
+    }
+    const auto steer = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")));
+    const double alphaD = solver.robot(0).tvmRobot().alphaD()->value()(steer);
+    solver.removeTask(&posture);
+    solver.removeConstraintSet(rolling);
+    solver.removeConstraintSet(dynamics);
+    return alphaD;
+  };
+
+  const double tracked = steeringAcceleration(true);
+  const double untracked = steeringAcceleration(false);
+  BOOST_TEST_MESSAGE("TVM steering acceleration with rate tracking: " << tracked << ", without: " << untracked);
+  BOOST_CHECK_SMALL(untracked, 1e-6);
+  // The posture task regularizes the same acceleration, so the observed value is
+  // about 1.48 rad/s^2: the threshold keeps a comfortable margin below it.
+  BOOST_CHECK_GT(tracked, 1.0);
 }
