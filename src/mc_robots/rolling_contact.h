@@ -11,7 +11,7 @@
 namespace mc_robots
 {
 
-/** Robot module for the tracked rolling-contact validation robots. */
+/** Robot module for the tracked rolling-contact validation robots and Ranger Mini V3 model. */
 struct MC_ROBOTS_DLLAPI RollingContactRobotModule : public mc_rbdyn::RobotModule
 {
   RollingContactRobotModule(const std::string & descriptionPath, const std::string & variant);

@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<!--
+  Self-contained Ranger Mini V3 rolling-contact model.
+
+  The 0.494 m wheelbase and 0.364 m track match AgileX's Ranger Mini V3
+  parameters. The 0.72 m x 0.50 m envelope matches the SysWonder deployment
+  description. Primitive geometry is intentional: the referenced deployment
+  URDF identifies itself as a legacy V2 model and points to mesh files that it
+  does not ship, so those assets cannot make a reproducible mc_mujoco model.
+  See ../ranger_mini_v3-sources.md for provenance and modeling assumptions.
+-->
+<robot name="ranger_mini_v3">
+  <material name="ranger_white"><color rgba="0.82 0.84 0.86 1"/></material>
+  <material name="ranger_black"><color rgba="0.05 0.06 0.07 1"/></material>
+  <material name="ranger_silver"><color rgba="0.55 0.58 0.62 1"/></material>
+  <material name="ranger_orange"><color rgba="0.95 0.30 0.05 1"/></material>
+
+  <link name="chassis">
+    <inertial>
+      <!-- The chassis link, inertial origin, and floating-base frame are coincident at the shell centre. -->
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="65"/>
+      <inertia ixx="1.03" ixy="0" ixz="0" iyy="2.03" iyz="0" izz="2.91"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.60 0.44 0.14"/></geometry>
+      <material name="ranger_white"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.60 0.44 0.14"/></geometry>
+    </collision>
+  </link>
+
+  <link name="front_left_knuckle">
+    <inertial><mass value="0.5"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial>
+    <visual><geometry><cylinder radius="0.035" length="0.10"/></geometry><material name="ranger_silver"/></visual>
+  </link>
+  <joint name="front_left_steer" type="revolute">
+    <parent link="chassis"/><child link="front_left_knuckle"/><origin xyz="0.247 0.182 -0.035"/><axis xyz="0 0 1"/>
+    <limit lower="-1.5707963267948966" upper="1.5707963267948966" effort="25" velocity="8"/>
+  </joint>
+  <link name="front_left_wheel">
+    <inertial><mass value="2"/><inertia ixx="0.0089" ixy="0" ixz="0" iyy="0.015625" iyz="0" izz="0.0089"/></inertial>
+    <visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry><material name="ranger_black"/></visual>
+    <collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry></collision>
+  </link>
+  <joint name="front_left_drive" type="continuous"><parent link="front_left_knuckle"/><child link="front_left_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+
+  <link name="front_right_knuckle">
+    <inertial><mass value="0.5"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial>
+    <visual><geometry><cylinder radius="0.035" length="0.10"/></geometry><material name="ranger_silver"/></visual>
+  </link>
+  <joint name="front_right_steer" type="revolute">
+    <parent link="chassis"/><child link="front_right_knuckle"/><origin xyz="0.247 -0.182 -0.035"/><axis xyz="0 0 1"/>
+    <limit lower="-1.5707963267948966" upper="1.5707963267948966" effort="25" velocity="8"/>
+  </joint>
+  <link name="front_right_wheel">
+    <inertial><mass value="2"/><inertia ixx="0.0089" ixy="0" ixz="0" iyy="0.015625" iyz="0" izz="0.0089"/></inertial>
+    <visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry><material name="ranger_black"/></visual>
+    <collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry></collision>
+  </link>
+  <joint name="front_right_drive" type="continuous"><parent link="front_right_knuckle"/><child link="front_right_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+
+  <link name="rear_left_knuckle">
+    <inertial><mass value="0.5"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial>
+    <visual><geometry><cylinder radius="0.035" length="0.10"/></geometry><material name="ranger_silver"/></visual>
+  </link>
+  <joint name="rear_left_steer" type="revolute">
+    <parent link="chassis"/><child link="rear_left_knuckle"/><origin xyz="-0.247 0.182 -0.035"/><axis xyz="0 0 1"/>
+    <limit lower="-1.5707963267948966" upper="1.5707963267948966" effort="25" velocity="8"/>
+  </joint>
+  <link name="rear_left_wheel">
+    <inertial><mass value="2"/><inertia ixx="0.0089" ixy="0" ixz="0" iyy="0.015625" iyz="0" izz="0.0089"/></inertial>
+    <visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry><material name="ranger_black"/></visual>
+    <collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry></collision>
+  </link>
+  <joint name="rear_left_drive" type="continuous"><parent link="rear_left_knuckle"/><child link="rear_left_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+
+  <link name="rear_right_knuckle">
+    <inertial><mass value="0.5"/><inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/></inertial>
+    <visual><geometry><cylinder radius="0.035" length="0.10"/></geometry><material name="ranger_silver"/></visual>
+  </link>
+  <joint name="rear_right_steer" type="revolute">
+    <parent link="chassis"/><child link="rear_right_knuckle"/><origin xyz="-0.247 -0.182 -0.035"/><axis xyz="0 0 1"/>
+    <limit lower="-1.5707963267948966" upper="1.5707963267948966" effort="25" velocity="8"/>
+  </joint>
+  <link name="rear_right_wheel">
+    <inertial><mass value="2"/><inertia ixx="0.0089" ixy="0" ixz="0" iyy="0.015625" iyz="0" izz="0.0089"/></inertial>
+    <visual><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry><material name="ranger_black"/></visual>
+    <collision><origin rpy="1.5707963267948966 0 0"/><geometry><cylinder radius="0.125" length="0.08"/></geometry></collision>
+  </link>
+  <joint name="rear_right_drive" type="continuous"><parent link="rear_right_knuckle"/><child link="rear_right_wheel"/><axis xyz="0 1 0"/><limit effort="35" velocity="30"/></joint>
+</robot>

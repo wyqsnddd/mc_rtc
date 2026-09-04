@@ -86,9 +86,18 @@ set(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH
 set(ROLLING_CONTACT_INSTALL_PATH
     "${CMAKE_INSTALL_FULL_DATADIR}/mc_rtc/rolling_contact"
 )
+set(ROLLING_CONTACT_DESCRIPTION_PATH
+    "${ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH}"
+)
 configure_file(
   rolling_contact_aliases.in.yml
   "${CMAKE_CURRENT_BINARY_DIR}/aliases/rolling_contact.yml"
+  @ONLY
+)
+set(ROLLING_CONTACT_DESCRIPTION_PATH "${ROLLING_CONTACT_INSTALL_PATH}")
+configure_file(
+  rolling_contact_aliases.in.yml
+  "${CMAKE_CURRENT_BINARY_DIR}/install-aliases/rolling_contact.yml"
   @ONLY
 )
 install(
@@ -96,7 +105,7 @@ install(
   DESTINATION "${CMAKE_INSTALL_DATADIR}/mc_rtc/rolling_contact"
 )
 install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/aliases/rolling_contact.yml"
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/install-aliases/rolling_contact.yml"
   DESTINATION "${MC_ROBOTS_RUNTIME_INSTALL_PREFIX}/aliases"
 )
 if(TARGET jvrc1)

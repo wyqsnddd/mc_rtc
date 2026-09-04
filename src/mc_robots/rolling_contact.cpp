@@ -17,14 +17,20 @@ namespace mc_robots
 RollingContactRobotModule::RollingContactRobotModule(const std::string & descriptionPath, const std::string & variant)
 : RobotModule(descriptionPath, variant)
 {
-  if(variant != "rolling_diff" && variant != "rolling_4s")
+  if(variant != "rolling_diff" && variant != "rolling_4s" && variant != "ranger_mini_v3")
   {
     mc_rtc::log::error_and_throw<std::invalid_argument>("Unknown rolling-contact robot variant: {}", variant);
   }
 
   init(rbd::parsers::from_urdf_file(urdf_path, rbd::parsers::ParserParameters{}.fixed(false)));
   _canonicalParameters = {"RollingContact", descriptionPath, variant};
-  _default_attitude = {{1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2}};
+  const bool rangerMiniV3 = variant == "ranger_mini_v3";
+  // Ranger's floating frame is at the geometric centre of the chassis shell,
+  // coincident with the link/inertial origin and the MuJoCo free-joint body
+  // frame. The wheel axle plane is 35 mm below it; the URDF and MuJoCo
+  // descriptions apply the inverse offset to their wheel bodies so the
+  // contact geometry remains unchanged when the base frame is rebased.
+  _default_attitude = {{1.0, 0.0, 0.0, 0.0, 0.0, 0.0, rangerMiniV3 ? 0.16 : 0.2}};
   _bodySensors.emplace_back("FloatingBase", "chassis", sva::PTransformd::Identity());
 
   if(variant == "rolling_diff")
