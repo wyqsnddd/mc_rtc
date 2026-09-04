@@ -52,6 +52,19 @@ mc_rbdyn::RollingContactDescription frontLeftDescription()
   return description;
 }
 
+/** Description of the "left" wheel of the differential-drive variant: no steering joint. */
+mc_rbdyn::RollingContactDescription leftDescription()
+{
+  mc_rbdyn::RollingContactDescription description;
+  description.name = "left";
+  description.carrierFrame = "left_carrier";
+  description.wheelBody = "left_wheel";
+  description.driveJoint = "left_drive";
+  description.radius = 0.2;
+  description.width = 0.08;
+  return description;
+}
+
 void setVelocity(mc_rbdyn::Robot & robot, const Eigen::VectorXd & velocity)
 {
   rbd::vectorToParam(velocity, robot.mbc().alpha);
@@ -315,6 +328,7 @@ BOOST_AUTO_TEST_CASE(SteeringSelectorAddressesTheSteeringDof)
   auto & robot = robots->robot();
 
   mc_rbdyn::RollingContactRobotGeometry geometry(robot, frontLeftDescription());
+  // Exercise update() once to prove it never clobbers the selector set up at construction.
   geometry.update(robot, Eigen::Vector3d::UnitZ());
 
   const auto & selector = geometry.kinematics().steeringSelector;
@@ -338,7 +352,6 @@ BOOST_AUTO_TEST_CASE(MeasuredRotatingRatesFollowJointVelocities)
 
   robot.mbc().alpha[driveJoint][0] = 2.5;
   robot.mbc().alpha[steeringJoint][0] = -0.75;
-  robot.forwardKinematics();
   robot.forwardVelocity();
 
   const auto & result = geometry.update(robot, Eigen::Vector3d::UnitZ());
@@ -352,19 +365,22 @@ BOOST_AUTO_TEST_CASE(DifferentialWheelHasEmptySteeringSelector)
   auto robots = mc_rbdyn::loadRobot(*module);
   auto & robot = robots->robot();
 
-  mc_rbdyn::RollingContactDescription description;
-  description.name = "left";
-  description.carrierFrame = "left_carrier";
-  description.wheelBody = "left_wheel";
-  description.driveJoint = "left_drive";
-  description.radius = 0.2;
-  description.width = 0.08;
-
-  mc_rbdyn::RollingContactRobotGeometry geometry(robot, description);
+  mc_rbdyn::RollingContactRobotGeometry geometry(robot, leftDescription());
   const auto & result = geometry.update(robot, Eigen::Vector3d::UnitZ());
 
   BOOST_CHECK_EQUAL(geometry.kinematics().steeringSelector.size(), 0);
   BOOST_CHECK_EQUAL(result.measuredSteeringRate, 0.0);
+}
+
+BOOST_AUTO_TEST_CASE(RejectsSteeringJointEqualToDriveJoint)
+{
+  auto module = loadModule("rolling_4s");
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+
+  auto description = frontLeftDescription();
+  description.steeringJoint = description.driveJoint;
+  BOOST_CHECK_THROW(mc_rbdyn::RollingContactRobotGeometry(robot, description), std::invalid_argument);
 }
 
 BOOST_AUTO_TEST_CASE(FourSteeringResolvedGeometryAcceptsAckermannTwist)

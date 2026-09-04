@@ -141,7 +141,12 @@ private:
  * Jdot(q, alpha) * alpha at the carrier center. The terrain normal is assumed
  * constant during one update. `wheelAxleRate` is the inertial derivative of
  * `wheelAxle`. `steeringRate` is an optional additional rotation of t toward
- * l for callers that provide a static axle direction.
+ * l for callers that provide a static axle direction: it is a direction-derivative
+ * correction, not a measured joint rate. `steeringSelector` selects the measured
+ * steering (yaw) joint rate; it must be empty for a non-steering wheel, or have
+ * the same size as `wheelSelector` when present. It addresses the second rotating
+ * velocity of a steering wheel: see the rotational coupling
+ * omega_{w/c} = theta_dot * l + delta_dot * n of the rolling-contact report.
  */
 struct MC_RBDYN_DLLAPI RollingContactKinematics
 {
@@ -152,12 +157,6 @@ struct MC_RBDYN_DLLAPI RollingContactKinematics
   Eigen::Vector3d carrierNormalAcceleration = Eigen::Vector3d::Zero();
   Eigen::MatrixXd carrierJacobian;
   Eigen::RowVectorXd wheelSelector;
-  /** Row selecting the steering (yaw) joint rate, empty for a non-steering wheel.
-   *
-   * When non-empty it must have the same size as wheelSelector. It addresses the
-   * second rotating velocity of a steering wheel: see the rotational coupling
-   * omega_{w/c} = theta_dot * l + delta_dot * n of the rolling-contact report.
-   */
   Eigen::RowVectorXd steeringSelector;
   Eigen::VectorXd generalizedVelocity;
   double radius = 0.0;
@@ -165,6 +164,9 @@ struct MC_RBDYN_DLLAPI RollingContactKinematics
   double spinSign = 1.0;
   double steeringRate = 0.0;
   double velocityGain = 0.0;
+
+  /** True when this wheel has a resolved steering joint, i.e. `steeringSelector` is non-empty. */
+  bool hasSteering() const noexcept { return steeringSelector.size() != 0; }
 };
 
 /** Result of one rolling geometry update.
@@ -199,7 +201,7 @@ struct MC_RBDYN_DLLAPI RollingContactGeometryResult
   double rightHandedError = 0.0;
   /** Measured rolling (pitch) rate, wheelSelector * generalizedVelocity. */
   double measuredRollingRate = 0.0;
-  /** Measured steering (yaw) rate, steeringSelector * generalizedVelocity; zero without a steering joint. */
+  /** Measured steering (yaw) rate, steeringSelector * generalizedVelocity; zero when `steeringSelector` is empty. */
   double measuredSteeringRate = 0.0;
 };
 
@@ -227,11 +229,12 @@ private:
 
 /** Name-resolved rolling geometry for one wheel on an mc_rbdyn Robot.
  *
- * This class resolves the carrier frame, wheel body and drive joint once. Its
- * update builds the carrier-center Jacobian, drive selector, generalized
- * velocity, axle direction/rate and normal acceleration directly from the
- * current RBDyn state before invoking RollingContactGeometry. Matrix sizes and
- * decision-vector offsets remain stable after construction.
+ * This class resolves the carrier frame, wheel body, drive joint and optional
+ * steering joint once. Its update builds the carrier-center Jacobian, drive
+ * and steering selectors, generalized velocity, axle direction/rate and
+ * normal acceleration directly from the current RBDyn state before invoking
+ * RollingContactGeometry. Matrix sizes and decision-vector offsets remain
+ * stable after construction.
  */
 class MC_RBDYN_DLLAPI RollingContactRobotGeometry
 {

@@ -119,6 +119,8 @@ mc_rbdyn::RollingContactKinematics nominalInput()
   input.carrierJacobian.block<3, 3>(0, 0).setIdentity();
   input.wheelSelector.setZero(5);
   input.wheelSelector(3) = 1.0;
+  input.steeringSelector.setZero(5);
+  input.steeringSelector(2) = 1.0;
   input.generalizedVelocity.resize(5);
   input.generalizedVelocity << 1.0, 0.3, -0.1, 4.0, 0.0;
   input.radius = 0.2;
@@ -292,6 +294,11 @@ BOOST_AUTO_TEST_CASE(RollingGeometryRejectsInvalidInputAndRecovers)
   BOOST_CHECK_THROW(geometry.update(input), std::invalid_argument);
   input = nominalInput();
   input.generalizedVelocity(0) = std::numeric_limits<double>::quiet_NaN();
+  BOOST_CHECK_THROW(geometry.update(input), std::invalid_argument);
+  input = nominalInput();
+  BOOST_CHECK_NO_THROW(geometry.update(input));
+
+  input.steeringSelector.setZero(4);
   BOOST_CHECK_THROW(geometry.update(input), std::invalid_argument);
   input = nominalInput();
   BOOST_CHECK_NO_THROW(geometry.update(input));

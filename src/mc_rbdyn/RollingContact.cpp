@@ -292,12 +292,10 @@ const RollingContactGeometryResult & RollingContactGeometry::update(const Rollin
   {
     throw std::invalid_argument("Rolling contact wheelSelector must be 1 x nrDof");
   }
-  if(input.steeringSelector.size() != 0
-     && (input.steeringSelector.rows() != 1 || input.steeringSelector.cols() != nrDof_))
+  if(input.hasSteering() && (input.steeringSelector.rows() != 1 || input.steeringSelector.cols() != nrDof_))
   {
     throw std::invalid_argument("Rolling contact steeringSelector must be empty or 1 x nrDof");
   }
-  if(input.steeringSelector.size() != 0) { requireFinite(input.steeringSelector, "steeringSelector"); }
   if(input.generalizedVelocity.size() != nrDof_)
   {
     throw std::invalid_argument("Rolling contact generalizedVelocity size does not match nrDof");
@@ -310,6 +308,7 @@ const RollingContactGeometryResult & RollingContactGeometry::update(const Rollin
   requireFinite(Eigen::Map<const Eigen::VectorXd>(input.carrierJacobian.data(), input.carrierJacobian.size()),
                 "carrierJacobian");
   requireFinite(input.wheelSelector, "wheelSelector");
+  requireFinite(input.steeringSelector, "steeringSelector");
   requireFinite(input.generalizedVelocity, "generalizedVelocity");
   if(!finite(input.radius) || input.radius <= 0.0)
   {
@@ -366,12 +365,11 @@ const RollingContactGeometryResult & RollingContactGeometry::update(const Rollin
 
   result_.rollingMatrix.row(0).noalias() = result_.rollingDirection.transpose() * input.carrierJacobian;
   result_.rollingMatrix.row(0) -= input.radius * input.spinSign * input.wheelSelector;
-  result_.measuredRollingRate = input.wheelSelector.dot(input.generalizedVelocity);
-  result_.measuredSteeringRate =
-      input.steeringSelector.size() == 0 ? 0.0 : input.steeringSelector.dot(input.generalizedVelocity);
   result_.rollingMatrix.row(1).noalias() = result_.lateralDirection.transpose() * input.carrierJacobian;
   result_.rollingMatrix.row(2).noalias() = result_.normalDirection.transpose() * input.carrierJacobian;
   result_.velocityResidual.noalias() = result_.rollingMatrix * input.generalizedVelocity;
+  result_.measuredRollingRate = input.wheelSelector.dot(input.generalizedVelocity);
+  result_.measuredSteeringRate = input.hasSteering() ? input.steeringSelector.dot(input.generalizedVelocity) : 0.0;
   result_.slipVelocity = result_.velocityResidual.x() * result_.rollingDirection
                          + result_.velocityResidual.y() * result_.lateralDirection;
 
@@ -411,6 +409,11 @@ struct RollingContactRobotGeometry::Impl
     }
     if(!description.steeringJoint.empty())
     {
+      if(description.steeringJoint == description.driveJoint)
+      {
+        throw std::invalid_argument("Rolling contact steeringJoint must differ from driveJoint: "
+                                    + description.driveJoint);
+      }
       const auto steeringIndex = robot.jointIndexByName(description.steeringJoint);
       const auto & steeringJoint = robot.mb().joint(steeringIndex);
       if(steeringJoint.dof() != 1 || steeringJoint.type() != rbd::Joint::Rev)
