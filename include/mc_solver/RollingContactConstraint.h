@@ -56,6 +56,20 @@ struct MC_SOLVER_DLLAPI RollingContactConstraintOptions
   bool steeringPlanar = false;
   std::vector<std::string> steeringPlanarWheels;
 
+  /** Track the eight rotating velocities of a four-steering chassis.
+   *
+   * When true, each wheel contributes a soft row tracking its predicted rolling
+   * rate, and each steering wheel a second soft row tracking its predicted
+   * steering rate. These are the w_thetaDot and w_deltaDot objective terms of
+   * the four-steering-wheel QP; the corresponding predicted-rate bounds are
+   * already supplied by the joint velocity limits of KinematicsConstraint.
+   */
+  bool trackRotatingRates = false;
+  /** Objective weight on (thetaDot^+ - thetaDot^ref). */
+  double rollingRateWeight = 200.0;
+  /** Objective weight on (deltaDot^+ - deltaDot^ref). */
+  double steeringRateWeight = 200.0;
+
   void validate(size_t wheelCount) const;
 };
 
@@ -92,6 +106,15 @@ public:
   void velocityGain(double gain);
   void rollingWeight(double weight);
   double rollingWeight() const noexcept;
+
+  /** Set the predicted-rate references for one wheel.
+   *
+   * @throws std::out_of_range if the wheel is unknown.
+   * @throws std::invalid_argument if either value is not finite.
+   */
+  void rotatingRateReference(const std::string & wheel, double rollingRate, double steeringRate);
+  double rollingRateReference(const std::string & wheel) const;
+  double steeringRateReference(const std::string & wheel) const;
 
   /** Change one wheel's active contact mode without changing solver variables.
    *

@@ -62,6 +62,12 @@ void RollingContactConstraintOptions::validate(size_t wheelCount) const
   {
     throw std::invalid_argument("RollingContactConstraint planar specializations are mutually exclusive");
   }
+  // !(x >= 0.0) rather than x < 0.0: also rejects NaN weights, which a bare
+  // less-than comparison would silently let through.
+  if(!(rollingRateWeight >= 0.0) || !(steeringRateWeight >= 0.0))
+  {
+    throw std::invalid_argument("Rolling contact rate weights must be non-negative and finite");
+  }
 }
 
 struct RollingContactConstraint::Impl
@@ -140,6 +146,8 @@ struct RollingContactConstraint::Impl
       }
     }
     activations.resize(wheels.size(), 1.0);
+    rollingRateReferences.assign(wheels.size(), 0.0);
+    steeringRateReferences.assign(wheels.size(), 0.0);
     for(size_t i = 0; i < wheels.size(); ++i)
     {
       if(wheels[i].mode == mc_rbdyn::RollingContactMode::Detached) { activations[i] = 0.0; }
@@ -363,6 +371,10 @@ struct RollingContactConstraint::Impl
   std::vector<mc_rbdyn::RollingContactRobotGeometry> geometries;
   std::vector<mc_rbdyn::RollingContactGeometryResult> results;
   std::vector<double> activations;
+  std::vector<double> rollingRateReferences;
+  std::vector<double> steeringRateReferences;
+  // Set by Task 3 from solver.dt() to scale the predicted-rate soft rows; unused until then.
+  double dt = 0.0;
   std::vector<Row> hardRows;
   std::vector<Row> softRows;
   std::vector<std::string> hardLabels;
@@ -564,6 +576,27 @@ void RollingContactConstraint::activation(const std::string & wheel, double acti
 double RollingContactConstraint::activation(const std::string & wheel) const
 {
   return impl_->activations[impl_->wheelIndex(wheel)];
+}
+
+void RollingContactConstraint::rotatingRateReference(const std::string & wheel, double rollingRate, double steeringRate)
+{
+  if(!std::isfinite(rollingRate) || !std::isfinite(steeringRate))
+  {
+    throw std::invalid_argument("Rolling contact rate references must be finite");
+  }
+  const auto index = impl_->wheelIndex(wheel);
+  impl_->rollingRateReferences[index] = rollingRate;
+  impl_->steeringRateReferences[index] = steeringRate;
+}
+
+double RollingContactConstraint::rollingRateReference(const std::string & wheel) const
+{
+  return impl_->rollingRateReferences[impl_->wheelIndex(wheel)];
+}
+
+double RollingContactConstraint::steeringRateReference(const std::string & wheel) const
+{
+  return impl_->steeringRateReferences[impl_->wheelIndex(wheel)];
 }
 
 size_t RollingContactConstraint::layoutRevision() const noexcept

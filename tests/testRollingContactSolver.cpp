@@ -583,6 +583,43 @@ BOOST_AUTO_TEST_CASE(RollingConstraintRejectsInvalidConfiguration)
   }
 }
 
+BOOST_AUTO_TEST_CASE(RollingRateReferencesRoundTripAndValidate)
+{
+  auto robots = loadFourSteeringRobot();
+  auto wheels = fourSteeringWheels();
+  mc_solver::RollingContactConstraintOptions options;
+  options.steeringPlanar = true;
+  options.steeringPlanarWheels = {"front_left", "rear_left"};
+  options.trackRotatingRates = true;
+  BOOST_CHECK_EQUAL(options.rollingRateWeight, 200.0);
+  BOOST_CHECK_EQUAL(options.steeringRateWeight, 200.0);
+
+  mc_solver::RollingContactConstraint rolling(*robots, 0, wheels, options);
+  rolling.rotatingRateReference("front_left", 3.0, -0.5);
+  BOOST_CHECK_EQUAL(rolling.rollingRateReference("front_left"), 3.0);
+  BOOST_CHECK_EQUAL(rolling.steeringRateReference("front_left"), -0.5);
+
+  BOOST_CHECK_THROW(rolling.rotatingRateReference("nope", 0.0, 0.0), std::out_of_range);
+  BOOST_CHECK_THROW(rolling.rotatingRateReference("front_left", std::numeric_limits<double>::quiet_NaN(), 0.0),
+                    std::invalid_argument);
+
+  mc_solver::RollingContactConstraintOptions negativeRolling = options;
+  negativeRolling.rollingRateWeight = -1.0;
+  BOOST_CHECK_THROW(negativeRolling.validate(4), std::invalid_argument);
+
+  mc_solver::RollingContactConstraintOptions negativeSteering = options;
+  negativeSteering.steeringRateWeight = -1.0;
+  BOOST_CHECK_THROW(negativeSteering.validate(4), std::invalid_argument);
+
+  mc_solver::RollingContactConstraintOptions nanRolling = options;
+  nanRolling.rollingRateWeight = std::numeric_limits<double>::quiet_NaN();
+  BOOST_CHECK_THROW(nanRolling.validate(4), std::invalid_argument);
+
+  mc_solver::RollingContactConstraintOptions nanSteering = options;
+  nanSteering.steeringRateWeight = std::numeric_limits<double>::quiet_NaN();
+  BOOST_CHECK_THROW(nanSteering.validate(4), std::invalid_argument);
+}
+
 BOOST_AUTO_TEST_CASE(RollingConstraintConfigurationLoaders)
 {
   auto robots = loadDifferentialRobot();
