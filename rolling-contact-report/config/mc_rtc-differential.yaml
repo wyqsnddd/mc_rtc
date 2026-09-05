@@ -1,4 +1,4 @@
-MainRobot: [RollingContact, src/mc_robots/rolling_contact_description, rolling_diff]
+MainRobot: RollingContactDifferential
 Enabled: [RollingContact]
 Default: RollingContact
 Timestep: 0.005

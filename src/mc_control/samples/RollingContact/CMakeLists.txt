@@ -8,6 +8,26 @@ add_controller(
   "${CMAKE_CURRENT_SOURCE_DIR}/mc_rolling_contact_controller.h"
 )
 
+# Keyboard teleoperation is optional so the CPU rolling-contact controller
+# remains buildable on systems that do not install RoboticsUtils. The
+# interactive Ranger example checks this capability at runtime.
+find_package(RoboticsUtils QUIET CONFIG)
+if(TARGET RoboticsUtils::Keyboard)
+  # RoboticsUtils 0.1.0 builds KeyboardCapture together with its GEOS-backed
+  # utility source but omits libgeos_c from the exported target. Supply that
+  # transitive dependency until the external package exports it itself.
+  find_library(ROBOTICSUTILS_GEOS_C_LIBRARY NAMES geos_c)
+endif()
+if(TARGET RoboticsUtils::Keyboard AND ROBOTICSUTILS_GEOS_C_LIBRARY)
+  target_link_libraries(
+    rolling_contact_controller
+    PRIVATE RoboticsUtils::Keyboard "${ROBOTICSUTILS_GEOS_C_LIBRARY}"
+  )
+  target_compile_definitions(
+    rolling_contact_controller PRIVATE MC_ROLLING_CONTACT_HAS_KEYBOARD=1
+  )
+endif()
+
 install(
   DIRECTORY etc/
   DESTINATION ${MC_CONTROLLER_RUNTIME_INSTALL_PREFIX}/etc/

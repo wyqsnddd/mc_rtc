@@ -52,6 +52,9 @@ struct MC_CONTROL_DLLAPI ControllerServerConfiguration
    * Actual ipc sockets are created as socket + "_pub.ipc" and socket + "_rep.ipc"
    *
    * If nullopt, IPC is disabled
+   *
+   * In a YAML configuration, a scalar value (e.g. `IPC: false`) explicitly
+   * disables an IPC section inherited from the global configuration.
    */
   std::optional<std::string> ipc_socket = mc_rtc::temp_directory_path("mc_rtc");
 

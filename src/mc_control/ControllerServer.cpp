@@ -11,6 +11,91 @@
 #  include <nanomsg/reqrep.h>
 #endif
 
+#include <cerrno>
+#include <cstring>
+#include <fstream>
+#include <sstream>
+
+#if !defined(_WIN32) && !defined(MC_RTC_DISABLE_NETWORK)
+#  include <sys/socket.h>
+#  include <sys/un.h>
+#  include <unistd.h>
+#endif
+
+namespace
+{
+
+/** Remove an IPC pathname left behind by a crashed server.
+ *
+ * nanomsg reports an address/permission error for both a live endpoint and a
+ * stale Unix socket file. Probe the endpoint before unlinking it so that
+ * starting a second controller cannot silently disconnect an already-running
+ * controller.
+ */
+bool remove_stale_ipc_endpoint(const std::string & uri)
+{
+#if !defined(_WIN32) && !defined(MC_RTC_DISABLE_NETWORK)
+  constexpr const char * prefix = "ipc://";
+  if(uri.rfind(prefix, 0) != 0) { return false; }
+  const std::string path = uri.substr(std::strlen(prefix));
+  if(path.empty() || path.front() != '/') { return false; }
+
+  sockaddr_un address{};
+  address.sun_family = AF_UNIX;
+  if(path.size() >= sizeof(address.sun_path)) { return false; }
+  std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
+
+  const int probe = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  int result = -1;
+  int connect_errno = probe < 0 ? errno : 0;
+  if(probe >= 0)
+  {
+    result = ::connect(probe, reinterpret_cast<const sockaddr *>(&address), sizeof(address));
+    connect_errno = errno;
+    ::close(probe);
+  }
+  else if(connect_errno != EPERM)
+  {
+    return false;
+  }
+
+  // ECONNREFUSED means the filesystem entry exists but no process is
+  // listening. ENOENT handles a race with another cleanup operation.
+  if(result == 0) { return false; }
+  bool stale = connect_errno == ECONNREFUSED || connect_errno == ENOENT;
+  if(!stale)
+  {
+    // Some restricted Linux environments reject a direct AF_UNIX probe with
+    // EPERM even though nanomsg can bind the endpoint. Consult the kernel's
+    // Unix-socket table in that case: a pathname present there belongs to a
+    // live socket, while a regular filesystem entry left by a crashed process
+    // is absent and can be removed safely. If /proc is unavailable, retain
+    // the conservative behavior and leave the endpoint untouched.
+    std::ifstream unixSockets{"/proc/net/unix"};
+    if(!unixSockets) { return false; }
+    std::string line;
+    while(std::getline(unixSockets, line))
+    {
+      std::istringstream fields(line);
+      std::string value;
+      while(fields >> value)
+      {
+        if(value == path) { return false; }
+      }
+    }
+    stale = true;
+  }
+  if(!stale) { return false; }
+  if(::unlink(path.c_str()) == 0) { return true; }
+  return errno == ENOENT;
+#else
+  static_cast<void>(uri);
+  return false;
+#endif
+}
+
+} // namespace
+
 namespace mc_control
 {
 
@@ -34,6 +119,15 @@ ControllerServer::ControllerServer(double dt,
     for(const auto & uri : uris)
     {
       int ret = nn_bind(socket, uri.c_str());
+      // nanomsg may report EADDRINUSE, EACCES, or EPERM for a pathname that
+      // is left behind by a crashed IPC endpoint. The cleanup helper only
+      // removes an IPC filesystem entry after checking that no live Unix
+      // socket owns it, so it is safe to try it for every bind failure.
+      if(ret < 0 && remove_stale_ipc_endpoint(uri))
+      {
+        mc_rtc::log::warning("Removing stale IPC endpoint {}", uri);
+        ret = nn_bind(socket, uri.c_str());
+      }
       if(ret < 0) { mc_rtc::log::error_and_throw("Failed to bind {} to uri: {}", name, uri); }
     }
   };

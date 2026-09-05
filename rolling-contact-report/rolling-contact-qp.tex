@@ -563,6 +563,15 @@ The corresponding three-dimensional planar twist is
     }.
 }
 
+If I understand correclty, \eqref{eq:base-plane-projection} might be wrong. If it projects the $\bodyVel{\inertialFrame}{\fbFrame}$ into the terrain plane $\Pi$, we can directly use the twist transform: 
+\quickEq{ni}{
+  \bodyVel{\Pi}{\fbFrame}   
+   = \bodyVelTransform{\inertialFrame}{\fbFrame}{\Pi}
+}. As the $bodyVel{\inertialFrame}{\fbFrame}$ is zero, so actually $\bodyVel{\Pi}{\fbFrame}$ is equal to $\bodyVel{\inertialFrame}{\fbFrame}$
+
+
+
+
 The shared body-velocity transform gives the velocity of the carrier frame:
 \quickEq{eq:wheel-vel-calc}{
   \bodyVel{\inertialFrame}{c_i}

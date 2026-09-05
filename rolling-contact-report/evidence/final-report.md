@@ -1,6 +1,6 @@
 # CPU rolling-contact final evidence
 
-Date: 2026-09-01 (Asia/Shanghai)
+Date: 2026-09-02 (Asia/Shanghai)
 
 Status: **Pass — complete CPU implementation**
 
@@ -95,17 +95,19 @@ CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
   ctest --test-dir build -R 'RollingContact|testRollingContact' --output-on-failure -j1
 ```
 
-Result: exit 0, **13/13 tests passed** in 1.73 seconds.
+Result after the keyboard tracking fix: exit 0, **13/13 tests passed** in 1.86 seconds.
 
 The full repository regression command was:
 
 ```sh
-CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
+MC_RTC_CONTROLLER_CONFIG=/tmp/mc_rtc-no-gui.yaml CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
   ctest --test-dir build --output-on-failure -j1
 ```
 
-Result: exit 0, **102/102 tests passed** in 33.30 seconds. This includes every previously passing test and all new
-rolling tests. The command ran serially because the framework tests share user/cache and IPC resources.
+Result after the keyboard tracking fix: exit 0, **102/102 tests passed** in 34.93 seconds. The regression run used
+`MC_RTC_CONTROLLER_CONFIG=/tmp/mc_rtc-no-gui.yaml` to disable nanomsg GUI sockets in the sandbox. This includes every
+previously passing test and all new rolling tests. The command ran serially because the framework tests share
+user/cache and IPC resources.
 
 The address-sanitized geometry, robot, solver, and repeated-controller-lifecycle set passed **4/4** in 1.41 seconds
 with `ASAN_OPTIONS=detect_leaks=0:abort_on_error=1`. The dedicated repeated lifecycle test also passed 50 consecutive
@@ -172,6 +174,45 @@ The source suite report is `/tmp/rolling-contact-final-mujoco-v7/suite-report.js
 `3b2408b023f015553c78ccabf9fec7dde2544acfc00d4d0caebf9c24a9c2cd1a`. Absolute `/tmp` paths document the measured
 host only; all sources/configuration needed to regenerate them are tracked and use repository-relative discovery.
 
+### Ranger Mini V3 and keyboard handoff
+
+The four-steering MuJoCo mapping now selects the tracked `ranger_mini_v3` alias and the self-contained primitive model
+at `src/mc_robots/rolling_contact_description/mujoco/ranger_mini_v3.xml`. It uses the AgileX/SysWonder dimensions
+(0.494 m wheelbase, 0.364 m track, 0.125 m radius), four steering/drive pairs, and explicit chassis/wheel collision
+exclusions. The exclusions are necessary because the four wheel centers lie within the visible body envelope; without
+them MuJoCo creates artificial self-contact impulses before the first QP solve.
+
+Interactive operation is provided by the optional RoboticsUtils `KeyboardCapture` target. The controller starts it
+only for the `keyboard` scenario and fails clearly when standard input is not a TTY or RoboticsUtils is unavailable.
+W/S command forward/reverse, A/D command left/right crab motion, Q/E command left/right yaw, `space` clears all
+latched axes, and `x` stops capture. Since a terminal emits a byte per key press rather than a release state, each
+axis remains latched until its opposite key or `space` is pressed. In the Tasks backend the controller sends wheel-rate
+feed-forward through the posture task and writes chassis linear/angular feed-forward into the position/orientation
+tasks. Before every closed-loop cycle, it synchronizes MuJoCo encoder values and the `FloatingBase` body sensor into
+its MBC. After the QP succeeds, it emits measured-state-relative wheel position and velocity references (`q`/`alpha`),
+which are the signals consumed by mc_mujoco's actuator adapter. This closes the previous gaps where the chassis target
+could integrate while the task velocity stayed zero and the controller could keep evaluating an initial, stale chassis
+pose. The adapter converts a stopped capture into zero references, so the helper's retained last command cannot keep
+the robot moving. The `RollingContact::GetKeyboardStatus` datastore call plus the reference-speed, base-target,
+task-reference, and tracking-error log entries make the full handoff visible to a GUI or log consumer. A pseudo-terminal
+smoke run produced nonzero wheel targets and a measured chassis velocity close to the requested value, then cleanly
+restored the terminal after X; the simulator is stopped with the MuJoCo close action or Ctrl-C.
+
+The controller handles `x` in two phases: the callback atomically requests a stop, and the next controller poll calls
+`KeyboardCapture::stop()` from the controller thread. This avoids asking the RoboticsUtils input worker to join itself
+and guarantees that terminal settings are restored before the capture object is destroyed.
+
+The final closed-loop trace is
+`/tmp/mc-rtc-ranger-mini-v3-keyboard-RollingContact-2026-09-02-15-11-40.bin`; the inspected 90--145 second segment is
+also retained as `/tmp/ranger-keyboard-validated_from_90_to_145.bin`. The active window runs from 99.465 through
+120.875 seconds with `W` held: the command and chassis-task
+reference were `0.300 m/s`, the measured chassis velocity settled at `0.2875246 m/s` (95.8% of command), and the
+measured front-left wheel rate settled at `2.3003195 rad/s` against `2.4 rad/s`. The target advanced to `6.4245 m`,
+the measured chassis reached `6.1573383 m`, and the final stopped position error was `0.267145 m`; unlike the original
+log, the error remained bounded rather than growing at the full target rate. Every recorded solver-success sample was
+true. After `x`, the command, wheel reference, wheel velocity, and chassis velocity all reached exactly zero, and the
+terminal output confirmed that the input worker stopped and terminal capture was restored.
+
 ## 10,000-cycle CPU timing gate
 
 Four representative production cases each ran 100 warm-up plus 10,000 measured cycles. Every P99 is far below the
@@ -197,9 +238,9 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
 cmake --build build -j2
 CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
   ctest --test-dir build -R 'RollingContact|testRollingContact' --output-on-failure -j1
-CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
+MC_RTC_CONTROLLER_CONFIG=/tmp/mc_rtc-no-gui.yaml CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
   ctest --test-dir build --output-on-failure -j1
-cmake --build build --target rolling_contact_cpu_linkage
+ctest --test-dir build -R '^RollingContactCPULinkage$' --output-on-failure
 ```
 
 Build the isolated pinned CPU MuJoCo runner and generate the suite:
@@ -208,8 +249,20 @@ Build the isolated pinned CPU MuJoCo runner and generate the suite:
 CUDA_VISIBLE_DEVICES=-1 rolling-contact-report/scripts/build-cpu-mujoco-runner.sh
 CUDA_VISIBLE_DEVICES=-1 python3 rolling-contact-report/scripts/run-mujoco-suite.py \
   --runner /tmp/rolling-contact-cpu-mujoco/runner-build/rolling_contact_mujoco_runner \
-  --build build --artifact /tmp/rolling-contact-mujoco-results --repetitions 5
+  --build build --artifact-dir /tmp/rolling-contact-mujoco-results --repetitions 5
 ```
+
+For an interactive Ranger session after `mc_mujoco` is installed at `~/local/bin/mc_mujoco` and the
+`~/local/share/mc_mujoco/ranger_mini_v3.yaml` mapping is present:
+
+```sh
+source /opt/ros/jazzy/setup.bash
+export CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON
+export LD_LIBRARY_PATH="$PWD/build/src:$PWD/build/plugins/ROS:$PWD/build/deps/tasks-system-install/lib:/usr/local/lib:/opt/ros/jazzy/lib"
+/home/yuquan/local/bin/mc_mujoco -s -f rolling-contact-report/config/mc_rtc-ranger-mini-v3-keyboard.yaml
+```
+
+The complete command/key reference is maintained in [`rolling-contact-report/README.md`](../README.md).
 
 The suite driver invokes `check-mujoco-report.py` for every report. JSON validity is checked with `jq empty`; Python
 helpers are compile-checked; the shell runner is checked with `bash -n`; changed C++ and CMake files follow the

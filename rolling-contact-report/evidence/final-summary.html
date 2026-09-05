@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CPU Rolling-Contact Implementation — Final Summary</title>
+  <style>
+    :root {
+      --ink: #132238;
+      --muted: #52647a;
+      --paper: #ffffff;
+      --wash: #f3f7fa;
+      --line: #dbe5eb;
+      --navy: #12314a;
+      --navy-2: #1b4965;
+      --teal: #087e8b;
+      --teal-soft: #e4f5f4;
+      --green: #19764b;
+      --green-soft: #e7f5ed;
+      --amber: #ad6b00;
+      --amber-soft: #fff4dc;
+      --blue: #2864a8;
+      --blue-soft: #e9f1fb;
+      --code: #10283d;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: #dfe7ec;
+      color: var(--ink);
+      font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.54;
+    }
+
+    body {
+      width: 210mm;
+      margin: 0 auto;
+      background: var(--paper);
+      box-shadow: 0 12px 42px rgba(22, 49, 70, 0.18);
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(40, 100, 168, 0.28);
+    }
+
+    a:hover {
+      border-bottom-color: var(--blue);
+    }
+
+    p {
+      margin: 0 0 0.82rem;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.13;
+      letter-spacing: -0.025em;
+    }
+
+    h2 {
+      color: var(--navy);
+      font-size: 1.68rem;
+      margin-bottom: 0.78rem;
+    }
+
+    h3 {
+      color: var(--navy-2);
+      font-size: 1.04rem;
+      margin-bottom: 0.45rem;
+    }
+
+    ul {
+      margin: 0.35rem 0 0.85rem;
+      padding-left: 1.18rem;
+    }
+
+    li {
+      margin: 0.25rem 0;
+    }
+
+    code {
+      font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+      font-size: 0.88em;
+      color: #17456b;
+    }
+
+    pre {
+      margin: 0.7rem 0 1rem;
+      padding: 0.9rem 1rem;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      border-radius: 8px;
+      background: var(--code);
+      color: #eaf4fb;
+      font: 0.76rem/1.55 "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+    }
+
+    .cover {
+      position: relative;
+      min-height: 277mm;
+      padding: 28mm 19mm 18mm;
+      overflow: hidden;
+      color: #fff;
+      background:
+        radial-gradient(circle at 88% 12%, rgba(38, 189, 183, 0.34), transparent 28%),
+        radial-gradient(circle at 2% 82%, rgba(61, 121, 171, 0.34), transparent 32%),
+        linear-gradient(142deg, #0c2539 0%, #143d58 58%, #0a6570 100%);
+    }
+
+    .cover::before,
+    .cover::after {
+      position: absolute;
+      content: "";
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 50%;
+    }
+
+    .cover::before {
+      width: 118mm;
+      height: 118mm;
+      right: -34mm;
+      top: 28mm;
+    }
+
+    .cover::after {
+      width: 76mm;
+      height: 76mm;
+      right: -7mm;
+      top: 49mm;
+    }
+
+    .cover-content {
+      position: relative;
+      z-index: 2;
+    }
+
+    .eyebrow {
+      margin-bottom: 14mm;
+      color: #a9e5e3;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.17em;
+      text-transform: uppercase;
+    }
+
+    .cover h1 {
+      max-width: 157mm;
+      font-size: 3.2rem;
+      font-weight: 740;
+      letter-spacing: -0.045em;
+    }
+
+    .cover .deck {
+      max-width: 152mm;
+      margin-top: 8mm;
+      color: #dceaf2;
+      font-size: 1.25rem;
+      line-height: 1.45;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      margin-top: 10mm;
+      padding: 0.55rem 0.85rem;
+      border: 1px solid rgba(176, 240, 213, 0.44);
+      border-radius: 99px;
+      background: rgba(15, 92, 70, 0.48);
+      color: #d9ffeb;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #6ee7a6;
+      box-shadow: 0 0 0 4px rgba(110, 231, 166, 0.13);
+    }
+
+    .cover-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 3mm;
+      margin-top: 25mm;
+    }
+
+    .cover-stat {
+      min-height: 31mm;
+      padding: 4mm;
+      border: 1px solid rgba(255,255,255,0.17);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.075);
+    }
+
+    .cover-stat strong {
+      display: block;
+      color: #fff;
+      font-size: 1.48rem;
+      line-height: 1.15;
+    }
+
+    .cover-stat span {
+      display: block;
+      margin-top: 0.35rem;
+      color: #bed4df;
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+
+    .cover-meta {
+      position: absolute;
+      z-index: 2;
+      right: 19mm;
+      bottom: 17mm;
+      left: 19mm;
+      display: flex;
+      justify-content: space-between;
+      color: #bcd1dc;
+      font-size: 0.76rem;
+    }
+
+    main {
+      padding: 14mm 17mm 12mm;
+    }
+
+    section {
+      margin-bottom: 10mm;
+      break-inside: auto;
+    }
+
+    .section-kicker {
+      margin-bottom: 0.28rem;
+      color: var(--teal);
+      font-size: 0.72rem;
+      font-weight: 750;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .lead {
+      color: #344b61;
+      font-size: 1.02rem;
+      line-height: 1.58;
+    }
+
+    .callout {
+      margin: 1rem 0;
+      padding: 0.9rem 1rem;
+      border-left: 4px solid var(--teal);
+      border-radius: 0 7px 7px 0;
+      background: var(--teal-soft);
+      color: #164b53;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4mm;
+      margin: 0.85rem 0 1rem;
+    }
+
+    .card {
+      padding: 4.3mm;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      break-inside: avoid;
+    }
+
+    .card .number {
+      color: var(--teal);
+      font-size: 1.65rem;
+      font-weight: 750;
+      line-height: 1.05;
+    }
+
+    .card .label {
+      margin-top: 0.34rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.38;
+    }
+
+    .commit-box {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3mm;
+      margin-top: 0.9rem;
+      padding: 4mm;
+      border: 1px solid #cfdae2;
+      border-radius: 8px;
+      background: var(--wash);
+    }
+
+    .commit {
+      min-width: 0;
+    }
+
+    .commit small {
+      display: block;
+      color: var(--muted);
+      font-size: 0.69rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .commit code {
+      display: block;
+      margin-top: 0.25rem;
+      overflow-wrap: anywhere;
+      color: var(--navy);
+      font-size: 0.72rem;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6mm;
+    }
+
+    .feature {
+      padding: 4mm 4.5mm;
+      border-top: 3px solid var(--teal);
+      border-radius: 4px 4px 8px 8px;
+      background: var(--wash);
+      break-inside: avoid;
+    }
+
+    .feature ul {
+      margin-bottom: 0;
+      color: #31495f;
+      font-size: 0.86rem;
+    }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: 1fr 11mm 1fr 11mm 1fr;
+      align-items: stretch;
+      margin: 1rem 0;
+    }
+
+    .arch-node {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 33mm;
+      padding: 3.5mm;
+      border: 1px solid #cbdbe4;
+      border-radius: 8px;
+      background: #fff;
+      text-align: center;
+      break-inside: avoid;
+    }
+
+    .arch-node strong {
+      color: var(--navy);
+      font-size: 0.9rem;
+    }
+
+    .arch-node span {
+      margin-top: 0.25rem;
+      color: var(--muted);
+      font-size: 0.7rem;
+      line-height: 1.35;
+    }
+
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--teal);
+      font-size: 1.35rem;
+      font-weight: 700;
+    }
+
+    .backend-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4mm;
+    }
+
+    .backend {
+      padding: 4mm;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      break-inside: avoid;
+    }
+
+    .backend.tasks {
+      border-top: 4px solid var(--blue);
+    }
+
+    .backend.tvm {
+      border-top: 4px solid var(--teal);
+    }
+
+    .backend p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .page-break {
+      break-before: page;
+    }
+
+    table {
+      width: 100%;
+      margin: 0.75rem 0 1rem;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      break-inside: avoid;
+    }
+
+    th {
+      padding: 0.52rem 0.45rem;
+      border-bottom: 2px solid #b8cad5;
+      color: var(--navy);
+      background: var(--wash);
+      font-size: 0.7rem;
+      letter-spacing: 0.025em;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    td {
+      padding: 0.48rem 0.45rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    td.num,
+    th.num {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .pass {
+      display: inline-block;
+      padding: 0.13rem 0.44rem;
+      border-radius: 99px;
+      background: var(--green-soft);
+      color: var(--green);
+      font-size: 0.7rem;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 3mm;
+      margin: 0.9rem 0 1rem;
+    }
+
+    .metric {
+      padding: 3.6mm;
+      border-radius: 7px;
+      background: var(--blue-soft);
+      break-inside: avoid;
+    }
+
+    .metric strong {
+      display: block;
+      color: var(--blue);
+      font-size: 1.24rem;
+      line-height: 1.1;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 0.3rem;
+      color: var(--muted);
+      font-size: 0.68rem;
+      line-height: 1.35;
+    }
+
+    .bar-chart {
+      margin: 0.85rem 0 1.1rem;
+      padding: 4mm;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      break-inside: avoid;
+    }
+
+    .bar-chart .scale {
+      display: flex;
+      justify-content: space-between;
+      margin: 0 0 0.45rem 47mm;
+      color: #718398;
+      font-size: 0.62rem;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 44mm 1fr 20mm;
+      align-items: center;
+      gap: 3mm;
+      margin: 0.44rem 0;
+      font-size: 0.72rem;
+    }
+
+    .bar-track {
+      position: relative;
+      height: 8px;
+      border-radius: 99px;
+      background: linear-gradient(90deg, #edf2f6 0 24.8%, #e2eaf0 25% 25.4%, #edf2f6 25.6% 49.8%, #e2eaf0 50% 50.4%, #edf2f6 50.6% 74.8%, #e2eaf0 75% 75.4%, #edf2f6 75.6%);
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+    }
+
+    .bar-value {
+      color: var(--navy);
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .chart-note {
+      margin: 0.55rem 0 0;
+      color: var(--muted);
+      font-size: 0.68rem;
+    }
+
+    .proof-box {
+      display: grid;
+      grid-template-columns: 24mm 1fr;
+      align-items: center;
+      gap: 4mm;
+      margin: 0.8rem 0 1rem;
+      padding: 4mm;
+      border: 1px solid #b7dcc7;
+      border-radius: 9px;
+      background: var(--green-soft);
+      break-inside: avoid;
+    }
+
+    .proof-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20mm;
+      height: 20mm;
+      border-radius: 50%;
+      background: var(--green);
+      color: #fff;
+      font-size: 1.9rem;
+      font-weight: 800;
+    }
+
+    .proof-box h3 {
+      color: #145f3d;
+    }
+
+    .proof-box p {
+      margin: 0;
+      color: #286346;
+      font-size: 0.82rem;
+    }
+
+    .limitations {
+      padding: 4mm 5mm;
+      border: 1px solid #ecd49f;
+      border-radius: 8px;
+      background: var(--amber-soft);
+      break-inside: avoid;
+    }
+
+    .limitations h3 {
+      color: var(--amber);
+    }
+
+    .limitations ul {
+      margin-bottom: 0;
+      color: #70521d;
+      font-size: 0.82rem;
+    }
+
+    .artifact-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3mm;
+      margin-top: 0.8rem;
+    }
+
+    .artifact {
+      padding: 3.3mm;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--wash);
+      break-inside: avoid;
+    }
+
+    .artifact strong {
+      display: block;
+      color: var(--navy);
+      font-size: 0.79rem;
+    }
+
+    .artifact span {
+      display: block;
+      margin-top: 0.18rem;
+      color: var(--muted);
+      font-size: 0.67rem;
+      line-height: 1.35;
+    }
+
+    .document-footer {
+      margin-top: 12mm;
+      padding-top: 4mm;
+      border-top: 1px solid var(--line);
+      color: #718398;
+      font-size: 0.68rem;
+      text-align: center;
+    }
+
+    .mono-small {
+      font: 0.65rem/1.45 "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+
+    @page {
+      size: A4;
+      margin: 11mm 0 12mm;
+    }
+
+    @page :first {
+      margin: 0;
+    }
+
+    @media print {
+      html,
+      body {
+        width: 210mm;
+        margin: 0;
+        background: #fff;
+        box-shadow: none;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      body {
+        font-size: 9.5pt;
+      }
+
+      .cover {
+        min-height: 297mm;
+        break-after: page;
+      }
+
+      main {
+        padding-top: 3mm;
+        padding-bottom: 0;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      pre {
+        font-size: 6.8pt;
+      }
+    }
+
+    @media screen and (max-width: 850px) {
+      body {
+        width: 100%;
+      }
+
+      .cover-stats,
+      .cards,
+      .metric-strip {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .two-col,
+      .backend-grid,
+      .commit-box,
+      .artifact-list {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="cover">
+    <div class="cover-content">
+      <div class="eyebrow">mc_rtc · Ubuntu 24.04 · Final implementation summary</div>
+      <h1>CPU Rolling-Contact Support</h1>
+      <p class="deck">
+        Complete rigid-wheel rolling contact for differential-drive and four-steering robots,
+        implemented through the native Tasks and TVM CPU solver paths and validated in headless MuJoCo.
+      </p>
+      <div class="status-pill"><span class="status-dot"></span> Complete · verified · committed</div>
+
+      <div class="cover-stats">
+        <div class="cover-stat">
+          <strong>102/102</strong>
+          <span>complete repository CTests passed</span>
+        </div>
+        <div class="cover-stat">
+          <strong>250</strong>
+          <span>physical CPU MuJoCo processes</span>
+        </div>
+        <div class="cover-stat">
+          <strong>0</strong>
+          <span>GPU runtime dependencies or deadline misses</span>
+        </div>
+        <div class="cover-stat">
+          <strong>0.201 ms</strong>
+          <span>worst representative 10k-cycle p99</span>
+        </div>
+      </div>
+    </div>
+    <div class="cover-meta">
+      <span>Commit e21ed9a997ed73bafbb345a82f92bcdfb1c28585</span>
+      <span>1 September 2026 · Asia/Shanghai</span>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="section-kicker">Outcome</div>
+      <h2>Executive summary</h2>
+      <p class="lead">
+        The rolling-contact roadmap is complete. mc_rtc now provides a backend-neutral rolling-contact geometry
+        kernel, native Tasks and TVM constraint/dynamics implementations, two installable wheeled robots, a production
+        sample controller, and a reproducible CPU-only validation suite. The implementation runs without discovering,
+        requiring, or linking a GPU runtime.
+      </p>
+      <div class="callout">
+        <strong>Release decision: pass.</strong> All roadmap stages are closed; the exact committed snapshot builds and
+        passes the rolling integration suite, the complete regression suite, sanitizer checks, deterministic physical
+        simulation, long-duration timing, allocation, and dynamic-linkage gates.
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <div class="number">2</div>
+          <div class="label">Native CPU backends: Tasks QLD and TVM weighted least squares</div>
+        </div>
+        <div class="card">
+          <div class="number">2</div>
+          <div class="label">Robot families: differential drive and four independently steering/driving wheels</div>
+        </div>
+        <div class="card">
+          <div class="number">25</div>
+          <div class="label">Physical cases per backend, including ramps, disturbances, low friction, and mode changes</div>
+        </div>
+      </div>
+
+      <div class="commit-box">
+        <div class="commit">
+          <small>CPU rolling-contact implementation</small>
+          <code>e21ed9a997ed73bafbb345a82f92bcdfb1c28585</code>
+          <div>feat: add CPU rolling-contact support</div>
+        </div>
+        <div class="commit">
+          <small>Ubuntu 24.04 build support parent</small>
+          <code>fc7df14a96f1273fb1aaff8e1a84ef514455d29c</code>
+          <div>fix: support Ubuntu 24.04 builds</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-kicker">Delivered scope</div>
+      <h2>Implementation inventory</h2>
+      <div class="two-col">
+        <div class="feature">
+          <h3>Geometry and contact model</h3>
+          <ul>
+            <li>Finite wheel-line contact geometry and right-handed rolling frame <code>[t, l, n]</code>.</li>
+            <li>Velocity/acceleration no-slip rows, bias, Baumgarte stabilization, and finite-input validation.</li>
+            <li>Two force endpoints with four-ray friction cones, wrench diagnostics, and wheel-torque evaluation.</li>
+            <li>Zero heap allocations across 10,000 hot-loop updates after warm-up.</li>
+          </ul>
+        </div>
+        <div class="feature">
+          <h3>Solver integration</h3>
+          <ul>
+            <li>Native hard and soft longitudinal rolling for Tasks and TVM.</li>
+            <li>Persistent contact identities across numerical updates and mode transitions.</li>
+            <li>Actuated-only TVM torque variable; floating-base efforts remain zero.</li>
+            <li>Deferred TVM graph-object retirement prevents cached-solver lifecycle use-after-free.</li>
+          </ul>
+        </div>
+        <div class="feature">
+          <h3>Robots and controller</h3>
+          <ul>
+            <li>Differential and four-steering URDF, RSDF, aliases, gains, and MuJoCo descriptions.</li>
+            <li>Forward/reverse, turns, circles, sinusoid, crab, Ackermann, pure-yaw, and steering-rate commands.</li>
+            <li>Fixed, rolling, sliding, and detached modes with deterministic transition coverage.</li>
+            <li>Infeasibility detection, fallback/recovery, logging, datastore, and GUI diagnostics.</li>
+          </ul>
+        </div>
+        <div class="feature">
+          <h3>Handoff and evidence</h3>
+          <ul>
+            <li>Geometry, robot, solver, controller, invalid-input, parity, lifecycle, and allocation tests.</li>
+            <li>Headless pinned CPU MuJoCo runner and deterministic scenario matrix.</li>
+            <li>CPU dynamic-link audit rejecting CUDA, cuBLAS, cuSolver, Torch, HIP, and OpenCL.</li>
+            <li>English/Japanese tutorials, JSON schemas, QP report, architecture record, and retained JSON evidence.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-kicker">Architecture</div>
+      <h2>One contact model, two CPU solver paths</h2>
+      <div class="architecture">
+        <div class="arch-node">
+          <strong>mc_rbdyn geometry</strong>
+          <span>frame · rows · bias · endpoints · diagnostics</span>
+        </div>
+        <div class="arrow">→</div>
+        <div class="arch-node">
+          <strong>mc_solver constraints</strong>
+          <span>rolling kinematics · line forces · friction · modes</span>
+        </div>
+        <div class="arrow">→</div>
+        <div class="arch-node">
+          <strong>Controller and robots</strong>
+          <span>commands · recovery · logging · physical simulation</span>
+        </div>
+      </div>
+      <div class="backend-grid">
+        <div class="backend tasks">
+          <h3>Tasks backend</h3>
+          <p>
+            Retains the native reduced decision vector—generalized accelerations plus contact multipliers. Torque is
+            reconstructed by <code>MotionConstr</code>; soft rolling is an ordinary quadratic residual. A repository-local
+            rolling motion constraint updates generalized-force columns without patching Tasks.
+          </p>
+        </div>
+        <div class="backend tvm">
+          <h3>TVM backend</h3>
+          <p>
+            Uses explicit point forces and an actuated-only torque variable. Removed graph objects remain in a
+            solver-owned retirement queue until weighted-least-squares caches are refreshed, making repeated
+            remove/re-add and controller destruction deterministic and sanitizer-clean.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page-break">
+      <div class="section-kicker">Release gates</div>
+      <h2>Verification matrix</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Gate</th>
+            <th>Result</th>
+            <th>Direct evidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Exact committed snapshot</td><td><span class="pass">Pass</span></td><td>Isolated configure/build; 13/13 rolling CTests</td></tr>
+          <tr><td>Complete regression</td><td><span class="pass">Pass</span></td><td>102/102 CTests in 34.93 seconds (GUI sockets disabled)</td></tr>
+          <tr><td>AddressSanitizer</td><td><span class="pass">Pass</span></td><td>4/4 targeted families; no sanitizer failure</td></tr>
+          <tr><td>Lifecycle stress</td><td><span class="pass">Pass</span></td><td>50 controller lifecycle and 20 complete solver repetitions</td></tr>
+          <tr><td>Allocation hot loop</td><td><span class="pass">Pass</span></td><td>10,000 updates; zero allocations after warm-up</td></tr>
+          <tr><td>CPU dynamic linkage</td><td><span class="pass">Pass</span></td><td>5 targets; zero GPU runtimes; zero unresolved libraries</td></tr>
+          <tr><td>Physical MuJoCo matrix</td><td><span class="pass">Pass</span></td><td>250 processes; zero failures or missed deadlines</td></tr>
+          <tr><td>10,000-cycle timing</td><td><span class="pass">Pass</span></td><td>4 representative cases; every p99 below 0.201 ms</td></tr>
+          <tr><td>Formats and documentation</td><td><span class="pass">Pass</span></td><td>JSON, YAML, XML, Python, shell, Doxygen, schemas, EN/JP tutorials</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Backend numerical parity</h3>
+      <table>
+        <thead>
+          <tr><th>Quantity</th><th class="num">Measured error</th><th class="num">Acceptance</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Rolling coefficient matrix</td><td class="num">0</td><td class="num">1e-10 absolute</td></tr>
+          <tr><td>Acceleration bias</td><td class="num">0</td><td class="num">1e-10 absolute</td></tr>
+          <tr><td>Generalized acceleration</td><td class="num">3.5304e-7</td><td class="num">1e-6 scaled</td></tr>
+          <tr><td>Actuated torque</td><td class="num">6.6089e-16</td><td class="num">1e-7 scaled</td></tr>
+          <tr><td>Resultant contact wrench</td><td class="num">4.2365e-6</td><td class="num">1.1868e-5 scaled</td></tr>
+          <tr><td>TVM soft-rolling residual</td><td class="num">4.9828e-10</td><td class="num">residual policy</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="page-break">
+      <div class="section-kicker">Performance</div>
+      <h2>Long-duration CPU timing</h2>
+      <p>
+        Four production cases ran 100 warm-up cycles followed by 10,000 measured cycles at a 5 ms controller period.
+        No case missed a deadline. The chart uses a 0.25 ms p99 scale; the actual deadline is twenty times that scale.
+      </p>
+      <div class="bar-chart">
+        <div class="scale"><span>0 ms</span><span>0.125 ms</span><span>0.250 ms</span></div>
+        <div class="bar-row">
+          <span>Tasks · differential forward</span>
+          <div class="bar-track"><div class="bar-fill" style="width:28.03%"></div></div>
+          <span class="bar-value">0.070 ms</span>
+        </div>
+        <div class="bar-row">
+          <span>Tasks · four-wheel crab</span>
+          <div class="bar-track"><div class="bar-fill" style="width:70.25%"></div></div>
+          <span class="bar-value">0.176 ms</span>
+        </div>
+        <div class="bar-row">
+          <span>TVM · differential forward</span>
+          <div class="bar-track"><div class="bar-fill" style="width:28.98%"></div></div>
+          <span class="bar-value">0.072 ms</span>
+        </div>
+        <div class="bar-row">
+          <span>TVM · four-wheel crab</span>
+          <div class="bar-track"><div class="bar-fill" style="width:80.16%"></div></div>
+          <span class="bar-value">0.200 ms</span>
+        </div>
+        <p class="chart-note">P99 solver/controller time; lower is better. Deadline: 5.000 ms.</p>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Backend / case</th>
+            <th class="num">Median ms</th>
+            <th class="num">P95 ms</th>
+            <th class="num">P99 ms</th>
+            <th class="num">Max ms</th>
+            <th class="num">RTF</th>
+            <th class="num">RSS KiB</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Tasks / differential forward</td><td class="num">0.044740</td><td class="num">0.064231</td><td class="num">0.070081</td><td class="num">0.226873</td><td class="num">86.1634</td><td class="num">50,648</td></tr>
+          <tr><td>Tasks / four-wheel crab</td><td class="num">0.118021</td><td class="num">0.151712</td><td class="num">0.175613</td><td class="num">0.238283</td><td class="num">35.5080</td><td class="num">51,648</td></tr>
+          <tr><td>TVM / differential forward</td><td class="num">0.047081</td><td class="num">0.058371</td><td class="num">0.072461</td><td class="num">0.145982</td><td class="num">83.3322</td><td class="num">52,148</td></tr>
+          <tr><td>TVM / four-wheel crab</td><td class="num">0.136831</td><td class="num">0.175352</td><td class="num">0.200392</td><td class="num">0.357224</td><td class="num">31.0695</td><td class="num">52,672</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="page-break">
+      <div class="section-kicker">Physical simulation</div>
+      <h2>CPU MuJoCo validation</h2>
+      <p class="lead">
+        The pinned headless runner exercised 25 named scenarios on both backends. Each backend/scenario pair ran five
+        deterministic repetitions: 250 processes, each with 100 warm-up and 1,000 control cycles.
+      </p>
+      <div class="metric-strip">
+        <div class="metric"><strong>250</strong><span>independent physical processes</span></div>
+        <div class="metric"><strong>0</strong><span>controller or validation failures</span></div>
+        <div class="metric"><strong>0</strong><span>missed 5 ms deadlines</span></div>
+        <div class="metric"><strong>20.53×</strong><span>minimum real-time factor</span></div>
+      </div>
+
+      <div class="two-col">
+        <div class="feature">
+          <h3>Differential scenarios</h3>
+          <p>
+            Hold, forward, reverse, left/right turn, left/right circle, sinusoid, ramp up/down, low friction, lateral
+            impulse, contact loss, and the complete fixed/rolling/sliding/detached mode cycle.
+          </p>
+        </div>
+        <div class="feature">
+          <h3>Four-steering scenarios</h3>
+          <p>
+            Forward, reverse, crab, left/right Ackermann, pure yaw, nonzero steering rate, ramp crab, lateral impulse,
+            low friction, and the complete contact-mode cycle.
+          </p>
+        </div>
+      </div>
+
+      <table>
+        <thead><tr><th>Physical-suite aggregate</th><th class="num">Result</th></tr></thead>
+        <tbody>
+          <tr><td>Worst observed p99 controller time</td><td class="num">0.346865 ms</td></tr>
+          <tr><td>Minimum real-time factor</td><td class="num">20.528409×</td></tr>
+          <tr><td>Maximum resident memory</td><td class="num">52,312 KiB</td></tr>
+          <tr><td>Backend/case pairs accepted</td><td class="num">50 / 50</td></tr>
+          <tr><td>Repetitions accepted</td><td class="num">250 / 250</td></tr>
+        </tbody>
+      </table>
+
+      <div class="proof-box">
+        <div class="proof-icon">✓</div>
+        <div>
+          <h3>CPU-only contract proven</h3>
+          <p>
+            All executable gates ran with <code>CUDA_VISIBLE_DEVICES=-1</code>. Five production/integration targets
+            resolved every dynamic library and had empty CUDA, cuBLAS, cuSolver, Torch, HIP, and OpenCL dependency
+            lists. There is no rolling-contact GPU build option or fallback path.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page-break">
+      <div class="section-kicker">Environment and reproducibility</div>
+      <h2>Recorded CPU configuration</h2>
+      <table>
+        <tbody>
+          <tr><td><strong>Operating system</strong></td><td>Ubuntu 24.04, x86_64</td></tr>
+          <tr><td><strong>Processor</strong></td><td>AMD Ryzen 9 9950X; 16 physical cores / 32 logical CPUs; SMT2; boost enabled</td></tr>
+          <tr><td><strong>Toolchain</strong></td><td>GCC 13.3.0, CMake 3.28.3, C++17, RelWithDebInfo</td></tr>
+          <tr><td><strong>Solvers</strong></td><td>Tasks 1.8.4 QLD CPU path; TVM 0.9.5 default weighted least-squares CPU path</td></tr>
+          <tr><td><strong>Simulation</strong></td><td>MuJoCo 3.3.6; mc_mujoco revision 9397c73f with tracked user-destination patch</td></tr>
+          <tr><td><strong>Timing setup</strong></td><td>Single controller process; single-threaded solve/controller path; 5 ms period; no asynchronous device work</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Core release checks</h3>
+      <pre>cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
+cmake --build build -j2
+
+CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
+  ctest --test-dir build -R 'RollingContact|testRollingContact' \
+  --output-on-failure -j1
+
+MC_RTC_CONTROLLER_CONFIG=/tmp/mc_rtc-no-gui.yaml CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
+  ctest --test-dir build --output-on-failure -j1
+
+ctest --test-dir build -R '^RollingContactCPULinkage$' --output-on-failure</pre>
+
+      <h3>Physical suite</h3>
+      <pre>CUDA_VISIBLE_DEVICES=-1 rolling-contact-report/scripts/build-cpu-mujoco-runner.sh
+CUDA_VISIBLE_DEVICES=-1 python3 rolling-contact-report/scripts/run-mujoco-suite.py \
+  --runner /tmp/rolling-contact-cpu-mujoco/runner-build/rolling_contact_mujoco_runner \
+  --build build --artifact-dir /tmp/rolling-contact-mujoco-results --repetitions 5</pre>
+    </section>
+
+    <section class="page-break">
+      <div class="section-kicker">Ranger Mini V3 handoff</div>
+      <h2>Visible four-steer model and keyboard teleoperation</h2>
+      <p class="lead">
+        The four-steering examples now select the one-argument <code>RollingContactRangerMiniV3</code> alias. The
+        tracked MuJoCo model is self-contained (no unshipped V2 meshes), uses a 0.494 m wheelbase, 0.364 m track,
+        0.125 m wheel radius, and has four independently steered and driven wheels.
+      </p>
+      <div class="two-col">
+        <div class="feature">
+          <h3>MuJoCo contact hygiene</h3>
+          <p>
+            The wheels sit inside the visible body envelope. Explicit chassis/wheel collision exclusions prevent
+            artificial self-contact impulses before the first QP solve while retaining wheel/terrain contacts.
+          </p>
+        </div>
+        <div class="feature">
+          <h3>RoboticsUtils keyboard</h3>
+          <p>
+            A real terminal starts <code>KeyboardCapture</code> for the <code>keyboard</code> scenario. W/S drive
+            forward/reverse, A/D crab left/right, Q/E yaw left/right, <code>space</code> clears all latched axes, and
+            X stops capture and zeros the controller references. Each axis is latched until its opposite key or
+            <code>space</code> is pressed; the Tasks backend sends chassis and wheel-rate feed-forward to the
+            position/orientation/posture tasks on the next control cycle. The controller synchronizes MuJoCo encoder
+            and <code>FloatingBase</code> measurements into its MBC, then emits measured-state-relative wheel
+            <code>q</code>/<code>alpha</code> references, matching the signals consumed by mc_mujoco. Ctrl-C or closing
+            the MuJoCo window terminates the simulator.
+          </p>
+        </div>
+      </div>
+      <pre>source /opt/ros/jazzy/setup.bash
+export CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON
+export LD_LIBRARY_PATH="$PWD/build/src:$PWD/build/plugins/ROS:$PWD/build/deps/tasks-system-install/lib:/usr/local/lib:/opt/ros/jazzy/lib"
+/home/yuquan/local/bin/mc_mujoco -s -f rolling-contact-report/config/mc_rtc-ranger-mini-v3-keyboard.yaml</pre>
+      <div class="proof-box">
+        <div class="proof-icon">✓</div>
+        <div>
+          <h3>Pseudo-terminal smoke verified</h3>
+          <p>
+            Startup reported active keyboard capture; the active validation segment is retained at
+            <code>/tmp/ranger-keyboard-validated_from_90_to_145.bin</code>. A closed-loop W trace produced a 0.300 m/s chassis reference,
+            0.2875246 m/s measured chassis velocity, 2.3003195 rad/s measured wheel rate against a 2.4 rad/s wheel
+            reference, bounded 0.267145 m final position error, and no solver failures. X returned command, wheel, and
+            chassis velocities to zero and restored the terminal cleanly. The complete test and run guide is
+            <a href="../README.md">rolling-contact-report/README.md</a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page-break">
+      <div class="section-kicker">Scope boundary</div>
+      <h2>Known limitations</h2>
+      <div class="limitations">
+        <h3>Deliberate model boundaries</h3>
+        <ul>
+          <li>Rigid wheels with ideal/contact-mode behavior; no tire deformation, rolling resistance, or complementarity.</li>
+          <li>A four-ray polyhedral friction cone is applied at each of two finite line-contact endpoints.</li>
+          <li>Terrain is a supplied plane or constant-slope ramp; online terrain reconstruction is outside this scope.</li>
+          <li>Provided examples cover differential drive and four independently steering/driving wheels.</li>
+          <li>The planar four-steering specialization selects two independent lateral hard rows to avoid rank duplication.</li>
+          <li>Slip and recovery thresholds require revalidation when wheel materials, terrain, or control period change.</li>
+          <li>Timing is hardware/toolchain-specific evidence, not a portable worst-case execution-time guarantee.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-kicker">Evidence index</div>
+      <h2>Retained artifacts</h2>
+      <p>
+        The detailed report and compact JSON files retain the underlying measurements, thresholds, environment, hashes,
+        and per-scenario results summarized here.
+      </p>
+      <div class="artifact-list">
+        <a class="artifact" href="final-report.md">
+          <strong>Complete evidence report</strong>
+          <span>Human-readable implementation, validation, and reproduction narrative.</span>
+        </a>
+        <a class="artifact" href="final-report.json">
+          <strong>Machine-readable checkpoint</strong>
+          <span>Structured revisions, gates, environment, evidence hashes, and limitations.</span>
+        </a>
+        <a class="artifact" href="mujoco-summary.json">
+          <strong>Physical MuJoCo summary</strong>
+          <span>All 50 backend/scenario records and aggregate physical results.</span>
+        </a>
+        <a class="artifact" href="timing-summary.json">
+          <strong>10,000-cycle timing summary</strong>
+          <span>Median, p95, p99, maximum, RTF, memory, and deadline results.</span>
+        </a>
+        <a class="artifact" href="cpu-linkage-summary.json">
+          <strong>CPU linkage proof</strong>
+          <span>Audited binaries, resolved libraries, and empty GPU runtime lists.</span>
+        </a>
+        <a class="artifact" href="validation-summary.svg">
+          <strong>Validation visualization</strong>
+          <span>Reproducible timing, tracking-error, and slip plots.</span>
+        </a>
+        <a class="artifact" href="../Task-Rolling-Contact.md">
+          <strong>Completed roadmap</strong>
+          <span>All stage gates, requirements, ownership, and acceptance criteria.</span>
+        </a>
+        <a class="artifact" href="../architecture.md">
+          <strong>Architecture record</strong>
+          <span>Backend integration, ownership, lifetime, and CPU-only decisions.</span>
+        </a>
+        <a class="artifact" href="../README.md">
+          <strong>Run guide</strong>
+          <span>CPU tests, differential/Ranger MuJoCo commands, and keyboard controls.</span>
+        </a>
+      </div>
+      <p class="mono-small" style="margin-top:1rem">
+        Physical suite SHA-256: d323fc4d1dc179d5be9786e4f2915a5571559abcdfdbf04b672cf3f10eb4ab2c<br>
+        Timing suite SHA-256: 88c607a2db9a20e87770e2fe0ef2fe6f8246113d810ee5fd8af25fb568dcf818<br>
+        CPU linkage SHA-256: 30bf3dae6f9e08a39d062b95d9ab1ca16619d2c816c087ea1205b9af295fa7af
+      </p>
+    </section>
+
+    <footer class="document-footer">
+      CPU rolling-contact final implementation summary · mc_rtc · generated from committed evidence · 2026-09-02
+    </footer>
+  </main>
+</body>
+</html>

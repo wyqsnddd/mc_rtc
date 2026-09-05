@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "date": "2026-09-01",
+  "date": "2026-09-02",
   "status": "pass",
   "device_contract": "CPU-only",
   "revisions": {
@@ -58,9 +58,19 @@
     ],
     "robots": [
       "RollingContactDifferential",
-      "RollingContactFourSteering"
+      "RollingContactFourSteering",
+      "RollingContactRangerMiniV3"
     ],
-    "controller": "RollingContact sample controller with Tasks and TVM configurations",
+    "controller": "RollingContact sample controller with Tasks/TVM configurations and optional RoboticsUtils keyboard teleoperation",
+    "ranger_mini_v3": {
+      "model": "src/mc_robots/rolling_contact_description/mujoco/ranger_mini_v3.xml",
+      "wheelbase_m": 0.494,
+      "track_m": 0.364,
+      "wheel_radius_m": 0.125,
+      "wheel_width_m": 0.08,
+      "steering_drive_pairs": 4,
+      "steering_limit_rad": [-1.5707963267948966, 1.5707963267948966]
+    },
     "documentation": [
       "English tutorial",
       "Japanese tutorial",
@@ -76,7 +86,10 @@
       "scripts/check-mujoco-report.py",
       "scripts/run-mujoco-suite.py",
       "scripts/plot-evidence.py",
-      "evidence/validation-summary.svg"
+      "evidence/validation-summary.svg",
+      "README.md",
+      "config/mc_rtc-ranger-mini-v3-keyboard.yaml",
+      "mujoco/ranger_mini_v3.yaml"
     ]
   },
   "validation": {
@@ -85,14 +98,14 @@
       "exit_code": 0,
       "passed": 13,
       "total": 13,
-      "wall_time_s": 1.73
+      "wall_time_s": 1.86
     },
     "full_ctest": {
-      "command": "CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON ctest --test-dir build --output-on-failure -j1",
+      "command": "MC_RTC_CONTROLLER_CONFIG=/tmp/mc_rtc-no-gui.yaml CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON ctest --test-dir build --output-on-failure -j1",
       "exit_code": 0,
       "passed": 102,
       "total": 102,
-      "wall_time_s": 33.30
+      "wall_time_s": 34.93
     },
     "asan": {
       "command": "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 CUDA_VISIBLE_DEVICES=-1 ctest --test-dir /tmp/rolling-contact-asan -R 'RollingContactControllerRepeatedLifecycle|testRollingContact$|testRollingContactRobot|testRollingContactSolver' --output-on-failure -j1",
@@ -114,6 +127,44 @@
     "schemas": {
       "command": "jq empty on every changed JSON schema and retained evidence JSON",
       "exit_code": 0
+    },
+    "keyboard_smoke": {
+      "status": "pass",
+      "input": "pseudo-terminal W/A/Q/X",
+      "evidence": "key events latch their axis, nonzero wheel/steering targets and measured base velocity are logged, zero references follow X, terminal restored",
+      "latest_log": "/tmp/mc-rtc-ranger-mini-v3-keyboard-RollingContact-2026-09-02-15-11-40.bin",
+      "reference_transition_log": "/tmp/mc-rtc-ranger-mini-v3-keyboard-RollingContact-2026-09-02-15-11-40.bin",
+      "validated_active_segment": "/tmp/ranger-keyboard-validated_from_90_to_145.bin",
+      "reference_segments": [
+        {"keys": "W", "time_s": [99.465, 120.875], "linear_speed_mps": 0.3, "lateral_speed_mps": 0.0, "yaw_rate_rad_s": 0.0},
+        {"keys": "X", "time_s": [120.88, 142.155], "linear_speed_mps": 0.0, "lateral_speed_mps": 0.0, "yaw_rate_rad_s": 0.0}
+      ],
+      "measured_response": {
+        "latest_clean_stop_trace": {
+          "front_left_target_rad": 49.2613741,
+          "front_left_measured_rate_rad_s": 2.3003195,
+          "front_left_reference_rate_rad_s": 2.4,
+          "base_velocity_x_mps": 0.2875246,
+          "command_velocity_x_mps": 0.3,
+          "final_position_target_x_m": 6.4245,
+          "final_measured_position_x_m": 6.1573383,
+          "final_position_error_m": 0.267145,
+          "solver_failures": 0
+        },
+        "reference_transition_trace": {
+          "active_command_start_s": 99.465,
+          "active_command_end_s": 120.875,
+          "front_left_measured_rate_rad_s": 2.3003195,
+          "front_left_reference_rate_rad_s": 2.4,
+          "base_velocity_x_mps": 0.2875246,
+          "command_velocity_x_mps": 0.3,
+          "zero_reference_after_x": true,
+          "zero_measured_velocity_after_x": true,
+          "front_left_steering_position_rad": 0.0
+        }
+      },
+      "implementation": "KeyboardInput latches callback events atomically; the keyboard scenario supplies chassis and wheel velocity feed-forward, synchronizes MuJoCo encoders/body-sensor state into the controller MBC, and emits measured-state-relative q/alpha references",
+      "exit_handling": "the callback requests stop and the next controller poll joins the worker; this avoids self-joining the RoboticsUtils callback thread"
     }
   },
   "numerics": {
@@ -179,7 +230,9 @@
     "Tasks dynamic rolling force columns are updated by a repository-local RollingMotionConstr instead of patching the external Tasks dependency.",
     "TVM torque is actuated-only for floating robots; the six unactuated base efforts are explicitly zero.",
     "TVM graph removal exposed a stale weighted-least-squares cache lifetime fault; solver-owned deferred destruction now retires removed graph objects after the next solve and the lifecycle stress/ASan gates pass.",
-    "The isolated mc_mujoco runner uses the tracked patch that makes MC_MUJOCO_USER_DESTINATION overrideable."
+    "The isolated mc_mujoco runner uses the tracked patch that makes MC_MUJOCO_USER_DESTINATION overrideable.",
+    "Ranger Mini V3 uses a self-contained primitive model because the referenced V2 deployment URDF points to meshes not shipped by that repository; MuJoCo excludes chassis/wheel self-contact while retaining terrain contacts.",
+    "RoboticsUtils KeyboardCapture is linked when its CMake target and GEOS C dependency are available; a stopped capture is converted to zero controller references."
   ],
   "limitations": [
     "Rigid-wheel ideal/contact-mode model; no deformable tire, rolling resistance, or contact complementarity.",

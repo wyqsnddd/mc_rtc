@@ -74,7 +74,7 @@ cmake -S "${MC_MUJOCO_SOURCE}" -B "${MC_MUJOCO_BUILD}" \
 cmake --build "${MC_MUJOCO_BUILD}" --parallel 2
 cmake --install "${MC_MUJOCO_BUILD}"
 
-# mc_mujoco resolves a robot module named, for example, ``rolling_4s`` through
+# mc_mujoco resolves a robot module named, for example, ``ranger_mini_v3`` through
 # a same-named user configuration file. These mappings are part of this report
 # rather than upstream mc_mujoco, so install them explicitly in the isolated
 # destination selected above.
@@ -83,8 +83,8 @@ cmake -E copy_if_different \
   "${REPOSITORY_ROOT}/rolling-contact-report/mujoco/rolling_diff.yaml" \
   "${USER_CONFIGURATION}/rolling_diff.yaml"
 cmake -E copy_if_different \
-  "${REPOSITORY_ROOT}/rolling-contact-report/mujoco/rolling_4s.yaml" \
-  "${USER_CONFIGURATION}/rolling_4s.yaml"
+  "${REPOSITORY_ROOT}/rolling-contact-report/mujoco/ranger_mini_v3.yaml" \
+  "${USER_CONFIGURATION}/ranger_mini_v3.yaml"
 
 cmake -S "${REPOSITORY_ROOT}/rolling-contact-report/mujoco" -B "${RUNNER_BUILD}" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \

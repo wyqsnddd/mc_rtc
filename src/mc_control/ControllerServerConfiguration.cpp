@@ -17,7 +17,11 @@ ControllerServerConfiguration ControllerServerConfiguration::fromConfiguration(c
 void ControllerServerConfiguration::load(const mc_rtc::Configuration & config)
 {
   config("Timestep", timestep);
-  if(auto ipc = config.find("IPC")) { (*ipc)("Socket", ipc_socket); }
+  // A scalar value is an explicit way to disable a protocol when this
+  // configuration is merged with the default configuration.  In particular,
+  // `IPC: false` replaces an inherited `IPC: {}` object and must not be
+  // interpreted as a socket configuration object.
+  if(auto ipc = config.find("IPC"); ipc && ipc->isObject()) { (*ipc)("Socket", ipc_socket); }
   else
   {
     ipc_socket = std::nullopt;
@@ -25,7 +29,9 @@ void ControllerServerConfiguration::load(const mc_rtc::Configuration & config)
   auto socket_config = [&](const std::string & section, auto & opt_out)
   {
     using SocketT = typename std::remove_reference_t<decltype(opt_out)>::value_type;
-    if(auto cfg = config.find(section))
+    // As for IPC, a scalar value (for example `TCP: false`) explicitly
+    // disables a protocol inherited from the global configuration.
+    if(auto cfg = config.find(section); cfg && cfg->isObject())
     {
       opt_out = SocketT{};
       (*cfg)("Host", opt_out->host);

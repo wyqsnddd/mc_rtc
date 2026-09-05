@@ -82,6 +82,7 @@ macro(mc_rtc_test NAME)
 endmacro()
 
 mc_rtc_test(testConfiguration mc_rtc_utils mc_rbdyn)
+mc_rtc_test(testControllerServerConfiguration mc_control)
 mc_rtc_test(testSchema mc_rtc_utils mc_rbdyn)
 mc_rtc_test(testGUIStateBuilder mc_rtc_gui)
 mc_rtc_test(testJsonIO mc_rtc_utils mc_rbdyn)
@@ -105,6 +106,21 @@ mc_rtc_test(testRobotModule mc_rbdyn)
 mc_rtc_test(testRobotModule_visual mc_rbdyn)
 mc_rtc_test(testCanonicalRobot mc_rbdyn)
 mc_rtc_test(testSolverBackend mc_tasks)
+
+# The Ranger model is shared by the RBDyn robot module and mc_mujoco. Keep its
+# floating-base/chassis-origin contract in CTest as well as in the C++ loader
+# test, without making Python a build dependency for the rest of mc_rtc.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(
+    NAME RollingContactRangerFrame
+    COMMAND
+      ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/rolling-contact-report/scripts/check-ranger-frame.py
+      --urdf ${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description/urdf/ranger_mini_v3.urdf
+      --mujoco ${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description/mujoco/ranger_mini_v3.xml
+  )
+endif()
 
 # ######################################################################################
 # -- FSM related tests -- #
@@ -228,6 +244,10 @@ target_compile_definitions(
     ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description"
 )
 add_dependencies(testRollingContactRobot rolling_contact)
+set_tests_properties(
+  testRollingContactRobot
+  PROPERTIES ENVIRONMENT "MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON;CUDA_VISIBLE_DEVICES=-1"
+)
 mc_rtc_test(testRollingContactSolver mc_solver mc_tasks)
 target_compile_definitions(
   testRollingContactSolver

@@ -252,7 +252,11 @@ def terrain_normal(degrees):
 
 
 def configuration(case, backend, root, build, artifact):
-    variant = "rolling_diff" if case.robot == "differential" else "rolling_4s"
+    robot_module = (
+        "RollingContactDifferential"
+        if case.robot == "differential"
+        else "RollingContactRangerMiniV3"
+    )
     controller = "RollingContact" if backend == "Tasks" else "RollingContact_TVM"
     normal = terrain_normal(case.ramp_degrees)
     four = case.robot == "four-steering"
@@ -271,7 +275,7 @@ def configuration(case, backend, root, build, artifact):
     slip_enter = 0.001 if case.kind == "disturbance" else 0.05
     slip_exit = 0.0002 if case.kind == "disturbance" else 0.02
     minimum_dwell = 0.005 if case.kind == "disturbance" else 0.05
-    return f"""MainRobot: [RollingContact, {root / 'src/mc_robots/rolling_contact_description'}, {variant}]
+    return f"""MainRobot: {robot_module}
 Enabled: [{controller}]
 Default: {controller}
 Timestep: 0.005
@@ -424,7 +428,8 @@ def main():
     )
     env.update(
         {
-            "CUDA_VISIBLE_DEVICES": "",
+            "CUDA_VISIBLE_DEVICES": "-1",
+            "MC_RTC_DISABLE_CONVEX_GENERATION_PATCH": "ON",
             "NVIDIA_VISIBLE_DEVICES": "void",
             "OMP_NUM_THREADS": "1",
             "OPENBLAS_NUM_THREADS": "1",

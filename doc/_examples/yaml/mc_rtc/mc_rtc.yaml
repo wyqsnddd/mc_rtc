@@ -97,7 +97,8 @@ GUIServer:
   Timestep: 0.05
   # IPC (inter-process communication) section, if the section is absent
   # this disables the protocol, if the section is empty it is configured
-  # to its default settings.
+  # to its default settings. Set it to false to explicitly disable an IPC
+  # section inherited from another configuration file.
   IPC: {}
     # If the GUI server IPC protocol is enabled, this is used as a base
     # to create the sockets, the actual sockets name will be formed by

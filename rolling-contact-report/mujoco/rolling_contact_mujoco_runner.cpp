@@ -34,6 +34,12 @@ namespace
 {
 
 constexpr double pi = 3.14159265358979323846;
+// Ranger's controller frame is at the centre of the chassis shell.  The
+// steering/wheel-bearing bodies are 35 mm below that frame, so the root pose
+// must be wheel-radius + 35 mm above the ground for the wheel contacts to be
+// tangent.  Keep this convention in the deterministic runner as well as in
+// the URDF and MuJoCo model.
+constexpr double rangerChassisToAxle = 0.035;
 
 struct Options
 {
@@ -65,6 +71,7 @@ struct Wheel
   std::string drive;
   std::string steer;
   Eigen::Vector2d offset = Eigen::Vector2d::Zero();
+  double radius = 0.2;
   int bodyId = -1;
   int geomId = -1;
   int driveJointId = -1;
@@ -286,10 +293,10 @@ std::vector<Wheel> makeWheels(const Options & options)
     return {{"left", "left_wheel", "left_drive", "", {0.0, 0.3}},
             {"right", "right_wheel", "right_drive", "", {0.0, -0.3}}};
   }
-  return {{"front_left", "front_left_wheel", "front_left_drive", "front_left_steer", {0.45, 0.3}},
-          {"front_right", "front_right_wheel", "front_right_drive", "front_right_steer", {0.45, -0.3}},
-          {"rear_left", "rear_left_wheel", "rear_left_drive", "rear_left_steer", {-0.45, 0.3}},
-          {"rear_right", "rear_right_wheel", "rear_right_drive", "rear_right_steer", {-0.45, -0.3}}};
+  return {{"front_left", "front_left_wheel", "front_left_drive", "front_left_steer", {0.247, 0.182}, 0.125},
+          {"front_right", "front_right_wheel", "front_right_drive", "front_right_steer", {0.247, -0.182}, 0.125},
+          {"rear_left", "rear_left_wheel", "rear_left_drive", "rear_left_steer", {-0.247, 0.182}, 0.125},
+          {"rear_right", "rear_right_wheel", "rear_right_drive", "rear_right_steer", {-0.247, -0.182}, 0.125}};
 }
 
 bool close(double lhs, double rhs, double tolerance = 1e-12)
@@ -315,7 +322,7 @@ void requireBody(const mjModel & model,
 
 bool checkStaticParity(const mjModel & model, const Options & options, const std::vector<Wheel> & wheels)
 {
-  const std::string prefix = options.robot == "differential" ? "rolling_diff_" : "rolling_4s_";
+  const std::string prefix = options.robot == "differential" ? "rolling_diff_" : "ranger_mini_v3_";
   const size_t jointsPerWheel = options.robot == "differential" ? 1 : 2;
   bool parity = close(model.opt.timestep, 0.001)
                 && model.njnt == static_cast<int>(jointsPerWheel * wheels.size() + 1)
@@ -323,24 +330,49 @@ bool checkStaticParity(const mjModel & model, const Options & options, const std
   const int expectedNq = options.robot == "differential" ? 9 : 15;
   const int expectedNv = options.robot == "differential" ? 8 : 14;
   parity = parity && model.nq == expectedNq && model.nv == expectedNv;
-  requireBody(model, prefix + "chassis", options.robot == "differential" ? 10.0 : 18.0,
+  const int chassisBody = namedId(model, mjOBJ_BODY, prefix + "chassis");
+  const double expectedChassisHeight = options.robot == "differential" ? 0.2 : 0.16;
+  parity = parity && close(model.body_pos[3 * chassisBody], 0.0)
+           && close(model.body_pos[3 * chassisBody + 1], 0.0)
+           && close(model.body_pos[3 * chassisBody + 2], expectedChassisHeight);
+  if(options.robot != "differential")
+  {
+    const int frameSite = namedId(model, mjOBJ_SITE, prefix + "chassis_frame");
+    const int shellGeom = namedId(model, mjOBJ_GEOM, prefix + "chassis_shell_visual");
+    const int collisionGeom = namedId(model, mjOBJ_GEOM, prefix + "chassis_collision");
+    for(const int object : {frameSite, shellGeom, collisionGeom})
+    {
+      const auto bodyId = object == frameSite ? model.site_bodyid[object] : model.geom_bodyid[object];
+      const auto position = object == frameSite ? model.site_pos + 3 * object : model.geom_pos + 3 * object;
+      parity = parity && bodyId == chassisBody && close(position[0], 0.0) && close(position[1], 0.0)
+               && close(position[2], 0.0);
+    }
+  }
+  requireBody(model, prefix + "chassis", options.robot == "differential" ? 10.0 : 65.0,
               options.robot == "differential" ? Eigen::Vector3d{0.0, 0.0, -0.08}
-                                                : Eigen::Vector3d{0.0, 0.0, 0.08},
+                                                : Eigen::Vector3d::Zero(),
               options.robot == "differential" ? Eigen::Vector3d{0.32, 0.50, 0.62}
-                                                : Eigen::Vector3d{0.75, 1.35, 1.75},
+                                                : Eigen::Vector3d{1.03, 2.03, 2.91},
               parity);
   for(const auto & wheel : wheels)
   {
-    requireBody(model, wheel.body, 1.0, Eigen::Vector3d::Zero(), {0.021, 0.040, 0.021}, parity);
+    requireBody(model, wheel.body, options.robot == "differential" ? 1.0 : 2.0, Eigen::Vector3d::Zero(),
+                options.robot == "differential" ? Eigen::Vector3d{0.021, 0.040, 0.021}
+                                                  : Eigen::Vector3d{0.0089, 0.015625, 0.0089},
+                parity);
     const int joint = namedId(model, mjOBJ_JOINT, wheel.drive);
     parity = parity && model.jnt_type[joint] == mjJNT_HINGE;
     if(!wheel.steer.empty())
     {
       const std::string knuckle = prefix + wheel.name + "_knuckle";
-      requireBody(model, knuckle, 0.3, Eigen::Vector3d::Zero(), {0.002, 0.002, 0.002}, parity);
+      const int knuckleBody = namedId(model, mjOBJ_BODY, knuckle);
+      parity = parity && close(model.body_pos[3 * knuckleBody], wheel.offset.x())
+               && close(model.body_pos[3 * knuckleBody + 1], wheel.offset.y())
+               && close(model.body_pos[3 * knuckleBody + 2], -rangerChassisToAxle);
+      requireBody(model, knuckle, 0.5, Eigen::Vector3d::Zero(), {0.002, 0.002, 0.002}, parity);
       const int steering = namedId(model, mjOBJ_JOINT, wheel.steer);
-      parity = parity && model.jnt_limited[steering] && close(model.jnt_range[2 * steering], -pi, 2e-6)
-               && close(model.jnt_range[2 * steering + 1], pi, 2e-6);
+      parity = parity && model.jnt_limited[steering] && close(model.jnt_range[2 * steering], -0.5 * pi, 2e-6)
+               && close(model.jnt_range[2 * steering + 1], 0.5 * pi, 2e-6);
     }
   }
   std::vector<std::string> expectedJoints;
@@ -414,6 +446,7 @@ bool checkStaticParity(const mjModel & model, const Options & options, const std
 void configureTerrain(mc_mujoco::MjSim & simulation,
                       const Options & options,
                       const std::string & robotName,
+                      const std::vector<Wheel> & wheels,
                       Eigen::Vector3d & normal,
                       Eigen::Vector3d & tangentX,
                       Eigen::Vector3d & tangentY)
@@ -445,7 +478,9 @@ void configureTerrain(mc_mujoco::MjSim & simulation,
   // A 0.1 mm preload on a rotated plane avoids an ambiguous exactly tangent
   // cylinder/plane manifold in MuJoCo. Flat resets remain exactly tangent.
   const double contactPreload = options.rampDegrees == 0.0 ? 0.0 : 1e-4;
-  const Eigen::Vector3d position = (0.2 - contactPreload) * normal;
+  const double chassisHeight = wheels.front().radius
+                               + (options.robot == "differential" ? 0.0 : rangerChassisToAxle);
+  const Eigen::Vector3d position = (chassisHeight - contactPreload) * normal;
   const sva::PTransformd pose(orientation.toRotationMatrix().transpose(), position);
   std::map<std::string, std::vector<double>> initialJoints;
   if(options.robot == "four-steering"
@@ -453,15 +488,11 @@ void configureTerrain(mc_mujoco::MjSim & simulation,
          || options.scenario == "ackermann_right" || options.scenario == "pure_yaw"))
   {
     std::vector<double> q(8, 0.0);
-    const std::array<Eigen::Vector2d, 4> offsets = {Eigen::Vector2d{0.45, 0.3},
-                                                    Eigen::Vector2d{0.45, -0.3},
-                                                    Eigen::Vector2d{-0.45, 0.3},
-                                                    Eigen::Vector2d{-0.45, -0.3}};
     double linear = options.linearSpeed;
     double yaw = 0.0;
     if(options.scenario == "crab")
     {
-      for(size_t i = 0; i < offsets.size(); ++i) { q[2 * i] = options.steeringAngle; }
+      for(size_t i = 0; i < wheels.size(); ++i) { q[2 * i] = options.steeringAngle; }
     }
     else
     {
@@ -472,9 +503,11 @@ void configureTerrain(mc_mujoco::MjSim & simulation,
         linear = 0.0;
         yaw = options.yawRate;
       }
-      for(size_t i = 0; i < offsets.size(); ++i)
+      for(size_t i = 0; i < wheels.size(); ++i)
       {
-        q[2 * i] = std::atan2(yaw * offsets[i].x(), linear - yaw * offsets[i].y());
+        q[2 * i] = std::atan2(yaw * wheels[i].offset.x(), linear - yaw * wheels[i].offset.y());
+        if(q[2 * i] > 0.5 * pi) { q[2 * i] -= pi; }
+        else if(q[2 * i] < -0.5 * pi) { q[2 * i] += pi; }
       }
     }
     initialJoints.emplace(robotName, std::move(q));
@@ -560,7 +593,7 @@ std::vector<WheelSample> sampleWheels(const mjModel & model,
 
     const Eigen::Vector3d center{data.xpos[3 * wheel.bodyId], data.xpos[3 * wheel.bodyId + 1],
                                  data.xpos[3 * wheel.bodyId + 2]};
-    const Eigen::Vector3d point = center - 0.2 * normal;
+    const Eigen::Vector3d point = center - wheel.radius * normal;
     Eigen::Vector3d lateral = column(&data.xmat[9 * wheel.bodyId], 1);
     lateral -= normal * lateral.dot(normal);
     lateral.normalize();
@@ -722,8 +755,8 @@ Eigen::Vector3d reconstructedTwist(const Options & options,
 {
   if(options.robot == "differential")
   {
-    const double left = 0.2 * samples[0].totalSpinRate;
-    const double right = 0.2 * samples[1].totalSpinRate;
+    const double left = wheels[0].radius * samples[0].totalSpinRate;
+    const double right = wheels[1].radius * samples[1].totalSpinRate;
     return {(left + right) * 0.5, 0.0, (right - left) / 0.6};
   }
   Eigen::MatrixXd matrix(static_cast<Eigen::Index>(2 * wheels.size()), 3);
@@ -736,7 +769,7 @@ Eigen::Vector3d reconstructedTwist(const Options & options,
     const double y = wheels[i].offset.y();
     matrix.row(static_cast<Eigen::Index>(2 * i)) << c, s, -y * c + x * s;
     matrix.row(static_cast<Eigen::Index>(2 * i + 1)) << -s, c, y * s + x * c;
-    rhs[static_cast<Eigen::Index>(2 * i)] = 0.2 * samples[i].totalSpinRate;
+    rhs[static_cast<Eigen::Index>(2 * i)] = wheels[i].radius * samples[i].totalSpinRate;
     rhs[static_cast<Eigen::Index>(2 * i + 1)] = 0.0;
   }
   return matrix.colPivHouseholderQr().solve(rhs);
@@ -1021,7 +1054,7 @@ int main(int argc, char ** argv)
     mc_mujoco::MjSim simulation(configuration);
     auto & model = simulation.model();
     auto & data = simulation.data();
-    const std::string robotName = options.robot == "differential" ? "rolling_diff" : "rolling_4s";
+    const std::string robotName = options.robot == "differential" ? "rolling_diff" : "ranger_mini_v3";
     std::vector<Wheel> wheels = makeWheels(options);
     for(auto & wheel : wheels)
     {
@@ -1039,7 +1072,7 @@ int main(int argc, char ** argv)
     Eigen::Vector3d normal;
     Eigen::Vector3d tangentX;
     Eigen::Vector3d tangentY;
-    configureTerrain(simulation, options, robotName, normal, tangentX, tangentY);
+    configureTerrain(simulation, options, robotName, wheels, normal, tangentX, tangentY);
     if(options.frictionCycle < 0)
     {
       for(const auto & wheel : wheels) { model.geom_friction[3 * wheel.geomId] = options.friction; }
@@ -1067,7 +1100,7 @@ int main(int argc, char ** argv)
     const Eigen::Vector3d groundPosition{data.geom_xpos[3 * groundGeom], data.geom_xpos[3 * groundGeom + 1],
                                          data.geom_xpos[3 * groundGeom + 2]};
     double maximumInitialWheelGap = 0.0;
-    const double expectedWheelDistance = 0.2 - (options.rampDegrees == 0.0 ? 0.0 : 1e-4);
+    const double expectedWheelDistance = wheels.front().radius - (options.rampDegrees == 0.0 ? 0.0 : 1e-4);
     for(const auto & wheel : wheels)
     {
       const Eigen::Vector3d center{data.xpos[3 * wheel.bodyId], data.xpos[3 * wheel.bodyId + 1],

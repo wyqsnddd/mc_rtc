@@ -1,0 +1,51 @@
+MainRobot: RollingContactRangerMiniV3
+Enabled: [RollingContact]
+Default: RollingContact
+Timestep: 0.005
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-ranger-mini-v3-keyboard
+ClearControllerModulePath: true
+ControllerModulePaths: [build/src/mc_control/samples/RollingContact]
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+ObserverPipelines: []
+GUIServer:
+  Enable: true
+  # Keep the standard IPC endpoint used by mc_mujoco's built-in visualizer.
+  # ControllerServer probes and removes only stale socket files before retrying
+  # a bind, while leaving a live controller endpoint untouched.
+  IPC:
+    Socket: /tmp/mc_rtc
+  TCP:
+    Host: "127.0.0.1"
+    Ports: [4242, 4343]
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
+RollingContact:
+  scenario: keyboard
+  closedLoopFeedback: true
+  keyboardLinearSpeed: 0.3
+  keyboardAngularSpeed: 0.5
+  keyboardPollIntervalMs: 10
+  keyboardExitKey: x
+  keyboardWheelPositionLookahead: 0.0
+  # Compensate the finite MuJoCo wheel velocity-loop gain in the physical
+  # yaw path; the reference yaw rate itself remains keyboardAngularSpeed.
+  keyboardYawScale: 1.7
+  # Mixed translation+yaw commands scale the complete wheel-rate magnitude;
+  # the geometric yaw component remains unscaled so the requested radius is
+  # preserved.
+  keyboardMixedDriveScale: 1.15
+  keyboardSteeringRate: 4.0
+  keyboardDriveAcceleration: 20.0
+  positionFeedbackGain: 5.0
+  velocityGain: 20.0
+  postureStiffness: 5.0
+  postureWeight: 100.0
+  longitudinal: hard
+  terrainNormal: [0.0, 0.0, 1.0]

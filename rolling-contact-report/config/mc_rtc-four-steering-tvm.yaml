@@ -1,4 +1,4 @@
-MainRobot: [RollingContact, src/mc_robots/rolling_contact_description, rolling_4s]
+MainRobot: RollingContactRangerMiniV3
 Enabled: [RollingContact_TVM]
 Default: RollingContact_TVM
 Timestep: 0.005
