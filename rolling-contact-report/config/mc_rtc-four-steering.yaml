@@ -25,5 +25,8 @@ RollingContact:
   velocityGain: 20.0
   postureStiffness: 5.0
   postureWeight: 100.0
+  steeringPostureWeight: 1.0
+  rollingRateWeight: 4.0e7
+  steeringRateWeight: 4.0e7
   longitudinal: hard
   terrainNormal: [0.0, 0.0, 1.0]

@@ -33,16 +33,14 @@ RollingContact:
   keyboardAngularSpeed: 0.5
   keyboardPollIntervalMs: 10
   keyboardExitKey: x
-  keyboardWheelPositionLookahead: 0.0
-  # Compensate the finite MuJoCo wheel velocity-loop gain in the physical
-  # yaw path; the reference yaw rate itself remains keyboardAngularSpeed.
-  keyboardYawScale: 1.7
-  # Mixed translation+yaw commands scale the complete wheel-rate magnitude;
-  # the geometric yaw component remains unscaled so the requested radius is
-  # preserved.
-  keyboardMixedDriveScale: 1.15
-  keyboardSteeringRate: 4.0
   keyboardDriveAcceleration: 20.0
+  # The QP's rate rows own both wheel rates. Their weight multiplies dt^2 in
+  # the objective, hence the large numbers: 4e7 * (0.005)^2 = 1000, twice the
+  # chassis task weights.
+  rollingRateWeight: 4.0e7
+  steeringRateWeight: 4.0e7
+  # The posture task is only a regulariser on the steering hinges now.
+  steeringPostureWeight: 1.0
   positionFeedbackGain: 5.0
   velocityGain: 20.0
   postureStiffness: 5.0

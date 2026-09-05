@@ -34,12 +34,6 @@ namespace mc_control
 namespace
 {
 
-// Keep a small additional margin below the +/-90 degree mechanical limit in
-// the keyboard crab mode. The exact limit is a singular configuration for
-// the contact QP (and for the MuJoCo hinge servo); 1.55 rad still produces
-// essentially lateral motion while leaving the solver and actuator room.
-constexpr double keyboardSteeringLimit = 1.55;
-
 mc_solver::RollingContactLongitudinal longitudinalMode(const mc_rtc::Configuration & config)
 {
   const std::string value = config("longitudinal", std::string{"hard"});
@@ -216,6 +210,15 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   recoveryTransverseResidual_ = settings("recoveryTransverseResidual", 0.5);
   rollingWeight_ = settings("rollingWeight", 1000.0);
   recoveryRollingWeight_ = settings("recoveryRollingWeight", 1e6);
+  // Bound on how fast the rolling-rate reference itself may change. A step in
+  // the commanded twist would otherwise ask the QP for the full rate on the
+  // very next cycle, which saturates the contact friction cone for one tick.
+  driveAcceleration_ = settings("keyboardDriveAcceleration", 20.0);
+  if(!std::isfinite(driveAcceleration_) || driveAcceleration_ <= 0.0)
+  {
+    mc_rtc::log::error_and_throw<std::invalid_argument>(
+        "RollingContact keyboardDriveAcceleration must be finite and positive");
+  }
   if(!std::isfinite(commandPeriod_) || commandPeriod_ <= 0.0 || !std::isfinite(positionFeedbackGain_)
      || positionFeedbackGain_ < 0.0 || !std::isfinite(linearSpeed_)
      || !std::isfinite(yawRate_) || !std::isfinite(steeringAngle_) || !std::isfinite(recoverySpeed_)
@@ -259,24 +262,13 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     const double keyboardAngularSpeed = settings("keyboardAngularSpeed", 0.5);
     const int keyboardPollIntervalMs = settings("keyboardPollIntervalMs", 10);
     const std::string keyboardExitKey = settings("keyboardExitKey", std::string{"x"});
-    keyboardWheelPositionLookahead_ = settings("keyboardWheelPositionLookahead", 0.0);
-    keyboardYawScale_ = settings("keyboardYawScale", 1.7);
-    keyboardMixedDriveScale_ = settings("keyboardMixedDriveScale", 1.15);
     keyboardYawFeedbackGain_ = settings("keyboardYawFeedbackGain", 0.5);
-    keyboardSteeringRate_ = settings("keyboardSteeringRate", 4.0);
-    keyboardDriveAcceleration_ = settings("keyboardDriveAcceleration", 20.0);
     if(!std::isfinite(keyboardLinearSpeed) || keyboardLinearSpeed <= 0.0 || !std::isfinite(keyboardAngularSpeed)
        || keyboardAngularSpeed <= 0.0 || keyboardPollIntervalMs <= 0 || keyboardExitKey.size() != 1
-       || !std::isfinite(keyboardWheelPositionLookahead_) || keyboardWheelPositionLookahead_ < 0.0
-       || !std::isfinite(keyboardYawScale_) || keyboardYawScale_ <= 0.0
-       || !std::isfinite(keyboardMixedDriveScale_) || keyboardMixedDriveScale_ <= 0.0
-       || !std::isfinite(keyboardYawFeedbackGain_) || keyboardYawFeedbackGain_ < 0.0
-       || !std::isfinite(keyboardSteeringRate_) || keyboardSteeringRate_ <= 0.0
-       || !std::isfinite(keyboardDriveAcceleration_) || keyboardDriveAcceleration_ <= 0.0)
+       || !std::isfinite(keyboardYawFeedbackGain_) || keyboardYawFeedbackGain_ < 0.0)
     {
       mc_rtc::log::error_and_throw<std::invalid_argument>(
           "RollingContact keyboard speeds and poll interval must be positive, keyboardExitKey one character, "
-          "keyboardWheelPositionLookahead non-negative, keyboardYawScale and keyboardMixedDriveScale positive, "
           "and keyboardYawFeedbackGain non-negative");
     }
     keyboard_ = std::make_unique<KeyboardInput>();
@@ -296,23 +288,32 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   }
   gui()->addElement(
       {"Rolling Contact", "Command"},
+      // Outside the keyboard scenario the GUI is the operator's only entry
+      // point, so it publishes the commanded twist directly. The keyboard poll
+      // republishes the key state plus these offsets every cycle instead.
       mc_rtc::gui::NumberInput(
           "Forward velocity", [this]() { return guiForwardCommand_; },
           [this](double value)
           {
-            if(std::isfinite(value)) { guiForwardCommand_ = value; }
+            if(!std::isfinite(value)) { return; }
+            guiForwardCommand_ = value;
+            if(scenario_ != "keyboard") { setCommandedTwist({value, commandedTwist_.y(), commandedTwist_.z()}); }
           }),
       mc_rtc::gui::NumberInput(
           "Lateral velocity", [this]() { return guiLateralCommand_; },
           [this](double value)
           {
-            if(std::isfinite(value)) { guiLateralCommand_ = value; }
+            if(!std::isfinite(value)) { return; }
+            guiLateralCommand_ = value;
+            if(scenario_ != "keyboard") { setCommandedTwist({commandedTwist_.x(), value, commandedTwist_.z()}); }
           }),
       mc_rtc::gui::NumberInput(
           "Yaw velocity", [this]() { return guiYawCommand_; },
           [this](double value)
           {
-            if(std::isfinite(value)) { guiYawCommand_ = value; }
+            if(!std::isfinite(value)) { return; }
+            guiYawCommand_ = value;
+            if(scenario_ != "keyboard") { setCommandedTwist({commandedTwist_.x(), commandedTwist_.y(), value}); }
           }),
       mc_rtc::gui::Button(
           "Clear command", [this]()
@@ -320,6 +321,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
             guiForwardCommand_ = 0.0;
             guiLateralCommand_ = 0.0;
             guiYawCommand_ = 0.0;
+            if(scenario_ != "keyboard") { setCommandedTwist(Eigen::Vector3d::Zero()); }
             if(keyboard_) { keyboard_->clear(); }
           }));
   mc_solver::RollingContactConstraintOptions options;
@@ -343,6 +345,20 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   options.differentialPlanar = !fourSteering_;
   options.steeringPlanar = fourSteering_;
   if(fourSteering_) { options.steeringPlanarWheels = {"front_left", "rear_left"}; }
+  if(fourSteering_)
+  {
+    options.trackRotatingRates = true;
+    // A rate row predicts rate^+ = rate + dt * S * alphaD, so its coefficients
+    // carry dt and its weight enters the objective multiplied by dt^2. Express
+    // the defaults as the equivalent acceleration-task weight (1000, twice the
+    // chassis tasks) divided by dt^2; the documented option keeps its own
+    // "weight on the rate residual" meaning. With a plain weight of 200 the
+    // rate rows contribute 200 * dt^2 = 5e-3 and the posture task, at 100,
+    // silently keeps ownership of the wheel degrees of freedom.
+    const double rateWeightScale = 1.0 / (dt * dt);
+    options.rollingRateWeight = settings("rollingRateWeight", 1000.0 * rateWeightScale);
+    options.steeringRateWeight = settings("steeringRateWeight", 1000.0 * rateWeightScale);
+  }
   dynamics_ = std::make_unique<mc_solver::RollingContactDynamicsConstraint>(robots(), 0, dt, wheels_);
   dynamics_->terrainNormal(options.terrainNormal);
   rolling_ = std::make_unique<mc_solver::RollingContactConstraint>(robots(), 0, wheels_, options);
@@ -377,12 +393,14 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   if(fourSteering_)
   {
     const double steeringStiffness = settings("steeringStiffness", 1000.0);
-    const double steeringWeight = settings("steeringWeight", 10.0);
+    // The QP's steering-rate rows now own the hinge motion. Keep the posture
+    // task on these joints only as a weak regulariser so it cannot fight them.
+    const double steeringWeight = settings("steeringPostureWeight", 1.0);
     if(!std::isfinite(steeringStiffness) || steeringStiffness <= 0.0 || !std::isfinite(steeringWeight)
        || steeringWeight <= 0.0)
     {
       mc_rtc::log::error_and_throw<std::invalid_argument>(
-          "RollingContact steeringStiffness and steeringWeight must be finite and positive");
+          "RollingContact steeringStiffness and steeringPostureWeight must be finite and positive");
     }
     std::vector<tasks::qp::JointStiffness> steeringGains;
     std::map<std::string, double> steeringWeights;
@@ -408,6 +426,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   driveTargets_.resize(wheels_.size(), 0.0);
   wheelReferenceRates_.resize(wheels_.size(), 0.0);
   steeringTargets_.resize(wheels_.size(), 0.0);
+  steeringRateReferences_.resize(wheels_.size(), 0.0);
   rollingResiduals_.resize(wheels_.size(), 0.0);
   lateralResiduals_.resize(wheels_.size(), 0.0);
   normalResiduals_.resize(wheels_.size(), 0.0);
@@ -652,9 +671,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   logger().addLogEntry("RollingContact_keyboard_status", [this]()
                        { return keyboard_ ? keyboard_->status() : std::string{"disabled"}; });
   logger().addLogEntry("RollingContact_keyboard_running", [this]() { return keyboard_ && keyboard_->running(); });
-  logger().addLogEntry("RollingContact_keyboard_transition_grace",
-                       [this]() { return keyboardCommandTransitionGrace_; });
-  logger().addLogEntry("RollingContact_keyboard_steering_ready", [this]() { return keyboardSteeringReady_; });
+  logger().addLogEntry("RollingContact_commandedTwist", [this]() -> const Eigen::Vector3d & { return commandedTwist_; });
   logger().addLogEntry("RollingContact_keyboard_yaw_error", [this]() { return keyboardYawError_; });
   logger().addLogEntry("RollingContact_keyboard_yaw_correction", [this]() { return keyboardYawCorrection_; });
   logger().addLogEntry("RollingContact_base_position_target", [this]() { return basePositionTarget_; });
@@ -719,6 +736,8 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     logger().addLogEntry("RollingContact_" + wheel.name + "_acceleration",
                          [this, joint]() { return robot().mbc().alphaD[joint][0]; });
     logger().addLogEntry("RollingContact_" + wheel.name + "_target", [this, i]() { return driveTargets_[i]; });
+    logger().addLogEntry("RollingContact_" + wheel.name + "_rollingRateRef",
+                         [this, i]() { return wheelReferenceRates_[i]; });
     if(!wheel.steeringJoint.empty())
     {
       const auto steering = robot().jointIndexByName(wheel.steeringJoint);
@@ -728,6 +747,8 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
                            [this, i]() { return steeringTargets_[i]; });
       logger().addLogEntry("RollingContact_" + wheel.name + "_steering_rate",
                            [this, steering]() { return robot().mbc().alpha[steering][0]; });
+      logger().addLogEntry("RollingContact_" + wheel.name + "_steeringRateRef",
+                           [this, i]() { return steeringRateReferences_[i]; });
     }
     logger().addLogEntry("RollingContact_" + wheel.name + "_requested_mode", [this, i]()
                          { return std::string{mc_rbdyn::to_string(modeManagers_[i].state().requested)}; });
@@ -890,12 +911,7 @@ void MCRollingContactController::reset(const ControllerResetData & data)
   contactFallback_ = false;
   keyboardStopLatched_ = false;
   keyboardCaptureWasRunning_ = false;
-  keyboardSteeringReady_ = true;
-  keyboardCommandTransitionGrace_ = 0.0;
-  lastKeyboardForward_ = 0.0;
-  lastKeyboardLateral_ = 0.0;
-  lastKeyboardYaw_ = 0.0;
-  keyboardCommandInitialized_ = false;
+  commandedTwist_.setZero();
   updateTimeMs_ = 0.0;
   solveAndBuildTimeMs_ = 0.0;
   totalTimeMs_ = 0.0;
@@ -926,6 +942,7 @@ void MCRollingContactController::reset(const ControllerResetData & data)
   keyboardYawError_ = 0.0;
   diagnosticsValid_ = false;
   invalidReason_ = "not-run";
+  steeringRateReferences_.assign(wheels_.size(), 0.0);
   for(size_t i = 0; i < wheels_.size(); ++i)
   {
     const auto joint = robot().jointIndexByName(wheels_[i].driveJoint);
@@ -961,29 +978,13 @@ void MCRollingContactController::reset(const ControllerResetData & data)
   basePositionTask_->reset();
 }
 
-void MCRollingContactController::updateKeyboardCommandTransition()
+void MCRollingContactController::setCommandedTwist(const Eigen::Vector3d & twist)
 {
-  if(scenario_ != "keyboard" || !keyboard_) { return; }
-
-  // updateModes() runs before updateReference(). Detect the operator command
-  // here so the very first cycle after Q/E -> W/A (or any other axis change)
-  // already receives the contact-safe steering-transition grace period. If
-  // detection were deferred until updateReference(), updateModes() would
-  // evaluate one cycle using the old drive velocity while the steering target
-  // had already changed, which can make the hard rolling QP infeasible.
-  const auto command = keyboard_->command();
-  const double forward = command[0] + guiForwardCommand_;
-  const double lateral = -command[1] + guiLateralCommand_;
-  const double yaw = -command[2] + guiYawCommand_;
-  const bool commandChanged = !keyboardCommandInitialized_
-                              || std::abs(forward - lastKeyboardForward_) > 1e-6
-                              || std::abs(lateral - lastKeyboardLateral_) > 1e-6
-                              || std::abs(yaw - lastKeyboardYaw_) > 1e-6;
-  if(commandChanged) { keyboardCommandTransitionGrace_ = 0.5; }
-  keyboardCommandInitialized_ = true;
-  lastKeyboardForward_ = forward;
-  lastKeyboardLateral_ = lateral;
-  lastKeyboardYaw_ = yaw;
+  if(!twist.allFinite())
+  {
+    mc_rtc::log::error_and_throw<std::invalid_argument>("RollingContact commanded twist must be finite");
+  }
+  commandedTwist_ = twist;
 }
 
 void MCRollingContactController::updateReference()
@@ -1046,15 +1047,26 @@ void MCRollingContactController::updateReference()
       }
     }
     keyboardCaptureWasRunning_ = keyboardRunning;
-    forward = command[0] + guiForwardCommand_;
     // RoboticsUtils uses right-positive lateral velocity and clockwise-positive
     // yaw. Convert to the robot convention: +Y left and +Z counter-clockwise.
-    lateral = -command[1] + guiLateralCommand_;
-    yaw = -command[2] + guiYawCommand_;
+    setCommandedTwist({command[0] + guiForwardCommand_, -command[1] + guiLateralCommand_,
+                       -command[2] + guiYawCommand_});
   }
   else if(scenario_ != "hold")
   {
     mc_rtc::log::error_and_throw<std::invalid_argument>("Unknown RollingContact scenario: {}", scenario_);
+  }
+  if(fourSteering_)
+  {
+    // The keyboard, the GUI and the scripted scenarios all reach the wheel
+    // references through setCommandedTwist(). A scripted scenario republishes
+    // its twist every cycle; "hold" and "keyboard" publish none of their own,
+    // so whatever the operator (or a test harness) last commanded stays in
+    // effect.
+    if(scenario_ != "hold" && scenario_ != "keyboard") { setCommandedTwist({forward, lateral, yaw}); }
+    forward = commandedTwist_.x();
+    lateral = commandedTwist_.y();
+    yaw = commandedTwist_.z();
   }
   referenceLinearSpeed_ = forward;
   referenceLateralSpeed_ = lateral;
@@ -1074,18 +1086,6 @@ void MCRollingContactController::updateReference()
     }
   }
 
-  const bool keyboardSteeringTransition =
-      scenario_ == "keyboard"
-      && keyboardCommandTransitionGrace_ > 0.0;
-  const bool keyboardSteeringHold = keyboardSteeringTransition
-                                    || (scenario_ == "keyboard" && fourSteering_ && !keyboardSteeringReady_);
-  // Keep the operator-visible references untouched, but pause the chassis
-  // trajectory while a wheel hinge is slewing. The wheel IK below still uses
-  // the requested twist to choose the new steering pose; only drive and
-  // chassis velocity outputs are held at zero during this bounded transition.
-  const double trajectoryForward = keyboardSteeringHold ? 0.0 : forward;
-  const double trajectoryLateral = keyboardSteeringHold ? 0.0 : lateral;
-  const double trajectoryYaw = keyboardSteeringHold ? 0.0 : yaw;
   if(scenario_ == "keyboard")
   {
     if(closedLoopFeedback_)
@@ -1108,14 +1108,14 @@ void MCRollingContactController::updateReference()
         // heading or failing the monotonic-yaw regression.
         baseYawTarget_ += std::remainder(measuredYaw - baseYawTarget_, 2.0 * 3.14159265358979323846);
       }
-      else { baseYawTarget_ += trajectoryYaw * solver().dt(); }
+      else { baseYawTarget_ += yaw * solver().dt(); }
     }
     else
     {
       // Keep the keyboard yaw reference unwrapped in open loop. The heading
       // below is periodic, but retaining the accumulated value avoids a
       // discontinuous scalar target at +/-pi.
-      baseYawTarget_ += trajectoryYaw * solver().dt();
+      baseYawTarget_ += yaw * solver().dt();
     }
   }
   else
@@ -1134,8 +1134,8 @@ void MCRollingContactController::updateReference()
                                   + std::sin(trajectoryHeadingYaw) * terrainTangentY_;
   const Eigen::Vector3d side = -std::sin(trajectoryHeadingYaw) * terrainTangentX_
                                + std::cos(trajectoryHeadingYaw) * terrainTangentY_;
-  baseReferenceVelocity_ = trajectoryForward * heading + trajectoryLateral * side;
-  baseReferenceAngularVelocity_ = trajectoryYaw * terrainNormal_;
+  baseReferenceVelocity_ = forward * heading + lateral * side;
+  baseReferenceAngularVelocity_ = yaw * terrainNormal_;
   const bool keyboardStoppedCommand = scenario_ == "keyboard" && std::abs(forward) < 1e-12
                                       && std::abs(lateral) < 1e-12 && std::abs(yaw) < 1e-12;
   if(keyboardStoppedCommand)
@@ -1153,39 +1153,16 @@ void MCRollingContactController::updateReference()
   {
     keyboardStopLatched_ = false;
   }
-  // Keep the absolute position target fixed while a steering transition is
-  // still in progress. The readiness flag is updated after the wheel IK has
-  // evaluated the current measured hinge positions below; using its previous
-  // value here holds the target for the first cycle of a newly detected
-  // transition as well.
-  const bool keyboardSteeringReady = scenario_ != "keyboard" || !fourSteering_ || keyboardSteeringReady_;
-  // While the wheels are turning toward a new steering command, hold the
-  // absolute trajectory target. This prevents the feedback tasks from
-  // accumulating an error while the wheels are deliberately braked for
-  // contact-safe steering alignment.
-  if(keyboardSteeringReady)
-  {
-    basePositionTarget_ += solver().dt() * (trajectoryForward * heading + trajectoryLateral * side);
-  }
-  // Feed the measured position error back into the wheel references. The
+  basePositionTarget_ += solver().dt() * (forward * heading + lateral * side);
+  // Feed the measured position error back into the chassis task. The
   // integrated target remains the user's requested trajectory, while this
   // correction compensates for the small velocity error introduced by the
   // simulator's wheel dynamics and makes the absolute target asymptotically
-  // trackable instead of leaving a permanent position offset.
+  // trackable instead of leaving a permanent position offset. It deliberately
+  // does not reach the wheel references: those follow the commanded twist so a
+  // constant command keeps a constant instantaneous centre of curvature.
   baseTrackingVelocity_ = baseReferenceVelocity_;
-  // Keep the wheel IK tied to the operator's commanded twist.  The absolute
-  // chassis task may add a small feedback velocity to compensate simulator
-  // drift, but feeding that correction back into the steering geometry makes
-  // a constant W+Q/E command continuously change its ICC as the pose error
-  // evolves; the hinges then chase a moving target and the robot can appear
-  // stuck (or accumulate rolling residual).  The chassis task remains the
-  // mechanism that corrects the pose error, while wheel steering/rates retain
-  // the requested radius until the next keyboard command change.
-  double controlForward = forward;
-  double controlLateral = lateral;
-  if(closedLoopFeedback_ && scenario_ == "keyboard" && !contactFallback_ && !keyboardSteeringHold
-     && keyboardSteeringReady
-     && positionFeedbackGain_ > 0.0)
+  if(closedLoopFeedback_ && scenario_ == "keyboard" && !contactFallback_ && positionFeedbackGain_ > 0.0)
   {
     const Eigen::Vector3d positionError = basePositionTarget_ - robot().posW().translation();
     const Eigen::Vector3d feedbackVelocity =
@@ -1261,8 +1238,8 @@ void MCRollingContactController::updateReference()
   if(!fourSteering_)
   {
     const double halfTrack = 0.5 * std::abs(wheelOffsets_[0].y() - wheelOffsets_[1].y());
-    std::array<double, 2> rates = {(controlForward - halfTrack * yaw) / wheels_[0].radius,
-                                   (controlForward + halfTrack * yaw) / wheels_[1].radius};
+    std::array<double, 2> rates = {(forward - halfTrack * yaw) / wheels_[0].radius,
+                                   (forward + halfTrack * yaw) / wheels_[1].radius};
     if(scenario_ == "infeasible_soft") { rates[0] += 4.0; }
     for(size_t i = 0; i < wheels_.size(); ++i)
     {
@@ -1278,258 +1255,75 @@ void MCRollingContactController::updateReference()
   }
   else
   {
-    // Keep the wheel requests local until every steering hinge has reached
-    // its new target. If one wheel starts driving while another is still
-    // slewing, the old/new contact directions are mixed and the chassis can
-    // receive a large lateral impulse after a Q/E -> W/A/D transition.
-    std::vector<double> requestedRates(wheels_.size(), 0.0);
-    std::vector<double> requestedSteerings(wheels_.size(), 0.0);
-    bool allSteeringAligned = true;
+    // Every steering wheel reference is the exact inverse of the expanded
+    // four-steering rolling rows for the commanded chassis twist. The QP then
+    // tracks both rates through its soft rate rows, so there is no analytic
+    // hinge IK, no branch-cut bookkeeping and no drive gating left here.
+    const double dt = solver().dt();
+    const Eigen::Vector3d twist(forward, lateral, yaw + keyboardYawCorrection);
     for(size_t i = 0; i < wheels_.size(); ++i)
     {
-      double steering = 0.0;
-      double rate = controlForward / wheels_[i].radius;
-      bool steeringAligned = true;
-      if(scenario_ == "crab")
-      {
-        steering = steeringAngle_;
-        rate = std::copysign(std::hypot(controlForward, controlLateral), controlForward) / wheels_[i].radius;
-      }
-      else if(scenario_ == "steering_rate")
-      {
-        steering = steeringAngle_ * std::sin(phase);
-        rate = std::copysign(std::hypot(controlForward, controlLateral), controlForward) / wheels_[i].radius;
-      }
-      else if(scenario_ == "ackermann_left" || scenario_ == "ackermann_right" || scenario_ == "pure_yaw"
-              || scenario_ == "keyboard")
-      {
-        // The Ranger Mini MuJoCo model's wheel-drive convention is opposite
-        // to the controller's positive Z yaw convention: a positive wheel
-        // spin/steering solution generated directly from +yaw rotates the
-        // chassis clockwise. Keep the controller and GUI reference signs
-        // unchanged, but mirror the yaw used for the wheel inverse
-        // kinematics in the keyboard path so Q/E rotate in the requested
-        // direction.
-        const bool keyboardMixedTwist = scenario_ == "keyboard" && std::hypot(controlForward, controlLateral) > 1e-9
-                                        && std::abs(yaw) > 1e-9;
-        const double wheelYaw = scenario_ == "keyboard"
-                                    ? -(keyboardMixedTwist ? 1.0 : keyboardYawScale_) * (yaw + keyboardYawCorrection)
-                                    : yaw;
-        const double pointX = controlForward - wheelYaw * wheelOffsets_[i].y();
-        const double pointY = controlLateral + wheelYaw * wheelOffsets_[i].x();
-        const double wheelPlanarSpeed = std::hypot(pointX, pointY);
-        const auto steeringJoint = robot().jointIndexByName(wheels_[i].steeringJoint);
-        const double measuredSteering = robot().mbc().q[steeringJoint][0];
-        const bool keyboardStopped = scenario_ == "keyboard" && std::abs(forward) < 1e-12
-                                     && std::abs(lateral) < 1e-12 && std::abs(yaw) < 1e-12;
-        const bool pureLateralKeyboard = scenario_ == "keyboard" && std::abs(forward) < 1e-12
-                                         && std::abs(yaw) < 1e-12 && std::abs(lateral) > 1e-6;
-        if(keyboardStopped)
-        {
-          // Hold the last commanded steering pose while the drive wheels
-          // brake. Following the measured pose here lets braking torque twist
-          // the steering hinge and walk the command across the +/-90-degree
-          // branch cut. Holding the command keeps a crabbed wheel on its
-          // established representation while the pose latch above absorbs
-          // the small safe-limit tracking offset.
-          steering = steeringTargets_[i];
-          rate = wheelPlanarSpeed < 1e-3
-                     ? 0.0
-                     : (pointX * std::cos(steering) + pointY * std::sin(steering))
-                           / wheels_[i].radius;
-        }
-        else if(pureLateralKeyboard)
-        {
-          // A/D is a chassis-frame lateral command. Keep this special case
-          // independent of the position-feedback correction: the feedback
-          // may add a small longitudinal component, but it must not make the
-          // steering representation switch across the +/-90 degree branch.
-          const double steeringError = std::copysign(keyboardSteeringLimit, lateral) - measuredSteering;
-          const double maxSteeringStep = keyboardSteeringRate_ * solver().dt();
-          steering = measuredSteering + std::clamp(steeringError, -maxSteeringStep, maxSteeringStep);
-          // Do not spin a wheel while it is still being steered. A sudden
-          // +/-90 degree pose together with drive torque creates a large
-          // lateral impulse in MuJoCo, which the contact mode estimator quite
-          // correctly reports as a transient loss of rolling contact. Once
-          // aligned, the wheel receives the requested lateral rolling speed.
-          if(std::abs(steeringError) > 0.1)
-          {
-            rate = 0.0;
-            steeringAligned = false;
-          }
-          else
-          {
-            // The wheel is intentionally held at a slightly sub-orthogonal
-            // crab angle. Project the complete chassis velocity command on
-            // that wheel direction; using hypot() here would turn a small
-            // longitudinal feedback correction into a large alternating
-            // lateral drive command.
-            rate = (controlForward * std::cos(steering) + controlLateral * std::sin(steering))
-                   / wheels_[i].radius;
-          }
-        }
-        else if(wheelPlanarSpeed < 1e-3)
-        {
-          // atan2(0, 0) is mathematically undefined. At a keyboard stop the
-          // feedback correction is intentionally tiny, so evaluating it
-          // directly can make the steering target jump between +/- pi/2
-          // based on floating-point noise. That excites the steering joints
-          // and, on the physical simulator, can eventually make the QP
-          // infeasible. Keep the measured steering angle while the wheel is
-          // effectively stationary; non-zero commands still use the full
-          // inverse-kinematics solution below.
-          steering = robot().mbc().q[steeringJoint][0];
-          rate = 0.0;
-        }
-        else
-        {
-          const double rawSteering = std::atan2(pointY, pointX);
-          constexpr double steeringJointLimit = 0.5 * 3.14159265358979323846;
-          // Leave a small margin to the MuJoCo hinge limit. Without it, a
-          // pure lateral command can make the PD actuator cross the limit and
-          // wrap the measured hinge angle to the opposite representation.
-          constexpr double steeringLimit = steeringJointLimit - 1e-3;
-          constexpr double steeringHysteresis = 0.1;
-          // The Ranger steering joints are limited to +/-90 degrees. There
-          // are two equivalent wheel poses separated by pi, with opposite
-          // wheel spin. Select the valid pose closest to the measured angle
-          // so a lateral command cannot chatter between +90 and -90 degrees
-          // when tiny feedback noise moves atan2 across its branch cut.
-          struct SteeringCandidate
-          {
-            double angle;
-            double spinSign;
-          };
-          const std::array<SteeringCandidate, 3> candidates = {
-              SteeringCandidate{rawSteering, 1.0},
-              SteeringCandidate{rawSteering - 3.14159265358979323846, -1.0},
-              SteeringCandidate{rawSteering + 3.14159265358979323846, -1.0}};
-          bool candidateFound = false;
-          double bestDistance = std::numeric_limits<double>::infinity();
-          for(const auto & candidate : candidates)
-          {
-            if(std::abs(candidate.angle) > steeringJointLimit + 1e-12) { continue; }
-            const double distance = std::abs(candidate.angle - measuredSteering);
-            if(!candidateFound || distance < bestDistance)
-            {
-              candidateFound = true;
-              bestDistance = distance;
-              steering = std::clamp(candidate.angle, -steeringLimit, steeringLimit);
-              rate = candidate.spinSign * wheelPlanarSpeed / wheels_[i].radius;
-            }
-          }
-          if(!candidateFound)
-          {
-            // atan2 is only outside both representations for a numerical
-            // excursion around the +/-pi boundary. Normalize it before the
-            // final fallback so the command remains finite and bounded.
-            steering = std::remainder(rawSteering, 3.14159265358979323846);
-            steering = std::clamp(steering, -steeringLimit, steeringLimit);
-            rate = wheelPlanarSpeed / wheels_[i].radius;
-          }
-          // At a nearly pure lateral command the two representations are
-          // equally close while the measured joint is already at a limit.
-          // Preserve that limit inside a small hysteresis band instead of
-          // accepting a one-bit sign change that would reverse the wheels.
-          if(std::abs(pointY) > 20.0 * std::abs(pointX) && std::abs(pointY) > 1e-3)
-          {
-            // For a nearly pure lateral command, explicitly keep the wheel
-            // on the same side of the +/-90 degree limit. This handles the
-            // exact atan2 branch point deterministically even when the
-            // measured steering angle has a small simulator overshoot.
-            steering = std::copysign(steeringLimit, pointY);
-            rate = std::copysign(wheelPlanarSpeed / wheels_[i].radius, pointY);
-          }
-          else if(measuredSteering > steeringLimit - steeringHysteresis
-                  && rawSteering > steeringJointLimit - steeringHysteresis
-                  && rawSteering < steeringJointLimit + steeringHysteresis)
-          {
-            steering = steeringLimit;
-            rate = wheelPlanarSpeed / wheels_[i].radius;
-          }
-          else if(measuredSteering < -steeringLimit + steeringHysteresis
-                  && rawSteering < -steeringJointLimit + steeringHysteresis
-                  && rawSteering > -steeringJointLimit - steeringHysteresis)
-          {
-            steering = -steeringLimit;
-            rate = -wheelPlanarSpeed / wheels_[i].radius;
-          }
-        }
-        if(keyboardMixedTwist) { rate *= keyboardMixedDriveScale_; }
-        // Do not apply a yaw drive torque while the wheel is slewing to its
-        // new steering representation. The transient lateral impulse can
-        // otherwise trip the contact fallback before the steering hinges
-        // have reached the rolling direction.
-        if(scenario_ == "keyboard" && std::abs(steering - measuredSteering) > 0.1) { rate = 0.0; }
-        // Choose the equivalent steering angle in the Ranger's +/-90 degree
-        // joint range, reversing wheel spin when necessary.
-        if(steering > 0.5 * 3.14159265358979323846)
-        {
-          steering -= 3.14159265358979323846;
-          rate = -rate;
-        }
-        else if(steering < -0.5 * 3.14159265358979323846)
-        {
-          steering += 3.14159265358979323846;
-          rate = -rate;
-        }
-      }
-      else if(scenario_ == "incompatible")
-      {
-        steering = i == 0 ? steeringAngle_ : 0.0;
-        if(i == 0) { rate += 4.0; }
-      }
-      if(contactFallback_)
-      {
-        const auto steeringJoint = robot().jointIndexByName(wheels_[i].steeringJoint);
-        steering = robot().mbc().q[steeringJoint][0];
-      }
-      requestedRates[i] = rate;
-      requestedSteerings[i] = steering;
-      const double steeringError =
-          steering - robot().mbc().q[robot().jointIndexByName(wheels_[i].steeringJoint)][0];
-      if(scenario_ == "keyboard" && (!steeringAligned || std::abs(steeringError) > 0.1))
-      {
-        allSteeringAligned = false;
-      }
-    }
+      mc_rbdyn::PlanarWheel planar;
+      planar.offset = wheelOffsets_[i];
+      planar.radius = wheels_[i].radius;
+      planar.spinSign = wheels_[i].spinSign;
 
-    if(scenario_ == "keyboard")
-    {
-      keyboardSteeringReady_ = allSteeringAligned;
-      // Hold every drive wheel until all four steering hinges are aligned.
-      // This barrier persists beyond the bounded command grace period, but
-      // only for the actual slew time and therefore cannot leave a stale
-      // yaw command active.
-      if(!allSteeringAligned) { std::fill(requestedRates.begin(), requestedRates.end(), 0.0); }
-    }
-    for(size_t i = 0; i < wheels_.size(); ++i)
-    {
-      double rate = requestedRates[i];
-      if(scenario_ == "keyboard")
+      const auto steeringJoint = robot().jointIndexByName(wheels_[i].steeringJoint);
+      const double measuredSteering = robot().mbc().q[steeringJoint][0];
+      planar.steeringAngle = measuredSteering;
+      planar.steeringRate = robot().mbc().alpha[steeringJoint][0];
+
+      // Wheel-centre velocity of the commanded planar twist, the same quantity
+      // steeringWheelReference() inverts.
+      const Eigen::Vector2d point(twist.x() - twist.z() * planar.offset.y(),
+                                  twist.y() + twist.z() * planar.offset.x());
+      auto reference = mc_rbdyn::steeringWheelReference(planar, twist, measuredSteering);
+
+      // First-order convergence to the reference heading, saturated by the
+      // hinge velocity limit. This is deltaDot^ref of the four-steering QP.
+      const double steeringRate = std::clamp((reference.steeringAngle - measuredSteering) / steeringTimeConstant_,
+                                             -maxSteeringRate_, maxSteeringRate_);
+
+      // The rolling rate must stay consistent with the heading the wheel
+      // actually has during the hinge slew, not with the heading it is
+      // converging to: a rigid wheel can only roll along its current line, so
+      // projecting the commanded wheel-centre velocity on the reference
+      // heading would ask the QP to drive the chassis in a stale direction.
+      // Both expressions coincide once the hinge has converged, which is what
+      // makes the drive-gating of the previous open-loop layer unnecessary.
+      double rollingRate =
+          reference.commanded
+              ? (std::cos(measuredSteering) * point.x() + std::sin(measuredSteering) * point.y())
+                    / (wheels_[i].radius * wheels_[i].spinSign)
+              : reference.rollingRate;
+      if(scenario_ == "incompatible" && i == 0)
       {
-        // Once every hinge is aligned, resume with a bounded rate
-        // acceleration so the new turning radius is entered smoothly.
-        const double maxRateStep = keyboardDriveAcceleration_ * solver().dt();
-        if(keyboardSteeringTransition || !allSteeringAligned)
-        {
-          rate = 0.0;
-        }
-        else
-        {
-          rate = wheelReferenceRates_[i] + std::clamp(rate - wheelReferenceRates_[i], -maxRateStep, maxRateStep);
-        }
+        // Deliberately ask the first wheel for a rate no rigid rolling solution
+        // can satisfy, so the soft longitudinal mode is exercised end to end.
+        rollingRate += 4.0;
       }
-      driveTargets_[i] += rate * solver().dt();
-      wheelReferenceRates_[i] = rate;
-      steeringTargets_[i] = requestedSteerings[i];
+      // Bound how fast the reference itself may change. A step in the commanded
+      // twist otherwise asks the QP for the whole rate on the next cycle, which
+      // saturates the contact friction cone for one tick.
+      const double maxRateStep = driveAcceleration_ * dt;
+      rollingRate = wheelReferenceRates_[i]
+                    + std::clamp(rollingRate - wheelReferenceRates_[i], -maxRateStep, maxRateStep);
+
+      steeringTargets_[i] = measuredSteering + steeringRate * dt;
+      steeringRateReferences_[i] = steeringRate;
+      wheelReferenceRates_[i] = rollingRate;
+      driveTargets_[i] += rollingRate * dt;
       targets[wheels_[i].driveJoint] = {driveTargets_[i]};
       targets[wheels_[i].steeringJoint] = {steeringTargets_[i]};
       if(keyboardFeedForward)
       {
         const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
-        keyboardRefVel(robot().mb().jointPosInDof(drive)) = rate;
+        keyboardRefVel(robot().mb().jointPosInDof(drive)) = reference.rollingRate;
+        keyboardRefVel(robot().mb().jointPosInDof(static_cast<int>(steeringJoint))) = steeringRate;
       }
+
+      // The QP owns both rates from here on.
+      rolling_->rotatingRateReference(wheels_[i].name, reference.rollingRate, steeringRate);
     }
   }
   postureTask->target(targets);
@@ -1540,25 +1334,7 @@ void MCRollingContactController::updateModes()
 {
   const bool wasContactFallback = contactFallback_;
   const bool keyboardCaptureActive = scenario_ == "keyboard" && keyboard_ && keyboard_->running();
-  if(scenario_ == "keyboard")
-  {
-    keyboardCommandTransitionGrace_ = std::max(0.0, keyboardCommandTransitionGrace_ - solver().dt());
-  }
-  else
-  {
-    keyboardCommandTransitionGrace_ = 0.0;
-    keyboardCommandInitialized_ = false;
-  }
   contactFallback_ = false;
-  // A four-steering wheel must briefly be treated as sliding while its hinge
-  // slews between two rolling directions. During that bounded interval the
-  // measured steering velocity is non-zero, so keeping a hard rolling row
-  // would ask the QP to enforce zero contact slip and zero hinge-induced
-  // lateral motion simultaneously. The drive command is already held at zero
-  // by updateReference(); removing the rolling rows for this interval keeps
-  // the transition feasible without allowing a propulsion impulse.
-  const bool keyboardSteeringTransition = scenario_ == "keyboard" && fourSteering_
-                                          && keyboardCommandTransitionGrace_ > 0.0;
   for(size_t i = 0; i < wheels_.size(); ++i)
   {
     externalMeasurements_[i].age += solver().dt();
@@ -1618,29 +1394,6 @@ void MCRollingContactController::updateModes()
           observation.normalForce = 0.0;
         }
       }
-      // During a keyboard radius change the wheel is deliberately braked while
-      // its steering hinge slews to the new rolling direction.  MuJoCo can
-      // report a one-cycle loss of normal force at that instant even though
-      // the wheel is still geometrically supported.  Feeding that transient
-      // into the hysteresis manager would promote the contact to Detached and
-      // latch the global keyboard fallback.  Use the known steering-transition
-      // state to give the manager a short, contact-safe recovery observation;
-      // genuine detachments outside this bounded transition retain the normal
-      // fail-safe path above.
-      // The drive rate is slewed to zero over the same command-transition
-      // grace interval, so do not require it to have already reached the
-      // recovery threshold. Requiring that threshold here was circular: a
-      // detached estimate prevented re-attachment while the still-slewing
-      // wheel prevented the estimate from recovering.
-      if(keyboardSteeringTransition && requested == mc_rbdyn::RollingContactMode::Rolling)
-      {
-        const auto & thresholds = modeManagers_[i].thresholds();
-        observation.slipSpeed = 0.0;
-        observation.rollingResidual = 0.0;
-        observation.normalForce = std::max(observation.normalForce, thresholds.normalForceEnter + 1.0);
-        observation.frictionMargin = std::max(observation.frictionMargin, thresholds.frictionMarginEnter + 1.0);
-        observation.torqueMargin = std::max(observation.torqueMargin, thresholds.torqueMarginEnter + 1.0);
-      }
       modeManagers_[i].update(observation, solver().dt());
     }
     const auto & state = modeManagers_[i].state();
@@ -1657,17 +1410,8 @@ void MCRollingContactController::updateModes()
     appliedActivations_[i] = appliedActivation;
     wheels_[i].mode = state.estimated;
     wheels_[i].activation = state.activation;
-    const double solverActivation = keyboardSteeringTransition
-                                            && state.estimated == mc_rbdyn::RollingContactMode::Rolling
-                                        ? 0.0
-                                        : appliedActivation;
-    // During the hinge slew, temporarily remove this wheel's kinematic
-    // rolling rows while retaining its unrestricted physical force cone in
-    // the dynamics constraint. A zero rolling activation is preferable to a
-    // Sliding dynamics mode here: the latter restricts contact force to one
-    // stale cone generator and can make gravity/torque balance infeasible.
-    appliedActivations_[i] = solverActivation;
-    rolling_->mode(wheels_[i].name, state.estimated, solverActivation);
+    appliedActivations_[i] = appliedActivation;
+    rolling_->mode(wheels_[i].name, state.estimated, appliedActivation);
     dynamics_->mode(wheels_[i].name, state.estimated);
     // A keyboard command can change the instantaneous turning radius while a
     // steering hinge is still slewing.  The resulting short-lived slip is a
@@ -1730,10 +1474,10 @@ void MCRollingContactController::safeStop(const std::string & reason)
   referenceLinearSpeed_ = 0.0;
   referenceLateralSpeed_ = 0.0;
   referenceYawRate_ = 0.0;
-  keyboardSteeringReady_ = false;
   guiForwardCommand_ = 0.0;
   guiLateralCommand_ = 0.0;
   guiYawCommand_ = 0.0;
+  commandedTwist_.setZero();
   if(keyboard_) { keyboard_->clear(); }
   basePositionTarget_ = robot().posW().translation();
   baseReferenceVelocity_.setZero();
@@ -1755,8 +1499,10 @@ void MCRollingContactController::safeStop(const std::string & reason)
     {
       const auto steering = robot().jointIndexByName(wheels_[i].steeringJoint);
       steeringTargets_[i] = robot().mbc().q[steering][0];
+      steeringRateReferences_[i] = 0.0;
       targets[wheels_[i].steeringJoint] = {robot().mbc().q[steering][0]};
     }
+    rolling_->rotatingRateReference(wheels_[i].name, 0.0, 0.0);
     modeManagers_[i].reset(mc_rbdyn::RollingContactMode::Detached, mc_rbdyn::RollingContactMode::Detached, 0.0);
     hardPromotionPending_[i] = true;
     appliedActivations_[i] = 0.0;
@@ -1970,18 +1716,11 @@ bool MCRollingContactController::run()
     {
       synchronizeMeasuredState();
     }
-    if(scenario_ == "keyboard") { updateKeyboardCommandTransition(); }
     measuredDrivePositions.resize(wheels_.size());
-    std::vector<double> measuredSteeringPositions(wheels_.size(), 0.0);
     for(size_t i = 0; i < wheels_.size(); ++i)
     {
       const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
       measuredDrivePositions[i] = robot().mbc().q[drive][0];
-      if(!wheels_[i].steeringJoint.empty())
-      {
-        const auto steering = robot().jointIndexByName(wheels_[i].steeringJoint);
-        measuredSteeringPositions[i] = robot().mbc().q[steering][0];
-      }
     }
     updateModes();
     updateReference();
@@ -1996,8 +1735,7 @@ bool MCRollingContactController::run()
       for(size_t i = 0; i < wheels_.size(); ++i)
       {
         const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
-        robot().mbc().q[drive][0] = measuredDrivePositions[i]
-                                    + keyboardWheelPositionLookahead_ * wheelReferenceRates_[i];
+        robot().mbc().q[drive][0] = measuredDrivePositions[i];
         robot().mbc().alpha[drive][0] = wheelReferenceRates_[i];
         if(!wheels_[i].steeringJoint.empty())
         {
@@ -2006,15 +1744,8 @@ bool MCRollingContactController::run()
           // mc_mujoco consumes alpha as the actuator velocity reference. A
           // position-only target is not sufficient for this joint (the
           // simulator would keep the steering angle at its old value), so
-          // provide the bounded slew rate used to generate the target above.
-          const double measuredSteering = measuredSteeringPositions[i];
-          const double steeringVelocity =
-              (steeringTargets_[i] - measuredSteering) / std::max(solver().dt(), 1e-12);
-          const bool atSteeringLimit = std::abs(std::abs(steeringTargets_[i]) - keyboardSteeringLimit) < 1e-9;
-          robot().mbc().alpha[steering][0] = atSteeringLimit
-                                                 ? 0.0
-                                                 : std::clamp(steeringVelocity, -keyboardSteeringRate_,
-                                                              keyboardSteeringRate_);
+          // publish the same bounded rate reference the QP was given.
+          robot().mbc().alpha[steering][0] = steeringRateReferences_[i];
         }
       }
       // Keep the free-joint q/alpha state measured. mc_mujoco only consumes

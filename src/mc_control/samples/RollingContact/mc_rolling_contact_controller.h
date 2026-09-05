@@ -37,6 +37,18 @@ struct MC_CONTROL_DLLAPI MCRollingContactController : public MCController
   bool run() override;
   void reset(const ControllerResetData & data) override;
 
+  /** Set the commanded planar chassis twist [vx, vy, omega] in the chassis frame.
+   *
+   * This is the single entry point used by the keyboard, the GUI and the
+   * scripted scenarios. It only stores the command; the references are rebuilt
+   * on the next run().
+   *
+   * @throws std::invalid_argument if the twist is not finite.
+   */
+  void setCommandedTwist(const Eigen::Vector3d & twist);
+  const Eigen::Vector3d & commandedTwist() const noexcept { return commandedTwist_; }
+  double maxLateralResidual() const noexcept { return maxLateralResidual_; }
+
 private:
   struct KeyboardInput;
 
@@ -51,7 +63,6 @@ private:
   };
 
   void updateReference();
-  void updateKeyboardCommandTransition();
   void updateModes();
   void updateDiagnostics(bool solverSuccess);
   void synchronizeMeasuredState();
@@ -70,20 +81,15 @@ private:
   double linearSpeed_ = 0.0;
   double yawRate_ = 0.0;
   double steeringAngle_ = 0.0;
-  double keyboardWheelPositionLookahead_ = 0.0;
-  // MuJoCo's Ranger wheel actuators track the requested drive velocity with
-  // a finite velocity-loop gain. Scale only the keyboard yaw wheel-speed
-  // feed-forward so the measured chassis rate matches the user reference;
-  // the logged/reference yaw rate remains the operator's value.
-  double keyboardYawScale_ = 1.0;
-  // The Ranger wheel velocity loop has a small translational feed-forward
-  // loss when a translation and yaw are combined. Compensate the wheel-rate
-  // magnitude without changing the geometric yaw component (which would
-  // alter the requested instantaneous centre of curvature).
-  double keyboardMixedDriveScale_ = 1.15;
+  // Commanded planar chassis twist [vx, vy, omega] in the chassis frame. Every
+  // four-steering wheel reference is generated from this single command.
+  Eigen::Vector3d commandedTwist_ = Eigen::Vector3d::Zero();
+  // First-order convergence time of a steering hinge towards its reference
+  // heading, saturated by the URDF hinge velocity limit below.
+  double steeringTimeConstant_ = 0.15;
+  double maxSteeringRate_ = 8.0;
   double keyboardYawFeedbackGain_ = 0.5;
-  double keyboardSteeringRate_ = 4.0;
-  double keyboardDriveAcceleration_ = 20.0;
+  double driveAcceleration_ = 20.0;
   double positionFeedbackGain_ = 5.0;
   double guiForwardCommand_ = 0.0;
   double guiLateralCommand_ = 0.0;
@@ -99,16 +105,6 @@ private:
   bool closedLoopFeedback_ = false;
   bool keyboardStopLatched_ = false;
   bool keyboardCaptureWasRunning_ = false;
-  bool keyboardSteeringReady_ = true;
-  // Bounded pause used when the operator changes the commanded twist. The
-  // steering IK can move all four hinges during this interval while drive
-  // torque and chassis trajectory references remain zero, preventing a
-  // transient lateral impulse from detaching a wheel.
-  double keyboardCommandTransitionGrace_ = 0.0;
-  double lastKeyboardForward_ = 0.0;
-  double lastKeyboardLateral_ = 0.0;
-  double lastKeyboardYaw_ = 0.0;
-  bool keyboardCommandInitialized_ = false;
   bool contactFallback_ = false;
   bool lastSolverSuccess_ = false;
   double updateTimeMs_ = 0.0;
@@ -135,6 +131,7 @@ private:
   std::vector<double> driveTargets_;
   std::vector<double> wheelReferenceRates_;
   std::vector<double> steeringTargets_;
+  std::vector<double> steeringRateReferences_;
   std::vector<double> rollingResiduals_;
   std::vector<double> lateralResiduals_;
   std::vector<double> normalResiduals_;

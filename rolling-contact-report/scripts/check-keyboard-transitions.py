@@ -3,8 +3,10 @@
 """Validate yaw-to-translation keyboard handoffs in a converted mc_rtc log.
 
 The terminal keyboard adapter latches key-down events.  A translation key is
-therefore expected to clear a previously latched Q/E yaw, while preserving the
-bounded steering transition and the zero-error stop behavior.
+therefore expected to clear a previously latched Q/E yaw, while keeping the
+chassis speed bounded through the handoff and converging to the zero-error stop
+behavior.  The QP's rotating-rate rows arbitrate steering and drive together, so
+there is no longer a transition grace period or a drive-hold barrier to check.
 """
 
 import argparse
@@ -34,7 +36,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("csv", type=pathlib.Path)
     parser.add_argument("--output", type=pathlib.Path)
-    parser.add_argument("--grace-limit", type=float, default=0.5)
     parser.add_argument("--speed-limit", type=float, default=0.6)
     parser.add_argument("--tail-samples", type=int, default=200)
     args = parser.parse_args()
@@ -46,8 +47,6 @@ def main():
 
     required = {
         "RollingContact_keyboard_status",
-        "RollingContact_keyboard_transition_grace",
-        "RollingContact_keyboard_steering_ready",
         "RollingContact_reference_yaw_rate",
         "FloatingBase_linearVelocity_x",
         "FloatingBase_linearVelocity_y",
@@ -91,41 +90,6 @@ def main():
             if abs(finite(rows[index], "RollingContact_reference_yaw_rate")) > 1e-12:
                 raise RuntimeError(f"non-zero yaw reference at transition row {index}")
             end = min(len(rows), index + 100)
-            grace = max(
-                finite(row, "RollingContact_keyboard_transition_grace")
-                for row in rows[index:end]
-            )
-            if grace > args.grace_limit + 1e-9:
-                raise RuntimeError(
-                    f"transition grace {grace} exceeds {args.grace_limit}"
-                )
-            # The steering target is slewed independently for each hinge. The
-            # controller must keep every drive wheel stopped until the last
-            # hinge is aligned, otherwise a Q/E -> A/D handoff can launch two
-            # wheels in the old direction while the other two are still
-            # turning.
-            steering_ready = next(
-                (
-                    j
-                    for j in range(index, len(rows))
-                    if rows[j]["RollingContact_keyboard_steering_ready"] == "1"
-                ),
-                None,
-            )
-            if steering_ready is None:
-                raise RuntimeError(
-                    f"steering never became ready after transition row {index}"
-                )
-            drive_fields = [f"RollingContact_{wheel}_rate" for wheel in WHEELS]
-            for row_number in range(index, steering_ready):
-                if any(
-                    abs(finite(rows[row_number], field)) > 1e-12
-                    for field in drive_fields
-                ):
-                    raise RuntimeError(
-                        "drive rate was non-zero before all steering aligned "
-                        f"at row {row_number}"
-                    )
             speed = max(
                 math.hypot(finite(row, "FloatingBase_linearVelocity_x"),
                            finite(row, "FloatingBase_linearVelocity_y"))

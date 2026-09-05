@@ -5,8 +5,11 @@
 #include <boost/test/unit_test.hpp>
 
 #include <array>
+#include <cmath>
 #include <limits>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -45,6 +48,43 @@ void exercise(mc_control::MCController::Backend backend, const std::string & rob
     controller.reset({controller.robot().mbc().q});
     BOOST_REQUIRE(controller.run());
   }
+}
+
+/** Ranger Mini V3 on the "hold" script: no scripted twist, so the controller
+ * follows whatever setCommandedTwist() last received. Open loop on purpose:
+ * closedLoopFeedback would overwrite the floating base from the (never
+ * updated) FloatingBase sensor every cycle and the chassis could not move.
+ */
+std::unique_ptr<mc_control::MCRollingContactController> makeRangerController()
+{
+  const auto config = controllerConfiguration("hold");
+  auto controller = std::make_unique<mc_control::MCRollingContactController>(
+      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
+  controller->reset({controller->robot().mbc().q});
+  return controller;
+}
+
+/** Chassis displacement between two floating-base poses, expressed in the
+ * START body frame.
+ *
+ * sva::PTransformd::rotation() is the world-to-body map E_0_b, so
+ * E_0_b * d_world are the world displacement's coordinates in the body frame.
+ */
+Eigen::Vector3d chassisMotion(const sva::PTransformd & start, const sva::PTransformd & end)
+{
+  return start.rotation() * (end.translation() - start.translation());
+}
+
+/** Signed yaw travelled between two floating-base poses.
+ *
+ * With E = world-to-body, the body-to-world attitude is E^T, so the rotation
+ * the chassis performed in the world is R = E_end^T * E_start. The mirrored
+ * product E_end * E_start^T is its inverse and reports the opposite sign.
+ */
+double chassisYaw(const sva::PTransformd & start, const sva::PTransformd & end)
+{
+  const Eigen::Matrix3d relative = end.rotation().transpose() * start.rotation();
+  return std::atan2(relative(1, 0), relative(0, 0));
 }
 
 } // namespace
@@ -92,6 +132,91 @@ BOOST_AUTO_TEST_CASE(RollingContactControllerScenarioMatrix)
                         backend == mc_control::MCController::Backend::Tasks ? "Tasks" : "TVM");
     }
   }
+}
+
+BOOST_AUTO_TEST_CASE(FourSteeringTracksCommandedTwistSigns)
+{
+  // Each commanded twist must move the chassis in the commanded direction.
+  // Before the QP rate rows the keyboard path needed an explicit sign mirror
+  // and two empirical scale factors to get anywhere near this.
+  struct Case
+  {
+    const char * name;
+    Eigen::Vector3d twist; // vx, vy, omega in the chassis frame
+  };
+  const std::vector<Case> cases = {{"forward", {0.3, 0.0, 0.0}},   {"backward", {-0.3, 0.0, 0.0}},
+                                   {"crab-left", {0.0, 0.3, 0.0}}, {"crab-right", {0.0, -0.3, 0.0}},
+                                   {"yaw-positive", {0.0, 0.0, 0.5}}, {"yaw-negative", {0.0, 0.0, -0.5}}};
+
+  for(const auto & test : cases)
+  {
+    auto controller = makeRangerController();
+    controller->setCommandedTwist(test.twist);
+
+    const sva::PTransformd start = controller->robot().posW();
+    for(int cycle = 0; cycle < 400; ++cycle) { BOOST_REQUIRE_MESSAGE(controller->run(), test.name); }
+    const sva::PTransformd end = controller->robot().posW();
+
+    const Eigen::Vector3d motion = chassisMotion(start, end);
+    const double yaw = chassisYaw(start, end);
+    BOOST_TEST_MESSAGE("[twist] " << test.name << " dx=" << motion.x() << " dy=" << motion.y()
+                                  << " dyaw=" << yaw);
+
+    // 400 cycles at dt = 5 ms is 2 s, so a perfectly tracked 0.3 m/s command
+    // travels 0.6 m and a 0.5 rad/s command turns 1.0 rad. Observed here:
+    // 0.593 m forward/backward, 0.553 m of crab (plus a 0.094 m forward
+    // excursion while the hinges swing to +/-pi/2) and 0.923 rad of yaw. The
+    // bounds are set to a third of the ideal value, which is roughly half of
+    // every observation and still far above the 0.10 m / 0.37 rad the QP
+    // produced before the rate rows carried their weight.
+    if(std::abs(test.twist.x()) > 1e-9)
+    {
+      BOOST_CHECK_MESSAGE(motion.x() * test.twist.x() > 0.0, test.name << " x sign: " << motion.x());
+      BOOST_CHECK_MESSAGE(std::abs(motion.x()) > 0.2, test.name << " x magnitude: " << motion.x());
+    }
+    if(std::abs(test.twist.y()) > 1e-9)
+    {
+      BOOST_CHECK_MESSAGE(motion.y() * test.twist.y() > 0.0, test.name << " y sign: " << motion.y());
+      BOOST_CHECK_MESSAGE(std::abs(motion.y()) > 0.2, test.name << " y magnitude: " << motion.y());
+    }
+    if(std::abs(test.twist.z()) > 1e-9)
+    {
+      BOOST_CHECK_MESSAGE(yaw * test.twist.z() > 0.0, test.name << " yaw sign: " << yaw);
+      BOOST_CHECK_MESSAGE(std::abs(yaw) > 0.3, test.name << " yaw magnitude: " << yaw);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(FourSteeringCommandChangeKeepsResidualsBounded)
+{
+  // Switching between commands must not need a transition grace period: the QP
+  // arbitrates steering and drive together, so no wheel receives drive torque
+  // against a stale contact direction.
+  auto controller = makeRangerController();
+  const std::vector<Eigen::Vector3d> sequence = {
+      {0.3, 0.0, 0.0}, {0.0, 0.0, 0.5}, {0.0, 0.3, 0.0}, {0.3, 0.0, 0.4}};
+
+  // Observed over the whole sequence: the worst lateral slip is 8.5e-2 m/s, on
+  // the very first cycles of the forward -> pure-yaw step, where the chassis is
+  // still translating at 0.3 m/s while the hinges swing to +/-0.94 rad. It is a
+  // decaying transient: every phase ends at 2.7e-17, 4.3e-4, 8.5e-5 and 3.3e-2
+  // m/s respectively. The bounds below sit ~2x above those observations, which
+  // still separates them by an order of magnitude from the >0.7 m/s excursion a
+  // genuine loss of arbitration produces.
+  double worst = 0.0;
+  for(const auto & twist : sequence)
+  {
+    controller->setCommandedTwist(twist);
+    for(int cycle = 0; cycle < 200; ++cycle)
+    {
+      BOOST_REQUIRE(controller->run());
+      worst = std::max(worst, controller->maxLateralResidual());
+      BOOST_CHECK_LT(controller->maxLateralResidual(), 0.15);
+    }
+    // The transient must decay inside the phase, not merely stay bounded.
+    BOOST_CHECK_LT(controller->maxLateralResidual(), 0.1);
+  }
+  BOOST_TEST_MESSAGE("[residual] worst lateral slip over the sequence: " << worst);
 }
 
 BOOST_AUTO_TEST_CASE(RollingContactControllerSynchronizesFloatingBase)
