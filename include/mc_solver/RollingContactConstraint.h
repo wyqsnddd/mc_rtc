@@ -63,11 +63,15 @@ struct MC_SOLVER_DLLAPI RollingContactConstraintOptions
    * steering rate. These are the w_thetaDot and w_deltaDot objective terms of
    * the four-steering-wheel QP; the corresponding predicted-rate bounds are
    * already supplied by the joint velocity limits of KinematicsConstraint.
+   *
+   * Like every other soft row, a rate row is additionally scaled by
+   * sqrt(activation), so a wheel at partial activation tracks its rates at a
+   * proportionally reduced weight.
    */
   bool trackRotatingRates = false;
-  /** Objective weight on (thetaDot^+ - thetaDot^ref). */
+  /** Objective weight on (thetaDot^+ - thetaDot^ref); zero emits no rolling-rate row. */
   double rollingRateWeight = 200.0;
-  /** Objective weight on (deltaDot^+ - deltaDot^ref). */
+  /** Objective weight on (deltaDot^+ - deltaDot^ref); zero emits no steering-rate row. */
   double steeringRateWeight = 200.0;
 
   void validate(size_t wheelCount) const;
@@ -110,6 +114,11 @@ public:
   /** Set the predicted-rate references for one wheel.
    *
    * `steeringRate` is ignored for wheels without a steering joint.
+   *
+   * The reference is stored unconditionally, but it only reaches the QP while the
+   * wheel actually carries a rate row: a Detached wheel, a wheel at zero
+   * activation, or a zero rate weight silently drops it, and `trackRotatingRates`
+   * must be on at all. Inspect softRowLabels() if the caller needs to know.
    *
    * @throws std::out_of_range if the wheel is unknown.
    * @throws std::invalid_argument if either value is not finite.
