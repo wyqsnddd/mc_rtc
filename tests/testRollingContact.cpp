@@ -102,6 +102,24 @@ namespace
 {
 
 constexpr double tolerance = 1e-11;
+// M_PI is not guaranteed by the C++ standard, this codebase spells the constant out.
+constexpr double pi = 3.14159265358979323846;
+
+/** Front-left Ranger Mini V3 steering wheel. */
+mc_rbdyn::PlanarWheel rangerFrontLeftWheel()
+{
+  mc_rbdyn::PlanarWheel wheel;
+  wheel.offset = Eigen::Vector2d(0.247, 0.182);
+  wheel.radius = 0.125;
+  wheel.spinSign = 1.0;
+  return wheel;
+}
+
+Eigen::Vector2d wheelCentreVelocity(const mc_rbdyn::PlanarWheel & wheel, const Eigen::Vector3d & planarTwist)
+{
+  return Eigen::Vector2d(planarTwist.x() - planarTwist.z() * wheel.offset.y(),
+                         planarTwist.y() + planarTwist.z() * wheel.offset.x());
+}
 
 void checkVector(const Eigen::VectorXd & actual, const Eigen::VectorXd & expected, double tol = tolerance)
 {
@@ -409,6 +427,66 @@ BOOST_AUTO_TEST_CASE(SteeringRowsIncludeDirectionDerivative)
   const Eigen::Vector2d finiteDifference =
       (plusResult.matrix * fullVelocity - minusResult.matrix * fullVelocity) / (2.0 * dt);
   BOOST_CHECK_SMALL((finiteDifference - result.accelerationBias).norm(), 2e-9);
+}
+
+BOOST_AUTO_TEST_CASE(SteeringReferenceInvertsTheExpandedConstraints)
+{
+  const auto wheel = rangerFrontLeftWheel();
+
+  const auto forward = mc_rbdyn::steeringWheelReference(wheel, Eigen::Vector3d(1.0, 0.0, 0.0), 0.0);
+  BOOST_CHECK(forward.commanded);
+  BOOST_CHECK_SMALL(forward.steeringAngle, tolerance);
+  BOOST_CHECK_CLOSE(forward.rollingRate, 1.0 / 0.125, 1e-9);
+
+  const auto crab = mc_rbdyn::steeringWheelReference(wheel, Eigen::Vector3d(0.0, 1.0, 0.0), 0.0);
+  BOOST_CHECK(crab.commanded);
+  BOOST_CHECK_CLOSE(crab.steeringAngle, 0.5 * pi, 1e-9);
+  BOOST_CHECK_CLOSE(crab.rollingRate, 1.0 / 0.125, 1e-9);
+
+  // Pure yaw points the wheel centre backwards-left: the raw heading falls outside the
+  // hinge range so the flipped branch is used and the wheel must roll backwards.
+  const auto yaw = mc_rbdyn::steeringWheelReference(wheel, Eigen::Vector3d(0.0, 0.0, 1.0), 0.0);
+  BOOST_CHECK(yaw.commanded);
+  BOOST_CHECK_CLOSE(yaw.steeringAngle, std::atan2(0.247, -0.182) - pi, 1e-9);
+  BOOST_CHECK_LT(yaw.rollingRate, 0.0);
+  BOOST_CHECK_CLOSE(std::abs(yaw.rollingRate), std::hypot(0.182, 0.247) / 0.125, 1e-9);
+
+  const Eigen::Vector3d twist(0.4, -0.2, 0.3);
+  const auto general = mc_rbdyn::steeringWheelReference(wheel, twist, 0.0);
+  BOOST_CHECK(general.commanded);
+  const Eigen::Vector2d point = wheelCentreVelocity(wheel, twist);
+  const double c = std::cos(general.steeringAngle);
+  const double s = std::sin(general.steeringAngle);
+  BOOST_CHECK_SMALL(c * point.x() + s * point.y() - wheel.radius * wheel.spinSign * general.rollingRate, 1e-12);
+  BOOST_CHECK_SMALL(-s * point.x() + c * point.y(), 1e-12);
+}
+
+BOOST_AUTO_TEST_CASE(SteeringReferenceStaysWithinLimitsAndAvoidsBranchChatter)
+{
+  const auto wheel = rangerFrontLeftWheel();
+
+  const auto held = mc_rbdyn::steeringWheelReference(wheel, Eigen::Vector3d(0.0, -1.0, 0.0), -0.5 * pi);
+  BOOST_CHECK_CLOSE(held.steeringAngle, -0.5 * pi, 1e-9);
+  const auto perturbed = mc_rbdyn::steeringWheelReference(wheel, Eigen::Vector3d(1e-9, -1.0, 0.0), -0.5 * pi);
+  BOOST_CHECK_SMALL(perturbed.steeringAngle - held.steeringAngle, 1e-3);
+
+  for(int step = 0; step < 360; ++step)
+  {
+    const double angle = 2.0 * pi * static_cast<double>(step) / 360.0;
+    const Eigen::Vector3d twist(std::cos(angle), std::sin(angle), 0.4);
+    const auto reference = mc_rbdyn::steeringWheelReference(wheel, twist, 0.0);
+    BOOST_CHECK_LE(std::abs(reference.steeringAngle), 0.5 * pi);
+    BOOST_CHECK(std::isfinite(reference.rollingRate));
+  }
+}
+
+BOOST_AUTO_TEST_CASE(SteeringReferenceHoldsPoseForADegenerateCommand)
+{
+  const auto wheel = rangerFrontLeftWheel();
+  const auto reference = mc_rbdyn::steeringWheelReference(wheel, Eigen::Vector3d::Zero(), 0.3);
+  BOOST_CHECK_CLOSE(reference.steeringAngle, 0.3, 1e-12);
+  BOOST_CHECK_SMALL(reference.rollingRate, tolerance);
+  BOOST_CHECK(!reference.commanded);
 }
 
 BOOST_AUTO_TEST_CASE(RampGeometryIsRotationEquivariant)

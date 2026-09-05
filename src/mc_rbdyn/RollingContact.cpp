@@ -582,6 +582,64 @@ PlanarRollingResult steeringRollingMatrix(const std::vector<PlanarWheel> & wheel
   return out;
 }
 
+SteeringWheelReference steeringWheelReference(const PlanarWheel & wheel,
+                                              const Eigen::Vector3d & planarTwist,
+                                              double measuredSteeringAngle,
+                                              double speedThreshold)
+{
+  wheel.validate();
+  requireFinite(planarTwist, "planarTwist");
+  if(!finite(measuredSteeringAngle))
+  {
+    throw std::invalid_argument("Steering wheel measured steering angle must be finite");
+  }
+  if(!finite(speedThreshold) || speedThreshold < 0.0)
+  {
+    throw std::invalid_argument("Steering wheel speed threshold must be finite and non-negative");
+  }
+
+  // M_PI is not guaranteed by the C++ standard.
+  constexpr double pi = 3.14159265358979323846;
+  constexpr double halfPi = 0.5 * pi;
+
+  SteeringWheelReference out;
+  // Wheel-centre velocity of the planar chassis twist [vx, vy, omega].
+  const Eigen::Vector2d point(planarTwist.x() - planarTwist.z() * wheel.offset.y(),
+                              planarTwist.y() + planarTwist.z() * wheel.offset.x());
+  if(point.norm() <= speedThreshold)
+  {
+    // atan2(0, 0) carries no heading, so a degenerate command holds the measured
+    // pose and stops the wheel instead of inventing a direction.
+    out.steeringAngle = std::clamp(measuredSteeringAngle, -halfPi, halfPi);
+    return out;
+  }
+
+  // The lateral row -sin(delta) px + cos(delta) py vanishes exactly when the wheel
+  // heading is aligned with the wheel-centre velocity.
+  const double raw = std::atan2(point.y(), point.x());
+  // delta and delta +/- pi describe the same wheel line with opposite rolling sign.
+  // Take the representation the +/- pi/2 hinge can reach; when both are reachable
+  // take the one nearest the measurement so numerical noise at the branch cut
+  // cannot make the hinge chatter between the two.
+  const double flipped = raw > 0.0 ? raw - pi : raw + pi;
+  double angle = raw;
+  if(std::abs(raw) > halfPi) { angle = flipped; }
+  else if(std::abs(flipped) <= halfPi
+          && std::abs(flipped - measuredSteeringAngle) < std::abs(raw - measuredSteeringAngle))
+  {
+    angle = flipped;
+  }
+  angle = std::clamp(angle, -halfPi, halfPi);
+
+  out.steeringAngle = angle;
+  // Projecting onto the SELECTED heading already carries the branch sign: on the
+  // flipped branch this projection evaluates to -|point|. Do not reapply the flip
+  // with an extra sign factor, that would cancel it and drive the wheel backwards.
+  out.rollingRate = (std::cos(angle) * point.x() + std::sin(angle) * point.y()) / (wheel.radius * wheel.spinSign);
+  out.commanded = true;
+  return out;
+}
+
 Eigen::Matrix<double, 6, 1> contactWrenchAtCarrier(const Eigen::Vector3d & carrierCenter,
                                                    const Eigen::Vector3d & contactPoint,
                                                    const Eigen::Vector3d & force)
