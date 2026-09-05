@@ -18,6 +18,8 @@ RollingContact:
   basePositionWeight: 500.0
   steeringStiffness: 1000.0
   steeringPostureWeight: 1.0
+  steeringTimeConstant: 0.15
+  driveAcceleration: 100.0
   rollingRateWeight: 4.0e7
   steeringRateWeight: 4.0e7
   slipEnter: 0.05

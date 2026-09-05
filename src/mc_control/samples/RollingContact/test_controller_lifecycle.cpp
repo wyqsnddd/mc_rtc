@@ -164,8 +164,8 @@ BOOST_AUTO_TEST_CASE(FourSteeringTracksCommandedTwistSigns)
 
     // 400 cycles at dt = 5 ms is 2 s, so a perfectly tracked 0.3 m/s command
     // travels 0.6 m and a 0.5 rad/s command turns 1.0 rad. Observed here:
-    // 0.593 m forward/backward, 0.553 m of crab (plus a 0.094 m forward
-    // excursion while the hinges swing to +/-pi/2) and 0.923 rad of yaw. The
+    // 0.593 m forward/backward, 0.535 m of crab (plus a 0.061 m forward
+    // excursion while the hinges swing to +/-pi/2) and 0.919 rad of yaw. The
     // bounds are set to a third of the ideal value, which is roughly half of
     // every observation and still far above the 0.10 m / 0.37 rad the QP
     // produced before the rate rows carried their weight.
@@ -196,13 +196,17 @@ BOOST_AUTO_TEST_CASE(FourSteeringCommandChangeKeepsResidualsBounded)
   const std::vector<Eigen::Vector3d> sequence = {
       {0.3, 0.0, 0.0}, {0.0, 0.0, 0.5}, {0.0, 0.3, 0.0}, {0.3, 0.0, 0.4}};
 
-  // Observed over the whole sequence: the worst lateral slip is 8.5e-2 m/s, on
+  // Observed over the whole sequence: the worst lateral slip is 7.9e-2 m/s, on
   // the very first cycles of the forward -> pure-yaw step, where the chassis is
   // still translating at 0.3 m/s while the hinges swing to +/-0.94 rad. It is a
-  // decaying transient: every phase ends at 2.7e-17, 4.3e-4, 8.5e-5 and 3.3e-2
-  // m/s respectively. The bounds below sit ~2x above those observations, which
-  // still separates them by an order of magnitude from the >0.7 m/s excursion a
-  // genuine loss of arbitration produces.
+  // decaying transient: every phase ends at 3.7e-18, 4.3e-4, 8.7e-5 and 4.7e-2
+  // m/s respectively. The bounds below sit ~2x above those observations.
+  //
+  // Mutation-tested, so these are not decorative. Withholding the steering-rate
+  // reference from the QP makes run() itself fail; tripling the steering
+  // convergence time takes the worst slip to 1.63 m/s (213 failed assertions);
+  // and handing the QP the pre-projection rolling rate - a real bug this test
+  // caught during review - takes it to 0.29 m/s.
   double worst = 0.0;
   for(const auto & twist : sequence)
   {
@@ -215,6 +219,7 @@ BOOST_AUTO_TEST_CASE(FourSteeringCommandChangeKeepsResidualsBounded)
     }
     // The transient must decay inside the phase, not merely stay bounded.
     BOOST_CHECK_LT(controller->maxLateralResidual(), 0.1);
+    BOOST_TEST_MESSAGE("[phase-end] " << twist.transpose() << " res=" << controller->maxLateralResidual());
   }
   BOOST_TEST_MESSAGE("[residual] worst lateral slip over the sequence: " << worst);
 }

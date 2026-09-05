@@ -85,7 +85,9 @@ private:
   // four-steering wheel reference is generated from this single command.
   Eigen::Vector3d commandedTwist_ = Eigen::Vector3d::Zero();
   // First-order convergence time of a steering hinge towards its reference
-  // heading, saturated by the URDF hinge velocity limit below.
+  // heading, saturated by maxSteeringRate_. Both are configurable and
+  // maxSteeringRate_ defaults to the steering joints' model velocity limit;
+  // see the constructor for the rationale behind 0.15 s.
   double steeringTimeConstant_ = 0.15;
   double maxSteeringRate_ = 8.0;
   double keyboardYawFeedbackGain_ = 0.5;

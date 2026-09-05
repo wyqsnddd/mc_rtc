@@ -210,14 +210,26 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   recoveryTransverseResidual_ = settings("recoveryTransverseResidual", 0.5);
   rollingWeight_ = settings("rollingWeight", 1000.0);
   recoveryRollingWeight_ = settings("recoveryRollingWeight", 1e6);
-  // Bound on how fast the rolling-rate reference itself may change. A step in
-  // the commanded twist would otherwise ask the QP for the full rate on the
-  // very next cycle, which saturates the contact friction cone for one tick.
-  driveAcceleration_ = settings("keyboardDriveAcceleration", 20.0);
+  // Ceiling on how fast the rolling-rate reference itself may change, so a step
+  // in the commanded twist cannot ask the QP for the whole rate on the very
+  // next cycle. It must stay well above the steering slope: the reference is a
+  // projection onto the *measured* hinge heading, so a drive reference that
+  // changes more slowly than the hinge swings keeps the wheels rolling in a
+  // stale direction. Measured over the command-step sequence, the lateral slip
+  // is 0.079 m/s at 100 rad/s^2 and 0.291 m/s at the 20 rad/s^2 this setting
+  // inherited from the keyboard profile. This bounds every scenario, hence the
+  // name; the keyboard-scoped spelling remains a deprecated alias.
+  driveAcceleration_ = settings("driveAcceleration", 100.0);
+  if(settings.has("keyboardDriveAcceleration"))
+  {
+    mc_rtc::log::warning("RollingContact keyboardDriveAcceleration is deprecated and now bounds every scenario's "
+                         "drive reference; rename it to driveAcceleration");
+    if(!settings.has("driveAcceleration")) { driveAcceleration_ = settings("keyboardDriveAcceleration", 100.0); }
+  }
   if(!std::isfinite(driveAcceleration_) || driveAcceleration_ <= 0.0)
   {
     mc_rtc::log::error_and_throw<std::invalid_argument>(
-        "RollingContact keyboardDriveAcceleration must be finite and positive");
+        "RollingContact driveAcceleration must be finite and positive");
   }
   if(!std::isfinite(commandPeriod_) || commandPeriod_ <= 0.0 || !std::isfinite(positionFeedbackGain_)
      || positionFeedbackGain_ < 0.0 || !std::isfinite(linearSpeed_)
@@ -255,6 +267,39 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     const Eigen::Vector3d worldOffset =
         robot().frame(wheel.carrierFrame).position().translation() - chassis.translation();
     wheelOffsets_.push_back((chassis.rotation() * worldOffset).head<2>());
+  }
+  if(fourSteering_)
+  {
+    // Take the hinge rate ceiling from the model rather than restating the
+    // URDF here, so a model change cannot silently desynchronize it.
+    const double modelSteeringRate = [this]()
+    {
+      double rate = std::numeric_limits<double>::infinity();
+      for(const auto & wheel : wheels_)
+      {
+        const auto joint = robot().jointIndexByName(wheel.steeringJoint);
+        rate = std::min({rate, std::abs(robot().vl()[joint][0]), std::abs(robot().vu()[joint][0])});
+      }
+      return rate;
+    }();
+    // A non-const default would select Configuration's write-into-reference
+    // overload, which returns void.
+    maxSteeringRate_ = settings("maxSteeringRate", modelSteeringRate);
+    // Convergence time of a steering hinge towards its reference heading. The
+    // largest possible re-heading is pi/2, so this value sets the initial
+    // demand for that worst case at pi/2 / 0.15 = 10.5 rad/s, just above the
+    // 8 rad/s hinge ceiling: the fastest first-order law that still leaves the
+    // hinge saturated only for the first instants of the widest swing. Slowing
+    // it down is measurably worse - at half this slope the lateral slip across
+    // a commanded-twist step doubled, from 0.085 to 0.19 m/s.
+    steeringTimeConstant_ = settings("steeringTimeConstant", 0.15);
+    if(!std::isfinite(maxSteeringRate_) || maxSteeringRate_ <= 0.0 || !std::isfinite(steeringTimeConstant_)
+       || steeringTimeConstant_ <= 0.0)
+    {
+      mc_rtc::log::error_and_throw<std::invalid_argument>(
+          "RollingContact maxSteeringRate and steeringTimeConstant must be finite and positive; the steering "
+          "joint velocity limits supply the default rate");
+    }
   }
   if(scenario_ == "keyboard")
   {
@@ -1318,12 +1363,14 @@ void MCRollingContactController::updateReference()
       if(keyboardFeedForward)
       {
         const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
-        keyboardRefVel(robot().mb().jointPosInDof(drive)) = reference.rollingRate;
+        keyboardRefVel(robot().mb().jointPosInDof(drive)) = rollingRate;
         keyboardRefVel(robot().mb().jointPosInDof(static_cast<int>(steeringJoint))) = steeringRate;
       }
 
-      // The QP owns both rates from here on.
-      rolling_->rotatingRateReference(wheels_[i].name, reference.rollingRate, steeringRate);
+      // The QP owns both rates from here on. It must receive the same rolling
+      // rate that the posture target, the log and the simulator output carry:
+      // reference.rollingRate is the pre-projection, pre-slew value.
+      rolling_->rotatingRateReference(wheels_[i].name, rollingRate, steeringRate);
     }
   }
   postureTask->target(targets);

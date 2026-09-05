@@ -33,7 +33,7 @@ RollingContact:
   keyboardAngularSpeed: 0.5
   keyboardPollIntervalMs: 10
   keyboardExitKey: x
-  keyboardDriveAcceleration: 20.0
+  driveAcceleration: 100.0
   # The QP's rate rows own both wheel rates. Their weight multiplies dt^2 in
   # the objective, hence the large numbers: 4e7 * (0.005)^2 = 1000, twice the
   # chassis task weights.

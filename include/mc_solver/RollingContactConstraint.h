@@ -69,9 +69,20 @@ struct MC_SOLVER_DLLAPI RollingContactConstraintOptions
    * proportionally reduced weight.
    */
   bool trackRotatingRates = false;
-  /** Objective weight on (thetaDot^+ - thetaDot^ref); zero emits no rolling-rate row. */
+  /** Objective weight on (thetaDot^+ - thetaDot^ref); zero emits no rolling-rate row.
+   *
+   * A rate row's coefficients carry dt, because the tracked quantity is the
+   * prediction rate^+ = rate + dt * S * alphaD. The weight therefore enters the
+   * QP objective multiplied by dt^2, and is NOT comparable to a task weight on
+   * alphaD: authority equivalent to an acceleration-task weight of 1000 at
+   * dt = 0.005 is 1000 / dt^2 = 4e7, not 1000. At a plain 200 the row
+   * contributes 200 * dt^2 = 5e-3 and any ordinary task outranks it.
+   */
   double rollingRateWeight = 200.0;
-  /** Objective weight on (deltaDot^+ - deltaDot^ref); zero emits no steering-rate row. */
+  /** Objective weight on (deltaDot^+ - deltaDot^ref); zero emits no steering-rate row.
+   *
+   * Scales with dt^2 exactly as rollingRateWeight does; see its documentation.
+   */
   double steeringRateWeight = 200.0;
 
   void validate(size_t wheelCount) const;

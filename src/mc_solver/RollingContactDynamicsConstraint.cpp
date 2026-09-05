@@ -43,6 +43,27 @@ constexpr int lambdasPerWheel = generatorsPerPoint * pointsPerWheel;
 constexpr double pi = 3.14159265358979323846;
 constexpr const char * terrainBody = "__rolling_terrain__";
 
+/** Linearized Coulomb cone for one contact point, TVM side.
+ *
+ * The four rows are mu * (n.f) - s_r * (t.f) - s_l * (l.f) >= 0 over both sign
+ * combinations, which is exactly |t.f| + |l.f| <= mu * (n.f). That is the L1
+ * ball: an *inscribed* approximation of the exact circular cone, conservative
+ * everywhere and tight only on the rolling/lateral axes. The Tasks side uses
+ * the equivalent inscribed four-generator pyramid (see the generator loop in
+ * update()), so neither backend can plan a force outside the true cone.
+ *
+ * frictionMargin() is nevertheless a *diagnostic*, not the constrained
+ * quantity: it grades the resultant of the wheel's two endpoint forces against
+ * the exact circle, and it is read after the solve, once the controller has
+ * already integrated the robot state that defined these frames. When the
+ * tangential force is large the small frame inconsistency that introduces is
+ * visible in the resultant. Measured on the crab profile: the margin is
+ * -1.04 N on a 180 N normal force (0.6%) during the four friction-saturated
+ * start-up ticks, where the tangential force is ~200 N, and +146 N for the
+ * remaining 996 cycles, where it is ~0 N. This is why
+ * rolling-contact-report/scripts/check-controller-log.py deliberately asserts
+ * on the normal force and the drive-torque margin but not on this one.
+ */
 class TVMRollingForceCone final : public tvm::function::abstract::LinearFunction
 {
 public:
