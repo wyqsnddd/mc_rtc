@@ -19,6 +19,10 @@ ClearGlobalPluginPath: true
 GlobalPluginPaths: []
 Plugins: []
 RollingContact:
+  # Pinned so a user configuration in ~/.config/mc_rtc cannot flip this
+  # fixture into closed loop: mc_rtc merges the user file before the -f file,
+  # and every key this config leaves unset is inherited from it.
+  closedLoopFeedback: false
   scenario: mode_cycle
   linearSpeed: 0.1
   yawRate: 0.2
