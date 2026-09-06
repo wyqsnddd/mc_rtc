@@ -1482,15 +1482,25 @@ void MCRollingContactController::updateModes()
     appliedActivations_[i] = appliedActivation;
     rolling_->mode(wheels_[i].name, state.estimated, appliedActivation);
     dynamics_->mode(wheels_[i].name, state.estimated);
-    // A keyboard command can change the instantaneous turning radius while a
-    // steering hinge is still slewing.  The resulting short-lived slip is a
-    // valid transition for the mode manager, not a reason to zero the
-    // operator's command: doing that here used to latch contactFallback_ and
-    // leave Q/E+W/S combinations permanently stuck even though the QP kept
-    // solving successfully.  Detached contacts and pending hard promotion
-    // remain fail-safe; a transient Sliding estimate is allowed to recover
-    // while the keyboard trajectory continues.
-    const bool keyboardContactRecovery = keyboardCaptureActive
+    // A commanded twist change can change the instantaneous turning radius
+    // while a steering hinge is still slewing.  The resulting short-lived
+    // slip is a valid transition for the mode manager, not a reason to zero
+    // the command: doing that here used to latch contactFallback_ and leave
+    // keyboard Q/E+W/S combinations permanently stuck even though the QP
+    // kept solving successfully.  Detached contacts and pending hard
+    // promotion remain fail-safe; a transient Sliding/Detached estimate is
+    // allowed to recover while the hinge that caused it is still moving.
+    //
+    // The transient is a property of the hinge motion, not of who issued the
+    // twist: a scripted command that swings the reference steering angle
+    // (e.g. crab to ackermann in one step) produces exactly the same
+    // short-lived slip a keyboard operator triggers, so the recovery
+    // allowance is keyed on the hinge still slewing rather than on
+    // scenario_ == "keyboard". steeringRateReferences_[i] is only non-zero on
+    // the four-steering wheel loop below, and lags by one cycle here because
+    // updateModes() runs before this cycle's updateReference().
+    const bool hingeSlewing = fourSteering_ && std::abs(steeringRateReferences_[i]) > 1e-6;
+    const bool keyboardContactRecovery = (keyboardCaptureActive || hingeSlewing)
                                          && (state.estimated == mc_rbdyn::RollingContactMode::Detached
                                              || state.estimated == mc_rbdyn::RollingContactMode::Sliding);
     contactFallback_ = contactFallback_
