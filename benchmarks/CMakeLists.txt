@@ -24,6 +24,7 @@ macro(mc_rtc_benchmark NAME)
   # Add benchmark as unit-test
   if(${BUILD_TESTING})
     add_test(${NAME} ${NAME})
+    mc_rtc_isolate_test_home(${NAME})
   endif()
 endmacro()
 

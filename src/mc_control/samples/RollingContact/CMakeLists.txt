@@ -209,4 +209,23 @@ if(BUILD_TESTING)
       FIXTURES_REQUIRED RollingContactTVMFourSteeringLog
       TIMEOUT 30
   )
+
+  # The ticker fixtures below construct a full MCGlobalController, which merges
+  # ~/.config/mc_rtc/mc_rtc.yaml *before* the -f file. A developer profile can
+  # therefore override MainRobot, the enabled controllers and every RollingContact
+  # option these fixtures leave unset, and LoadUserConfiguration cannot be turned
+  # off from the -f file because it is read before that file is merged. Pin an
+  # empty home so no user configuration reaches them.
+  mc_rtc_isolate_test_home(
+    RollingContactControllerRepeatedLifecycle
+    RollingContactCPULinkage
+    RollingContactControllerDifferential
+    RollingContactControllerDifferentialLog
+    RollingContactControllerFourSteering
+    RollingContactControllerFourSteeringLog
+    RollingContactControllerTVMDifferential
+    RollingContactControllerTVMDifferentialLog
+    RollingContactControllerTVMFourSteering
+    RollingContactControllerTVMFourSteeringLog
+  )
 endif()

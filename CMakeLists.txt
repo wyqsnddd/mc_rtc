@@ -377,6 +377,37 @@ endif(MSVC)
 
 include(CMakeModules/ListAllFiles.cmake)
 
+# mc_rtc merges the developer's user configuration into *every*
+# MCGlobalController: ~/.config/mc_rtc/mc_rtc.yaml is merged before the -f file
+# (so a test configuration cannot opt out with LoadUserConfiguration: false),
+# and ~/.config/mc_rtc/{controllers,plugins,aliases} are read unconditionally.
+# A developer profile therefore silently rewrites MainRobot, Enabled and the
+# per-controller options of the whole test suite. Point every registered test
+# at an empty home inside the build tree so no user configuration can reach it.
+set(MC_RTC_TEST_HOME "${PROJECT_BINARY_DIR}/test-home")
+file(MAKE_DIRECTORY "${MC_RTC_TEST_HOME}/.config/mc_rtc")
+file(MAKE_DIRECTORY "${MC_RTC_TEST_HOME}/.local/share/mc_rtc")
+
+# Append the isolated home to the ENVIRONMENT property of the named tests.
+# Must be called from the directory that registered them: CMake 3.22 has no
+# way to reach a test defined in another directory scope.
+function(mc_rtc_isolate_test_home)
+  foreach(TEST_NAME IN LISTS ARGN)
+    if(NOT TEST ${TEST_NAME})
+      continue()
+    endif()
+    if(WIN32)
+      set_property(
+        TEST ${TEST_NAME} APPEND PROPERTY ENVIRONMENT "APPDATA=${MC_RTC_TEST_HOME}"
+      )
+    else()
+      set_property(
+        TEST ${TEST_NAME} APPEND PROPERTY ENVIRONMENT "HOME=${MC_RTC_TEST_HOME}"
+      )
+    endif()
+  endforeach()
+endfunction()
+
 add_subdirectory(CMakeModules)
 add_subdirectory(doc)
 add_subdirectory(src)

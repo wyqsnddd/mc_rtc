@@ -77,6 +77,7 @@ macro(mc_rtc_test NAME)
   target_include_directories(${NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   set_target_properties(${NAME} PROPERTIES FOLDER tests/framework)
   add_test(NAME ${NAME} COMMAND ${NAME})
+  mc_rtc_isolate_test_home(${NAME})
   # Adding a project configuration file (for MSVC only)
   generate_msvc_dot_user_file(${NAME})
 endmacro()
@@ -120,6 +121,7 @@ if(Python3_Interpreter_FOUND)
       --urdf ${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description/urdf/ranger_mini_v3.urdf
       --mujoco ${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description/mujoco/ranger_mini_v3.xml
   )
+  mc_rtc_isolate_test_home(RollingContactRangerFrame)
 endif()
 
 # ######################################################################################
@@ -190,6 +192,7 @@ function(
   add_executable(${TEST_NAME} ${CONFIG_CPP_OUT})
   target_link_libraries(${TEST_NAME} PUBLIC ${TEST_MAIN})
   add_test(NAME ${NAME} COMMAND ${ARGN} $<TARGET_FILE:${TEST_NAME}>)
+  mc_rtc_isolate_test_home(${NAME})
   generate_msvc_dot_user_file(NAME ${TEST_NAME})
 endfunction()
 

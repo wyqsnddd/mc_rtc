@@ -53,4 +53,5 @@ set_target_properties(
 add_test(NAME testGlobalControllerConfiguration
          COMMAND testGlobalControllerConfiguration
 )
+mc_rtc_isolate_test_home(testGlobalControllerConfiguration)
 generate_msvc_dot_user_file(testGlobalControllerConfiguration)

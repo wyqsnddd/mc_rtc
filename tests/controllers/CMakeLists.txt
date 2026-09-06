@@ -21,6 +21,7 @@ macro(AddLogTest NAME CTL_NAME NRITER UTILS_BIN_DIR)
              COMMAND "${PYTHON_PGM}" "${CMAKE_CURRENT_SOURCE_DIR}/check_log.py"
                      "${CTL_NAME}" ${NRITER} "${UTILS_BIN_DIR}"
     )
+    mc_rtc_isolate_test_home("${NAME}")
   endif()
 endmacro()
 
@@ -434,6 +435,7 @@ endif()
 add_test(NAME "test_controller_restart" COMMAND test_controller_restart ${CONFIG_OUT}
                                                 ${ACTUALITER}
 )
+mc_rtc_isolate_test_home(test_controller_restart)
 
 controller_sample_test_run(CoM_TVM "" 1000)
 controller_sample_test_run(EndEffector_TVM "" 1000)
