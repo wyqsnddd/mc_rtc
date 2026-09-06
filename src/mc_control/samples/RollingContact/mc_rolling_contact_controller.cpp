@@ -215,16 +215,28 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   // next cycle. It must stay well above the steering slope: the reference is a
   // projection onto the *measured* hinge heading, so a drive reference that
   // changes more slowly than the hinge swings keeps the wheels rolling in a
-  // stale direction. Measured over the command-step sequence, the lateral slip
-  // is 0.079 m/s at 100 rad/s^2 and 0.291 m/s at the 20 rad/s^2 this setting
-  // inherited from the keyboard profile. This bounds every scenario, hence the
-  // name; the keyboard-scoped spelling remains a deprecated alias.
-  driveAcceleration_ = settings("driveAcceleration", 100.0);
+  // stale direction. This bounds every scenario, hence the name; the
+  // keyboard-scoped spelling remains a deprecated alias.
+  //
+  // This was briefly widened to 100 rad/s^2, tuned only against the
+  // kinematic ticker (no contact physics), where it halves the lateral slip
+  // across a commanded-twist step (0.291 -> 0.079 m/s). Against closed-loop
+  // MuJoCo contact physics that value saturates drive torque at the 35 Nm
+  // limit and drives the min normal force to 0 on four-crab and
+  // four-ackermann-left. A sweep against MuJoCo (four-crab, Tasks backend)
+  // shows a sharp knee, not a gradual tradeoff: max drive torque is ~0.06 Nm
+  // and min normal force ~184 N for driveAcceleration in [20, 40], then at 50
+  // it jumps to 23 Nm / 0 N with the wheels 90% of the run in contact
+  // fallback, and by 80-100 it is pinned at the 35 Nm limit with the wheels
+  // detached 95%+ of the run. 20 rad/s^2 keeps a 2x margin below that knee and
+  // is the value validated pre-rewrite (commit dff9cc26f1), where all four
+  // MuJoCo cases and the ackermann_left/ackermann_right mirror symmetry pass.
+  driveAcceleration_ = settings("driveAcceleration", 20.0);
   if(settings.has("keyboardDriveAcceleration"))
   {
     mc_rtc::log::warning("RollingContact keyboardDriveAcceleration is deprecated and now bounds every scenario's "
                          "drive reference; rename it to driveAcceleration");
-    if(!settings.has("driveAcceleration")) { driveAcceleration_ = settings("keyboardDriveAcceleration", 100.0); }
+    if(!settings.has("driveAcceleration")) { driveAcceleration_ = settings("keyboardDriveAcceleration", 20.0); }
   }
   if(!std::isfinite(driveAcceleration_) || driveAcceleration_ <= 0.0)
   {

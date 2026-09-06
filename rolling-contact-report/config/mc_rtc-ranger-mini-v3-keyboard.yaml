@@ -33,7 +33,10 @@ RollingContact:
   keyboardAngularSpeed: 0.5
   keyboardPollIntervalMs: 10
   keyboardExitKey: x
-  driveAcceleration: 100.0
+  # 100 rad/s^2 was measured to saturate drive torque and zero the contact
+  # normal force against MuJoCo (see mc_rolling_contact_controller.cpp); 20
+  # is the pre-rewrite, MuJoCo-validated value.
+  driveAcceleration: 20.0
   # The QP's rate rows own both wheel rates. Their weight multiplies dt^2 in
   # the objective, hence the large numbers: 4e7 * (0.005)^2 = 1000, twice the
   # chassis task weights.

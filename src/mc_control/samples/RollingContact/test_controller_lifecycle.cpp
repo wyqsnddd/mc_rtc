@@ -273,6 +273,61 @@ BOOST_AUTO_TEST_CASE(FourSteeringCommandChangeKeepsResidualsBounded)
   BOOST_TEST_MESSAGE("[residual] worst lateral slip over the sequence: " << worst);
 }
 
+BOOST_AUTO_TEST_CASE(FourSteeringMirrorsForwardPlusNegativeYaw)
+{
+  // Regression test for the driveAcceleration 20->100 rewrite regression:
+  // FourSteeringTracksCommandedTwistSigns only exercises pure axes and
+  // FourSteeringCommandChangeKeepsResidualsBounded only exercises one mixed
+  // command, forward-plus-*positive*-yaw (0.3, 0, +0.4). Neither covers
+  // forward-plus-*negative*-yaw, which is exactly the gap that let the
+  // regression through: at driveAcceleration=100 the +yaw case tracks fine
+  // while the mirrored -yaw case detaches two wheels 2 cycles in and the
+  // chassis barely moves. A mirror-symmetric robot commanded with mirrored
+  // twists must produce mirrored trajectories; this pins that invariant
+  // directly rather than only re-checking the known-good sign.
+  auto run = [](double yaw)
+  {
+    auto controller = makeRangerController();
+    controller->setCommandedTwist({0.3, 0.0, yaw});
+    const sva::PTransformd start = controller->robot().posW();
+    const std::array<const char *, 4> wheelNames = {"front_left", "front_right", "rear_left", "rear_right"};
+    for(int cycle = 0; cycle < 400; ++cycle)
+    {
+      BOOST_REQUIRE(controller->run());
+      for(const auto * wheel : wheelNames)
+      {
+        const auto mode = controller->datastore().call<std::string, const std::string &>(
+            "RollingContact::GetEstimatedMode", std::string(wheel));
+        BOOST_CHECK_MESSAGE(mode != "detached",
+                            "yaw=" << yaw << " wheel " << wheel << " detached at cycle " << cycle);
+      }
+    }
+    const sva::PTransformd end = controller->robot().posW();
+    return std::make_pair(chassisMotion(start, end), chassisYaw(start, end));
+  };
+
+  const auto positive = run(0.4);
+  const auto negative = run(-0.4);
+
+  BOOST_TEST_MESSAGE("[mirror] +yaw dx=" << positive.first.x() << " dy=" << positive.first.y()
+                                         << " dyaw=" << positive.second);
+  BOOST_TEST_MESSAGE("[mirror] -yaw dx=" << negative.first.x() << " dy=" << negative.first.y()
+                                         << " dyaw=" << negative.second);
+
+  // Neither direction may stall: both must make substantial forward and
+  // rotational progress over the 2 s window (400 cycles at 5 ms).
+  BOOST_CHECK_GT(positive.first.x(), 0.2);
+  BOOST_CHECK_GT(negative.first.x(), 0.2);
+  BOOST_CHECK_GT(positive.second, 0.3);
+  BOOST_CHECK_LT(negative.second, -0.3);
+
+  // Mirror symmetry: forward progress must match regardless of yaw sign, and
+  // the lateral drift / yaw must be mirror images of one another about y=0.
+  BOOST_CHECK_CLOSE(positive.first.x(), negative.first.x(), 25.0);
+  BOOST_CHECK_CLOSE(positive.first.y(), -negative.first.y(), 25.0);
+  BOOST_CHECK_CLOSE(positive.second, -negative.second, 25.0);
+}
+
 BOOST_AUTO_TEST_CASE(RollingContactControllerSynchronizesFloatingBase)
 {
   auto config = controllerConfiguration("hold");

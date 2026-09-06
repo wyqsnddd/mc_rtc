@@ -51,7 +51,7 @@
         "steeringPostureWeight": { "type": "number", "exclusiveMinimum": 0, "default": 1.0 },
         "steeringTimeConstant": { "type": "number", "exclusiveMinimum": 0, "default": 0.15 },
         "maxSteeringRate": { "type": "number", "exclusiveMinimum": 0 },
-        "driveAcceleration": { "type": "number", "exclusiveMinimum": 0, "default": 100.0 },
+        "driveAcceleration": { "type": "number", "exclusiveMinimum": 0, "default": 20.0 },
         "keyboardDriveAcceleration": { "type": "number", "exclusiveMinimum": 0, "deprecated": true },
         "rollingRateWeight": { "type": "number", "minimum": 0, "default": 4.0e7 },
         "steeringRateWeight": { "type": "number", "minimum": 0, "default": 4.0e7 },
