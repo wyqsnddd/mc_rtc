@@ -25,7 +25,6 @@
 \newcommand{\wheelAngle}{\phi}
 \newcommand{\wheelRadius}{r}
 \newcommand{\wheelSelector}{\bs{S}^{\wheelAngle}}
-\newcommand{\steeringSelector}{\bs{S}^{\delta}}
 \newcommand{\tangentProjector}{\text{P}}
 \newcommand{\slipVelocity}[1]{\contactVel_{\text{slip},#1}}
 \newcommand{\rollingMatrix}{\text{A}}
@@ -108,8 +107,6 @@ configuration, and let $\generalizedVelocity$ and
 $\generalizedAcceleration$ denote its velocity and acceleration. The vector
 $\generalizedVelocity$ contains the floating-base twist and every actuated
 joint velocity, including the wheel rate $\dot{\wheelAngle}_i$.
-For a steering wheel, the corresponding steering rate $\dot\delta_i$ is also
-an actuated joint velocity in this vector.
 
 For the \ith wheel, we define a unit surface normal $\surfaceNormal_i$, a unit
 rolling direction $\rollingDirection_i$, and a unit lateral direction
@@ -550,64 +547,10 @@ The plane-compatible part of the body twist is
   }_{\text{P}^{\fbFrame}_{\Pi}}
   \bodyVel{\inertialFrame}{\fbFrame}.
 \end{equation}
-
-
-The matrix in \eqref{eq:base-plane-projection} is a subspace projector, not
-a change of reference frame: it retains translation tangent to $\Pi$ and
-rotation about its normal, with both components represented in $\cframe[fb]$.
-If a frame-level change of reference is needed, use the shared twist transform
-\quickEq{eq:base-plane-transform}{
-  \bodyVel{\Pi}{\fbFrame}
-  = \bodyVelTransform{\inertialFrame}{\fbFrame}{\Pi}
-  = \twistTransform{\inertialFrame}{\fbFrame}
-      \bodyVel{\Pi}{\inertialFrame}
-    + \bodyVel{\inertialFrame}{\fbFrame}.
-}
-For a terrain frame fixed relative to the inertial frame,
-$\bodyVel{\Pi}{\inertialFrame}=\zeroVector$, so the two reference-frame
-descriptions coincide:
-$\bodyVel{\Pi}{\fbFrame}=\bodyVel{\inertialFrame}{\fbFrame}$.
-This does not mean that the robot twist
-$\bodyVel{\inertialFrame}{\fbFrame}$ is zero, and it does not remove the
-planar projector in \eqref{eq:base-plane-projection}; the latter is what
-enforces the tangent-translation/normal-rotation subspace used by the planar
-rolling model.
-
-Because the tangent basis is orthonormal and the normal is unit length,
-$({}^{\fbFrame}\text{E}_{\Pi})^{\top}{}^{\fbFrame}\text{E}_{\Pi}=\bs{I}_2$
-and
-$({}^{\fbFrame}\surfaceNormal_{\Pi})^{\top}{}^{\fbFrame}\surfaceNormal_{\Pi}=1$.
-Consequently, the projector factors into a coordinate embedding and a
-coordinate extraction:
-\quickEq{eq:base-planar-factorization}{
-  \text{P}^{\fbFrame}_{\Pi}
-  =
-  \begin{bmatrix}
-    {}^{\fbFrame}\text{E}_{\Pi} & \zeroMatrix\\
-    \zeroMatrix & {}^{\fbFrame}\surfaceNormal_{\Pi}
-  \end{bmatrix}
-  \begin{bmatrix}
-    \transpose{{}^{\fbFrame}\text{E}_{\Pi}} & \zeroMatrix\\
-    \zeroMatrix & \transpose{{}^{\fbFrame}\surfaceNormal_{\Pi}}
-  \end{bmatrix}.
-}
-The upper-left block of \eqref{eq:base-plane-projection},
-${}^{\fbFrame}\text{E}_{\Pi}\transpose{{}^{\fbFrame}\text{E}_{\Pi}}$, maps
-the translational velocity to its three-dimensional tangent component. The
-two-dimensional coordinates of that component are obtained with the second
-factor, ${}^{\fbFrame}\text{E}_{\Pi}^{\top}\). Likewise, the lower-right
-block maps angular velocity to a three-dimensional vector along the normal,
-while ${}^{\fbFrame}\surfaceNormal_{\Pi}^{\top}$ extracts its scalar normal
-component. The corresponding minimal three-coordinate planar twist is
-
+It retains translation tangent to the plane and rotation about its normal.
+The corresponding three-dimensional planar twist is
 \quickEq{eq:base-planar-twist}{
   \bs{\xi}^{\Pi}_{\fbFrame}
-  =
-  \begin{bmatrix}
-    \transpose{{}^{\fbFrame}\text{E}_{\Pi}} & \zeroMatrix\\
-    \zeroMatrix & \transpose{{}^{\fbFrame}\surfaceNormal_{\Pi}}
-  \end{bmatrix}
-  \bodyVel{\inertialFrame}{\fbFrame}
   = \vectorThree{
       \innerP{{}^{\fbFrame}\bs{e}_{\Pi,x}}
         {\bodyTV{\inertialFrame}{\fbFrame}}
@@ -619,10 +562,15 @@ component. The corresponding minimal three-coordinate planar twist is
         {\bodyRV{\inertialFrame}{\fbFrame}}
     }.
 }
-Thus, \eqref{eq:base-planar-twist} corresponds to the coordinate-extraction
-factor in \eqref{eq:base-planar-factorization}, not to the upper-left block
-itself. The latter is the three-dimensional tangent projector
-${}^{\fbFrame}\text{E}_{\Pi}\transpose{{}^{\fbFrame}\text{E}_{\Pi}}$.
+
+If I understand correclty, \eqref{eq:base-plane-projection} might be wrong. If it projects the $\bodyVel{\inertialFrame}{\fbFrame}$ into the terrain plane $\Pi$, we can directly use the twist transform: 
+\quickEq{ni}{
+  \bodyVel{\Pi}{\fbFrame}   
+   = \bodyVelTransform{\inertialFrame}{\fbFrame}{\Pi}
+}. As the $bodyVel{\inertialFrame}{\fbFrame}$ is zero, so actually $\bodyVel{\Pi}{\fbFrame}$ is equal to $\bodyVel{\inertialFrame}{\fbFrame}$
+
+
+
 
 The shared body-velocity transform gives the velocity of the carrier frame:
 \quickEq{eq:wheel-vel-calc}{
@@ -666,135 +614,31 @@ basis $[\bs{e}_{\Pi,x},\bs{e}_{\Pi,y}]$. Each wheel must satisfy
   \text{H}_i\bs{\xi}^{\Pi}_{\fbFrame}
   = \vectorTwo{\wheelRadius_i\dot{\wheelAngle}_i}{0}.
 }
-\subsubsection{Steering-wheel rotational velocity coupling}
-
-Equation~\eqref{eq:geometric-wheel-velocity-task} constrains the velocity of
-the wheel center at the contact patch. Its right-hand side contains only the
-rolling rate because a steering rotation about the terrain normal does not
-translate the wheel center when the steering axis passes through the wheel
-carrier. The steering rotation is nevertheless an independent wheel angular
-velocity. With $\surfaceNormal_{\Pi}$ as the steering (yaw) axis and the
-three-dimensional wheel-axle direction $\lateralDirection_i$ (whose planar
-coordinates are $\lateralDirection_i^{\Pi}$) as the pitch axis, the wheel
-angular velocity relative to its carrier is
-\quickEq{eq:steering-wheel-angular-velocity}{
-  \bs{\omega}_{w_i/c_i}^{\Pi}
-  = \dot\delta_i\surfaceNormal_{\Pi}
-    + \dot{\wheelAngle}_i\lateralDirection_i.
-}
-Here $\dot\delta_i$ denotes the steering-heading rate in the terrain basis.
-If the steering sensor reports a rate relative to the chassis instead, its
-contribution to the absolute heading rate must first be combined with the
-chassis yaw rate $\omega_{\Pi}$. The two rotating rates introduced by each
-steering wheel are therefore
-\quickEq{eq:four-steering-rotating-velocity-vector}{
-  \bs{\nu}_{\mathrm{rot},i}^{\mathrm{4s}}
-  = \vectorTwo{\dot{\wheelAngle}_i}{\dot\delta_i}
-  \in\RRv{2},
-  \qquad
-  \bs{\nu}_{\mathrm{rot}}^{\mathrm{4s}}
-  = \begin{bmatrix}
-      \bs{\nu}_{\mathrm{rot},1}^{\mathrm{4s}}\\
-      \vdots\\
-      \bs{\nu}_{\mathrm{rot},4}^{\mathrm{4s}}
-    \end{bmatrix}
-  \in\RRv{8}.
-}
-In the acceleration-level controller, these eight rates are optimized as
-one-step predicted velocities rather than treated as unrelated measured
-constants:
-\quickEq{eq:four-steering-rate-prediction}{
-  \bs{\nu}_{\mathrm{rot},i}^{\mathrm{4s},+}
-  = \vectorTwo{\dot{\wheelAngle}_i^{+}}{\dot\delta_i^{+}}
-  = \vectorTwo{\dot{\wheelAngle}_i}{\dot\delta_i}
-    + \samplingPeriod
-      \vectorTwo{\ddot{\wheelAngle}_i}{\ddot\delta_i}.
-}
-The superscript $+$ denotes the affine next-cycle prediction. Keeping this
-rate block explicit in the QP, or eliminating it with
-\eqref{eq:four-steering-rate-prediction}, is equivalent. In either form, a
-four-steering chassis has eight rotating velocities to track and bound: four
-rolling (pitch) rates and four steering (yaw) rates. A nonzero steering-axis
-offset adds its corresponding steering-induced carrier velocity to
-\eqref{eq:geometric-wheel-velocity-task}; it does not remove the independent
-rotational-rate block. Stacking the four predicted per-wheel blocks gives the
-eight-dimensional block $\bs{\nu}_{\mathrm{rot}}^{\mathrm{4s},+}$ included in
-the explicit four-steering QP below.
-
 Equation~\eqref{eq:geometric-wheel-velocity-task} is the explicit geometric
 task that makes every wheel rate agree with one floating-base velocity. If
 $\text{S}_{\Pi}\text{S}_{\fbFrame}\generalizedVelocity
-=\bs{\xi}^{\Pi}_{\fbFrame}$ and $\wheelSelector_i$ extracts the rolling rate,
-the corresponding homogeneous QP blocks are
+=\bs{\xi}^{\Pi}_{\fbFrame}$ and $\wheelSelector_i$ extracts the wheel rate,
+its homogeneous QP row is
 \quickEq{eq:geometric-wheel-homogeneous-task}{
-  \begin{aligned}
-    \underbrace{\left(
-      \begin{bmatrix}
-        \transpose{\rollingDirection_i^{\Pi}}\\
-        \transpose{\lateralDirection_i^{\Pi}}
-      \end{bmatrix}
-      \text{H}_i\text{S}_{\Pi}\text{S}_{\fbFrame}
-      - \vectorTwo{\wheelRadius_i}{0}\wheelSelector_i
-    \right)}_{\text{G}^{\text{geo}}_i}
-    \generalizedVelocity &= \zeroVector,\\[-1pt]
-    \underbrace{\left(
-      \begin{bmatrix}
-        \transpose{\lateralDirection_i}\\
-        \transpose{\surfaceNormal_{\Pi}}
-      \end{bmatrix}
-      \bs{A}_{\omega}
-      \left(\jacobian[][w_i]-\jacobian[][c_i]\right)
-      - \begin{bmatrix}
-          \wheelSelector_i\\
-          \steeringSelector_i
-        \end{bmatrix}
-    \right)}_{\text{G}^{\text{rot}}_i}
-    \generalizedVelocity &= \zeroVector.
-  \end{aligned}
+  \underbrace{\left(
+    \begin{bmatrix}
+      \transpose{\rollingDirection_i^{\Pi}}\\
+      \transpose{\lateralDirection_i^{\Pi}}
+    \end{bmatrix}
+    \text{H}_i\text{S}_{\Pi}\text{S}_{\fbFrame}
+    - \vectorTwo{\wheelRadius_i}{0}\wheelSelector_i
+  \right)}_{\text{G}^{\text{geo}}_i}
+  \generalizedVelocity = \zeroVector.
 }
-Here $w_i$ is the wheel frame and
-$\bs{A}_{\omega}=\begin{bmatrix}\zeroMatrix&\bs{I}_3\end{bmatrix}$ extracts
-the angular part of a spatial Jacobian. The second row block enforces the
-rotational coupling
-$\bs{\omega}_{w_i/c_i}^{\Pi}
- =\dot{\wheelAngle}_i\lateralDirection_i
-  +\dot\delta_i\surfaceNormal_{\Pi}$ from
-\eqref{eq:steering-wheel-angular-velocity}; the first row block remains the
-wheel-center rolling/no-skid constraint. For a differential-drive wheel, only
-the first (translational) block is present. For a steering wheel, both blocks
-are retained. If the wheel and carrier Jacobians already contain the two joint
-rates identically, the rotational block is a kinematic consistency identity,
-so its differentiated identity row may be omitted. The explicit predicted-rate
-block in \eqref{eq:four-steering-decision-vector} still carries the eight
-optimized rotating velocities. Do not add a second copy of an identity row to
-the same QP. The acceleration-level equalities are consequently
+The acceleration-level equality inserted into the QP is consequently
 \quickEq{eq:geometric-wheel-acceleration-task}{
-  \begin{bmatrix}
-    \text{G}^{\text{geo}}_i\\
-    \text{G}^{\text{rot}}_i
-  \end{bmatrix}
-  \generalizedAcceleration
-  = -
-  \begin{bmatrix}
-    \dot{\text{G}}^{\text{geo}}_i\\
-    \dot{\text{G}}^{\text{rot}}_i
-  \end{bmatrix}
-  \generalizedVelocity
-  - \pGain
-  \begin{bmatrix}
-    \text{G}^{\text{geo}}_i\\
-    \text{G}^{\text{rot}}_i
-  \end{bmatrix}
-  \generalizedVelocity.
+  \text{G}^{\text{geo}}_i\generalizedAcceleration
+  = -\dot{\text{G}}^{\text{geo}}_i\generalizedVelocity
+    - \pGain\text{G}^{\text{geo}}_i\generalizedVelocity.
 }
-For a differential-drive chassis, instantiate only the $\text{G}^{\text{geo}}_i$
-rows. For a four-steering chassis, instantiate both the $\text{G}^{\text{geo}}_i$
-and $\text{G}^{\text{rot}}_i$ rows (or eliminate the latter when they are
-identities already represented by the joint-rate coordinates). In that case,
-the explicit predicted-rate block in
-\eqref{eq:four-steering-decision-vector} still carries the eight optimized
-rotating velocities, while the redundant identity rows are omitted. In either
-case, use these rows in place of the equivalent longitudinal and lateral rows of
+For these two chassis types, use the rows of
+\eqref{eq:geometric-wheel-acceleration-task} in place of the equivalent
+longitudinal and lateral rows of
 \eqref{eq:homogeneous-rolling-acceleration}; do not impose both copies. The
 normal row remains the contact-maintenance constraint.
 
@@ -1032,43 +876,6 @@ QP is
   \end{aligned}
 \end{equation}
 \end{samepage}
-\shadowRemark{
-  The objective in \eqref{eq:differential-drive-qp} has three distinct
-  purposes. The first term tracks the desired planar body twist with the
-  affine one-cycle prediction
-  $\bs{\xi}^{\Pi}_{\fbFrame}
-    +\samplingPeriod\dot{\bs{\xi}}^{\Pi}_{\fbFrame}$; this is the planar
-  counterpart of the velocity prediction in
-  \eqref{eq:ideal-rolling-velocity-prediction}. The acceleration term for each
-  wheel tracks its requested rolling acceleration, while the torque term
-  regularizes drive effort. The weights set the trade-off between motion
-  tracking, wheel-command tracking, and actuator effort; they do not replace
-  any physical constraint.
-
-  The first equality is the reduced differential-drive instance of the full
-  equations of motion~\eqref{eq:rolling-equations-of-motion}: $\bs{a}_{\text{diff}}$
-  contains the planar base and wheel accelerations, the two entries of
-  $\vectorTwo{\jtorques_{\wheelAngle_L}}{\jtorques_{\wheelAngle_R}}$ are the
-  drive torques, and each $\transpose{\text{J}_{\text{diff},i}}
-  \cone[f][i]\generator{\force_i}$ is the wrench generated by contact $i$.
-  The next two rows are the differentiated left and right instances of
-  \eqref{eq:differential-geometric-constraints}; the signs of $b/2$ follow
-  from the offsets in \eqref{eq:differential-wheel-geometry}. The row
-  $\dot v_y=0$ is the shared lateral no-skid condition, so only one copy is
-  needed as explained after \eqref{eq:differential-geometric-constraints}.
-
-  The generator inequalities and equalities are exactly the local friction
-  cone representation~\eqref{eq:rolling-force-generators}; they keep both
-  contact forces inside their rolling-frame cones. The final acceleration and
-  torque bounds are the actuator limits (the torque convention is the one in
-  \eqref{eq:wheel-torque-bound}). For a complete contact-maintaining model,
-  append the normal acceleration row from
-  \eqref{eq:ideal-rolling-whole-body-qp} for each active wheel. If the current
-  rolling residual is not zero, replace the ideal right-hand sides by the
-  proportional-stabilized rows of
-  \eqref{eq:geometric-wheel-acceleration-task}; otherwise the displayed
-  differentiated rows enforce the ideal zero-residual model.
-}
 The three kinematic rows are the differentiated form of
 \eqref{eq:differential-geometric-constraints} under the ideal zero-residual
 assumption. If the measured residual is nonzero, add the proportional
@@ -1095,7 +902,6 @@ The complete reduced decision and acceleration vectors are
   \decisionVar_{\text{4s}}
   = \begin{bmatrix}
       \dot{\bs{\xi}}^{\Pi}_{\fbFrame}\\
-      \bs{\nu}_{\mathrm{rot}}^{\mathrm{4s},+}\\
       \generator{\force_1}\\
       \vdots\\
       \generator{\force_4}\\
@@ -1147,10 +953,6 @@ An explicit ideal four-steering-wheel QP is
         \weight_{\wheelAngle,i}
         \squared{\ddot{\wheelAngle}_i-\reff{\ddot{\wheelAngle}}_i}
         +\weight_{\delta,i}\squared{\ddot\delta_i-\reff{\ddot\delta}_i}
-        +\weight_{\dot{\wheelAngle},i}
-          \squared{\dot{\wheelAngle}_i^{+}-\reff{\dot{\wheelAngle}}_i}
-        +\weight_{\dot\delta,i}
-          \squared{\dot\delta_i^{+}-\reff{\dot\delta}_i}
         +\weight_{\jtorques_{\wheelAngle},i}
           \squared{\jtorques_{\wheelAngle_i}}
         +\weight_{\jtorques_{\delta},i}\squared{\jtorques_{\delta_i}}
@@ -1163,11 +965,6 @@ An explicit ideal four-steering-wheel QP is
         +\sum_{i=1}^{4}
           \transpose{\text{J}_{\text{4s},i}}
           \cone[f][i]\generator{\force_i},\\
-      &\bs{\nu}_{\mathrm{rot},i}^{\mathrm{4s},+}
-        = \vectorTwo{\dot{\wheelAngle}_i}{\dot\delta_i}
-          +\samplingPeriod
-            \vectorTwo{\ddot{\wheelAngle}_i}{\ddot\delta_i},
-        \qquad i=1,\ldots,4,\\
       &\left(\rollingDirection^{\Pi}_i\right)^\top
           \text{H}_i\dot{\bs{\xi}}^{\Pi}_{\fbFrame}
         +\left(\dot{\rollingDirection}^{\Pi}_i\right)^\top
@@ -1182,13 +979,6 @@ An explicit ideal four-steering-wheel QP is
       &\generator{\force_i}\geq\zeroVector,
         \quad \force_i=\cone[f][i]\generator{\force_i},
         \qquad i=1,\ldots,4,\\
-      &\dot{\wheelAngle}_{i,\text{min}}
-        \leq\dot{\wheelAngle}_i^{+}
-        \leq\dot{\wheelAngle}_{i,\text{max}},
-        \quad
-        \dot\delta_{i,\text{min}}
-        \leq\dot\delta_i^{+}
-        \leq\dot\delta_{i,\text{max}},\\
       &\ddot{\wheelAngle}_{i,\text{min}}
         \leq\ddot{\wheelAngle}_i
         \leq\ddot{\wheelAngle}_{i,\text{max}},
@@ -1205,54 +995,6 @@ An explicit ideal four-steering-wheel QP is
         \leq\jtorques_{\delta_i,\text{max}}.
   \end{aligned}
 \end{equation}
-\shadowRemark{
-  The objective in \eqref{eq:four-steering-wheel-qp} separates the body-twist
-  objective from six wheel-level terms that are useful to tune. The first term
-  tracks the desired planar body twist using the one-cycle prediction
-  $\bs{\xi}^{\Pi}_{\fbFrame}
-    +\samplingPeriod\dot{\bs{\xi}}^{\Pi}_{\fbFrame}$. The next two terms
-  track the requested rolling and steering accelerations. The following two
-  terms track the four predicted rolling rates and four predicted steering
-  rates from \eqref{eq:four-steering-rate-prediction}; together these are the
-  eight rotating velocities of the four-steering chassis. The final two terms
-  regularize rolling and steering torques. Thus, the rate and acceleration
-  references are motion objectives, whereas the torque terms discourage
-  unnecessary actuator effort.
-
-  The first equality is the reduced four-steering instance of the full
-  equations of motion~\eqref{eq:rolling-equations-of-motion}. It couples the
-  planar base accelerations, all eight wheel-joint accelerations in
-  $\bs{a}_{\text{4s}}$, the eight actuator torques in
-  $\jtorques_{\text{4s}}$, and the four contact wrenches. The per-wheel
-  equality for $\bs{\nu}_{\mathrm{rot},i}^{\mathrm{4s},+}$ is the affine
-  prediction~\eqref{eq:four-steering-rate-prediction}; it makes the optimized
-  rolling (pitch) and steering (yaw) rates explicit rather than hiding them
-  inside the acceleration variables.
-
-  The next two rows are the rolling and lateral components of the differentiated
-  geometric block $\text{G}^{\text{geo}}_i$ in
-  \eqref{eq:geometric-wheel-homogeneous-task}. They are the acceleration-level
-  expansion of \eqref{eq:geometric-wheel-velocity-task}: the first row matches
-  carrier speed to rim speed, and the second suppresses lateral slip. Their
-  known direction-derivative terms are evaluated with
-  \eqref{eq:steering-direction-derivatives}, keeping the problem quadratic
-  during one solve. If the wheel/carrier spatial Jacobians do not already make
-  the rotational block $\text{G}^{\text{rot}}_i$ an identity, append its two
-  differentiated rows from \eqref{eq:geometric-wheel-acceleration-task}; if
-  they do, the explicit rate equality above is sufficient and the duplicate
-  identity rows should be omitted.
-
-  The generator constraints are the local rolling-frame friction-cone
-  representation~\eqref{eq:rolling-force-generators}. The predicted-rate,
-  acceleration, and torque inequalities enforce the corresponding joint
-  limits at the current and next cycle. Finally, append the normal
-  contact-maintenance row from
-  \eqref{eq:ideal-rolling-whole-body-qp} for every active wheel. If a rolling
-  residual is nonzero, replace the ideal differentiated rows by the
-  proportional-stabilized form in
-  \eqref{eq:geometric-wheel-acceleration-task}; none of these feasibility
-  constraints should be replaced by torque clipping.
-}
 The instantaneous rolling rows depend on the measured steering rate through
 \eqref{eq:steering-direction-derivatives}; the steering acceleration
 $\ddot\delta_i$ enters the dynamics, bounds, and steering objective, and
@@ -1687,148 +1429,5 @@ torque--radius relation with complete dynamics and
 \eqref{eq:geometric-wheel-acceleration-task} couples every differential or
 steering wheel to one projected floating-base twist; slacks and mode
 transitions handle incompatible commands without a separate pseudoinverse.
-
-
-\section{Validations}
-\label{sec:validation}
-
-Every claim below is pinned by an automated test. Names in \texttt{typewriter}
-are Boost test cases; the rolling-contact families are registered with CTest and
-run with \texttt{CUDA\_VISIBLE\_DEVICES=-1} and
-\texttt{MC\_RTC\_DISABLE\_CONVEX\_GENERATION\_PATCH=ON} in the environment.
-Numbers are the values those tests print, measured at $\Delta t = 5$~ms.
-
-\subsection{The rotating-rate block reaches the optimizer}
-\label{sec:validation-rate-rows}
-
-\begin{enumerate}
-
-\item \emph{Creating a floating-base task, namely, we can associate the error
-  dynamics to the steering wheels.} The rotating-rate rows of
-  \eqref{eq:four-steering-wheel-qp} give the steering coordinate a nonzero
-  column, which the carrier translational Jacobian alone cannot supply: the
-  steering axis passes through the wheel centre, so steering produces no
-  translation of that centre and the corresponding column of every purely
-  translational rolling row vanishes identically.
-  \texttt{RotatingRateRowsSteerTowardsTheReference} solves the same QP with and
-  without the rate block for a $0.6$~rad/s steering-rate reference. Without the
-  block the optimal steering acceleration is \emph{identically} zero; with it
-  the Tasks backend returns $0.597$~rad/s$^2$ ($=0.6/1.005$) and the TVM backend
-  $1.481$~rad/s$^2$, each matching its own closed form.
-
-\item The rows are the affine prediction of
-  \eqref{eq:four-steering-rate-prediction}, not an approximation of it:
-  \texttt{RotatingRateRowsMatchTheAffinePrediction} reconstructs the predicted
-  rolling and steering rate from the returned coefficient row and the solved
-  acceleration, and compares it against the reference for every wheel.
-
-\item The block is present in both backends.
-  \texttt{RollingTVMRotatingRateRowsReachTheSolver} checks that the TVM
-  \texttt{RollingContactFunction} emits the same rows the Tasks-side constraint
-  does, so a change on one side that is not mirrored on the other fails.
-
-\item Because a rate row's coefficients carry $\Delta t$, its weight enters the
-  objective multiplied by $\Delta t^{2}$.
-  \texttt{RotatingRateRowsFollowTheBlockWeight} pins the realised weight ($40$
-  for the configured block) and pins that it is rebuilt when the rolling block
-  weight changes, so the scaling cannot silently drift.
-
-\end{enumerate}
-
-\subsection{Per-wheel references invert the expanded constraints}
-\label{sec:validation-references}
-
-\begin{enumerate}
-
-\item \texttt{SteeringReferenceInvertsTheExpandedConstraints} checks
-  \texttt{mc\_rbdyn::steeringWheelReference} against
-  \eqref{eq:steering-expanded-constraints} directly: for a commanded projected
-  twist it recovers the per-wheel steering angle and rolling rate that satisfy
-  both the rolling equality and the zero-lateral-slip equality, including the
-  $\pm 90^{\circ}$ hinge limits of the Ranger Mini~V3.
-
-\item \texttt{RangerWheelOffsetsMatchTheUrdfLayout} pins the four wheel offsets
-  $(\pm 0.247, \pm 0.182)$~m against the URDF, so the $x_i$, $y_i$ entering
-  \eqref{eq:steering-expanded-constraints} cannot drift from the model.
-
-\item \texttt{YawCommandRollsTheFrontWheelsInOppositeDirections} pins the sign
-  convention of the yaw command at the wheel level, and
-  \texttt{KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading} pins that
-  the closed-loop heading target follows the measured world heading (a sensor
-  yaw of $0.4$ giving a world yaw of $-0.4$, the SpaceVecAlg world-to-body
-  convention) rather than an integrated open-loop target. Both replace
-  empirical sign mirrors that earlier revisions carried.
-
-\end{enumerate}
-
-\subsection{Closed-loop behaviour}
-\label{sec:validation-closed-loop}
-
-\begin{enumerate}
-
-\item \texttt{FourSteeringTracksCommandedTwistSigns} drives the assembled
-  controller for $400$ cycles per direction through \texttt{setCommandedTwist}
-  and measures the chassis displacement: forward $\Delta x = +0.5929$, backward
-  $-0.5929$, crab-left $\Delta y = +0.5353$, crab-right $-0.5353$, yaw-positive
-  $\Delta\psi = +0.9186$, yaw-negative $-0.9186$. The three axes are exact
-  mirrors, which the earlier open-loop layer only achieved with a yaw sign
-  mirror and the empirical scale factors \texttt{keyboardYawScale} $=1.7$ and
-  \texttt{keyboardMixedDriveScale} $=1.15$; those are removed.
-
-\item \texttt{FourSteeringCommandChangeKeepsResidualsBounded} steps the command
-  through a sequence of twists and bounds the transient: the worst lateral slip
-  over the whole sequence is $0.0793$~m/s at the configured $100$~rad/s$^2$
-  drive-reference slope, against $0.291$~m/s at the $20$~rad/s$^2$ the keyboard
-  profile previously used.
-
-\item The CTest fixtures \texttt{RollingContactControllerFourSteering} and
-  \texttt{RollingContactControllerTVMFourSteering} run \texttt{mc\_rtc\_ticker}
-  for $1000$ cycles on each backend and hand the binary log to
-  \texttt{scripts/check-controller-log.py}, which checks the contact-mode
-  timeline, the residual bounds and the solver status. Driving the scripted
-  scenarios through the ticker at $v = 0.15$~m/s and
-  $\omega = 0.25$~rad/s reproduces the commanded motion over $5$~s: forward
-  $\Delta x = +0.7462$, reverse $-0.7462$, crab $(+0.7138, +0.2142)$ (a heading
-  of $0.29$ against the commanded $0.3$~rad), pure yaw $\Delta\psi = +1.2121$,
-  and Ackermann-left $(+0.5822, +0.3908)$ with $\Delta\psi = +1.2140$.
-
-\item The full mc\_rtc regression is $104/104$ on this tree.
-
-\end{enumerate}
-
-\subsection{Open failures}
-\label{sec:validation-open}
-
-The following are \emph{not} validated. They are recorded here so the document
-does not overstate what the implementation currently achieves.
-
-\begin{enumerate}
-
-\item \textbf{Right-hand Ackermann stalls in the kinematic ticker.} With the
-  commanded twist $(0.15, 0, -0.25)$ the four-steering controller loses contact
-  on the front-left and rear-right wheels at cycle~$2$ and stays detached for
-  $781$ of $1000$ cycles; the rolling and steering rate references are zeroed
-  while detached and the chassis advances $0.042$~m instead of $0.75$~m. The
-  mirrored command $(0.15, 0, +0.25)$ is clean for all $1000$ cycles. The
-  per-wheel references at the first two cycles are exact mirrors of each other,
-  so the asymmetry arises inside the QP and the contact-mode logic, not in the
-  inversion of \eqref{eq:steering-expanded-constraints}. The pre-rewrite
-  controller is symmetric on the same command ($\Delta x = +0.5197$,
-  $\Delta y = \mp 0.2997$, $\Delta\psi = \pm 1.0466$, zero detached cycles), so
-  this is a regression of the rate-row controller and not of the formulation of
-  \S\ref{sec:validation-rate-rows}. No test covers a mixed
-  forward-plus-\emph{negative}-yaw command, which is why it was not caught.
-
-\item \textbf{Steered manoeuvres fail in closed-loop MuJoCo.} On the pinned CPU
-  MuJoCo runner, \texttt{four-forward} and \texttt{four-pure-yaw} pass on both
-  backends, but \texttt{four-crab} and \texttt{four-ackermann-left} fail on
-  both: the drive torque saturates at the $35$~Nm actuator limit, the minimum
-  normal force reaches zero, the contact-fallback sample fraction is $0.93$ to
-  $0.95$, and the peak rolling slip is $0.22$ to $0.66$~m/s. The same four cases
-  pass on both backends with the pre-rewrite controller, so these too are
-  regressions of the rate-row controller rather than of the formulation.
-
-\end{enumerate}
-
 
 \end{document}

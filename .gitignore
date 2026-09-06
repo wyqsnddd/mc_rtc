@@ -13,3 +13,11 @@ utils/build_and_install_user_config.sh
 .direnv/
 result
 /build*
+# LaTeX build products of the (local, non-upstream) rolling-contact report
+rolling-contact-report/*.aux
+rolling-contact-report/*.bbl
+rolling-contact-report/*.blg
+rolling-contact-report/*.log
+rolling-contact-report/*.out
+rolling-contact-report/*.pdf
+rolling-contact-report/*.toc
