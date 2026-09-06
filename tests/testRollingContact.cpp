@@ -461,6 +461,33 @@ BOOST_AUTO_TEST_CASE(SteeringReferenceInvertsTheExpandedConstraints)
   BOOST_CHECK_SMALL(-s * point.x() + c * point.y(), 1e-12);
 }
 
+BOOST_AUTO_TEST_CASE(YawCommandRollsTheFrontWheelsInOppositeDirections)
+{
+  // Pin the yaw convention at the geometry layer: a +z yaw command spins the
+  // left and right wheels of an axle in opposite directions. Everything above
+  // this (QP rate rows, controller references) inherits that sign, so a silent
+  // flip here would mirror every commanded turn.
+  auto left = rangerFrontLeftWheel();
+  auto right = rangerFrontLeftWheel();
+  right.offset.y() = -left.offset.y();
+
+  const Eigen::Vector3d yawCommand(0.0, 0.0, 1.0);
+  const auto leftReference = mc_rbdyn::steeringWheelReference(left, yawCommand, 0.0);
+  const auto rightReference = mc_rbdyn::steeringWheelReference(right, yawCommand, 0.0);
+  BOOST_REQUIRE(leftReference.commanded);
+  BOOST_REQUIRE(rightReference.commanded);
+  BOOST_CHECK_LT(leftReference.rollingRate * rightReference.rollingRate, 0.0);
+  BOOST_CHECK_LT(leftReference.rollingRate, 0.0);
+  BOOST_CHECK_GT(rightReference.rollingRate, 0.0);
+  // Both wheels sit at the same distance from the chassis centre, so the yaw
+  // command asks them for the same speed with opposite signs.
+  BOOST_CHECK_CLOSE(std::abs(leftReference.rollingRate), std::abs(rightReference.rollingRate), 1e-9);
+  BOOST_CHECK_CLOSE(std::abs(leftReference.rollingRate), std::hypot(0.247, 0.182) / 0.125, 1e-9);
+  // The headings mirror across the chassis' longitudinal axis.
+  BOOST_CHECK_CLOSE(leftReference.steeringAngle, std::atan2(0.247, -0.182) - pi, 1e-9);
+  BOOST_CHECK_CLOSE(rightReference.steeringAngle, std::atan2(0.247, 0.182), 1e-9);
+}
+
 BOOST_AUTO_TEST_CASE(SteeringReferenceStaysWithinLimitsAndAvoidsBranchChatter)
 {
   const auto wheel = rangerFrontLeftWheel();

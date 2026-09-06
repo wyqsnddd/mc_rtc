@@ -4,6 +4,10 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
+
 #include <array>
 #include <cmath>
 #include <limits>
@@ -70,6 +74,51 @@ std::unique_ptr<mc_control::MCRollingContactController> makeRangerController()
  * sva::PTransformd::rotation() is the world-to-body map E_0_b, so
  * E_0_b * d_world are the world displacement's coordinates in the body frame.
  */
+/** Temporarily point standard input at a pseudo-terminal.
+ *
+ * The "keyboard" scenario refuses to start unless stdin is interactive, and a
+ * test binary run by CTest has a pipe there. Rather than adding a test-only
+ * escape hatch to the controller, hand it a real tty for the duration of the
+ * test so the production guard runs exactly as it does for an operator.
+ */
+struct ScopedPseudoTerminalStdin
+{
+  ScopedPseudoTerminalStdin()
+  {
+    master_ = ::posix_openpt(O_RDWR | O_NOCTTY);
+    if(master_ < 0 || ::grantpt(master_) != 0 || ::unlockpt(master_) != 0) { return; }
+    const char * name = ::ptsname(master_);
+    if(!name) { return; }
+    slave_ = ::open(name, O_RDWR | O_NOCTTY);
+    if(slave_ < 0) { return; }
+    savedStdin_ = ::dup(STDIN_FILENO);
+    if(savedStdin_ < 0 || ::dup2(slave_, STDIN_FILENO) < 0) { return; }
+    active_ = true;
+  }
+
+  ~ScopedPseudoTerminalStdin()
+  {
+    if(savedStdin_ >= 0)
+    {
+      ::dup2(savedStdin_, STDIN_FILENO);
+      ::close(savedStdin_);
+    }
+    if(slave_ >= 0) { ::close(slave_); }
+    if(master_ >= 0) { ::close(master_); }
+  }
+
+  ScopedPseudoTerminalStdin(const ScopedPseudoTerminalStdin &) = delete;
+  ScopedPseudoTerminalStdin & operator=(const ScopedPseudoTerminalStdin &) = delete;
+
+  bool active() const noexcept { return active_ && ::isatty(STDIN_FILENO) == 1; }
+
+private:
+  int master_ = -1;
+  int slave_ = -1;
+  int savedStdin_ = -1;
+  bool active_ = false;
+};
+
 Eigen::Vector3d chassisMotion(const sva::PTransformd & start, const sva::PTransformd & end)
 {
   return start.rotation() * (end.translation() - start.translation());
@@ -264,6 +313,64 @@ BOOST_AUTO_TEST_CASE(RollingContactControllerSynchronizesFloatingBase)
   BOOST_CHECK_SMALL((real.posW().rotation() - measuredWorldToBody.toRotationMatrix()).norm(), 1e-12);
   BOOST_CHECK_SMALL((real.velW().linear() - measuredLinearVelocity).norm(), 1e-12);
   BOOST_CHECK_SMALL((real.velW().angular() - measuredAngularVelocity).norm(), 1e-12);
+}
+
+BOOST_AUTO_TEST_CASE(KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading)
+{
+  // The closed-loop keyboard path is the one place where baseYawTarget_ is not
+  // the world heading: it copies measuredYaw, read off posW().rotation().col(0).
+  // posW().rotation() is the inertial-to-body map E_0_b, so a chassis yawed by
+  // psi in the world stores -psi there, and run() has to negate it back before
+  // building the translation heading. That negation had no coverage at all, so
+  // pin both halves of it here.
+  ScopedPseudoTerminalStdin tty;
+  BOOST_REQUIRE_MESSAGE(tty.active(), "could not allocate a pseudo-terminal for the keyboard scenario");
+  auto config = controllerConfiguration("keyboard");
+  config("RollingContact").add("closedLoopFeedback", true);
+  mc_control::MCRollingContactController controller(
+      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
+  controller.reset({controller.robot().mbc().q});
+
+  // Sensor orientation is the inertial-to-body rotation, so this is a chassis
+  // whose +X axis really points at -0.4 rad in the world.
+  constexpr double sensorYaw = 0.4;
+  auto & sensor = controller.robot().data()->bodySensors[
+      controller.robot().data()->bodySensorsIndex.at("FloatingBase")];
+  sensor.orientation(Eigen::Quaterniond{Eigen::AngleAxisd(sensorYaw, Eigen::Vector3d::UnitZ())});
+  sensor.position(controller.robot().posW().translation());
+  BOOST_REQUIRE(controller.run());
+
+  // The true world heading of the chassis' +X axis: E_0_b^T * e_x.
+  const Eigen::Vector3d worldForward = controller.robot().posW().rotation().transpose().col(0);
+  const double worldYaw = std::atan2(worldForward.y(), worldForward.x());
+  BOOST_CHECK_CLOSE(worldYaw, -sensorYaw, 1e-6);
+
+  // baseYawTarget_ holds the mirrored value, which is exactly why run() negates
+  // it. If this ever equals worldYaw instead, the negation must go with it.
+  const double baseYawTarget = controller.datastore().call<double>("RollingContact::GetBaseYawTarget");
+  BOOST_CHECK_CLOSE(baseYawTarget, sensorYaw, 1e-6);
+  BOOST_CHECK_CLOSE(-baseYawTarget, worldYaw, 1e-6);
+
+  // Now pin the consequence rather than only the premise: a forward command
+  // must walk the integrated position target along the chassis' true world
+  // heading. Without the negation the target walks along +sensorYaw instead,
+  // i.e. mirrored about the world X axis. Drive it through the GUI input,
+  // which the keyboard poll adds to the key state every cycle; setCommandedTwist
+  // would be overwritten by that same poll.
+  BOOST_REQUIRE(controller.gui()->handleRequest({"Rolling Contact", "Command"}, "Forward velocity",
+                                                mc_rtc::Configuration::fromData("0.3")));
+  const Eigen::Vector3d targetBefore =
+      controller.datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionTarget");
+  for(int cycle = 0; cycle < 20; ++cycle) { BOOST_REQUIRE(controller.run()); }
+  const Eigen::Vector3d targetAfter =
+      controller.datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionTarget");
+
+  const Eigen::Vector3d walked = targetAfter - targetBefore;
+  BOOST_REQUIRE_GT(walked.head<2>().norm(), 1e-6);
+  const double walkedYaw = std::atan2(walked.y(), walked.x());
+  BOOST_TEST_MESSAGE("[keyboard-heading] sensorYaw=" << sensorYaw << " worldYaw=" << worldYaw
+                                                     << " walkedYaw=" << walkedYaw);
+  BOOST_CHECK_SMALL(std::remainder(walkedYaw - worldYaw, 2.0 * 3.14159265358979323846), 1e-6);
 }
 
 BOOST_AUTO_TEST_CASE(RollingContactControllerRejectsInvalidConfiguration)

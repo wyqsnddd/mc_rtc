@@ -1167,13 +1167,23 @@ void MCRollingContactController::updateReference()
   {
     baseYawTarget_ = std::remainder(baseYawTarget_ + yaw * solver().dt(), 2.0 * 3.14159265358979323846);
   }
-  // Robot::posW().rotation() (and the MuJoCo FloatingBase sensor) stores the
-  // inertial-to-body rotation. Its first column therefore carries the
-  // opposite signed yaw from the world direction in which the chassis' +X
-  // axis actually travels. Use the reflected heading for closed-loop
-  // keyboard translation; otherwise a W+Q/W+E command follows the mirrored
-  // circle and accumulates a metre-scale position-task error even though the
-  // measured body-forward speed is correct.
+  // The two branches above leave baseYawTarget_ in two different conventions,
+  // so the heading below has to undo the difference.
+  //
+  // Everywhere except closed-loop keyboard, baseYawTarget_ integrates the
+  // commanded yaw rate, so it already is the world heading.
+  //
+  // Closed-loop keyboard instead copies measuredYaw, which is read off
+  // posW().rotation().col(0). Robot::posW().rotation() (and the MuJoCo
+  // FloatingBase sensor) is the inertial-to-body map E_0_b, so for a chassis
+  // yawed by psi in the world E_0_b = Rz(psi)^T and its first column is
+  // (cos psi, -sin psi). measuredYaw is therefore -psi, the negation of the
+  // world direction the chassis' +X axis actually travels, and the sign has
+  // to be flipped back here. Without the flip a W+Q/W+E command follows the
+  // mirrored circle and accumulates a metre-scale position-task error even
+  // though the measured body-forward speed is correct.
+  //
+  // KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading pins this.
   const double trajectoryHeadingYaw = scenario_ == "keyboard" && closedLoopFeedback_ ? -baseYawTarget_ : baseYawTarget_;
   const Eigen::Vector3d heading = std::cos(trajectoryHeadingYaw) * terrainTangentX_
                                   + std::sin(trajectoryHeadingYaw) * terrainTangentY_;

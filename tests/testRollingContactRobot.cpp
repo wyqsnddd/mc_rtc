@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <utility>
 
 #include "utils.h"
 
@@ -217,6 +218,33 @@ BOOST_AUTO_TEST_CASE(LoadRangerMiniV3RollingRobot)
   BOOST_CHECK_CLOSE(wheel->radius(), 0.125, 1e-12);
   BOOST_CHECK_CLOSE(wheel->width(), 0.08, 1e-12);
   checkBodyInertias(robot);
+}
+
+BOOST_AUTO_TEST_CASE(RangerWheelOffsetsMatchTheUrdfLayout)
+{
+  // The controller derives wheelOffsets_ from the carrier frames expressed in
+  // the chassis frame rather than from a hand-written table. Pin the layout
+  // those frames must produce so a model or ordering change cannot silently
+  // desynchronize the QP's steering geometry from the URDF.
+  auto module = loadModule("ranger_mini_v3");
+  BOOST_REQUIRE(module);
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+
+  const std::array<std::pair<std::string, Eigen::Vector2d>, 4> layout = {
+      std::make_pair(std::string("front_left"), Eigen::Vector2d(0.247, 0.182)),
+      std::make_pair(std::string("front_right"), Eigen::Vector2d(0.247, -0.182)),
+      std::make_pair(std::string("rear_left"), Eigen::Vector2d(-0.247, 0.182)),
+      std::make_pair(std::string("rear_right"), Eigen::Vector2d(-0.247, -0.182))};
+  const auto & chassis = robot.frame("chassis").position();
+  for(const auto & [corner, expected] : layout)
+  {
+    BOOST_REQUIRE(robot.hasFrame(corner + "_carrier"));
+    const Eigen::Vector3d worldOffset =
+        robot.frame(corner + "_carrier").position().translation() - chassis.translation();
+    const Eigen::Vector2d offset = (chassis.rotation() * worldOffset).head<2>();
+    BOOST_CHECK_SMALL((offset - expected).norm(), 1e-12);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(RejectUnknownRollingRobotVariant)
