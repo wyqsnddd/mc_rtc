@@ -1001,3 +1001,141 @@ in GEO-02.
 **Regression.** Rolling CTest 14/14, full CTest 104/104, both unchanged from
 the pre-task baseline. This task added tests and one guard; no existing number
 moved.
+
+## Task 2 — softening the four lateral rows, and the `lateralSlackWeight` sweep (2026-09-07)
+
+`rolling-contact-qp-corrected.tex` (`re:four-steering-lateral-slack`) softens the
+four lateral rows with one slack per wheel, and is emphatic that this "is not a
+stylistic choice". This entry records the measurements behind the change and,
+in particular, the two-sided window the new weight lives in.
+
+**The rank claim, confirmed.** With `a_i^T = [-sin d_i, cos d_i,
+x_i cos d_i + y_i sin d_i]` the four lateral rows form `A xi_dot = c` with `A`
+4x3. Measured on the `rolling_4s` model
+(`LateralRowsAreStructurallyOverDeterminedOnThreePlanarDof`):
+
+| Steering angles | rank | singular values |
+| --- | --- | --- |
+| Coordinated (common-ICR Ackermann, `linear=0.15`, `yaw=0.05`) | 2 | 1.97723, 0.951658, 3.7e-17 |
+| Not coordinated (`+0.30, -0.10, +0.20, -0.30` rad) | 3 | 1.95018, 0.87305, 0.440016 |
+
+The non-coordinated block is not marginally full rank: its third singular value
+is a fifth of the second, far above any sensible threshold. The whole-body rows
+the QP actually assembles reproduce this exactly — their drive and steering
+columns are identically zero (assumption A3: the steering axis passes through
+the carrier), and the singular values of the 4x14 block match the planar 4x3
+ones to `1e-9` with a fourth value at `8.7e-17`.
+
+`GEO-09` (`IcrConcurrencyIsExactlyTheLateralRankCondition`) pins the
+equivalence `rank(A) <= 2 <=> a common ICR exists`, with the ICR predicate
+computed from the wheel-axis lines alone, over 21 configurations (16
+coordinated, including four all-parallel crab cases whose ICR is at infinity,
+and 5 not).
+
+**The freeze, measured.** `HardLateralRowsFreezeTheChassisAndSoftOnesDoNot`
+takes non-coordinated angles and a unit forward-acceleration demand:
+
+- hard rows, chassis at rest (`c = 0`, so the system is consistent): the planar
+  acceleration is **exactly 0**, and stays exactly 0 when the demand is raised
+  tenfold. It is a rank fact, not a weight trade-off.
+- soft rows, same problem: `||xi_dot||` is `5.0e-5, 3.4e-3, 1.03e-2, 1.40e-2,
+  2.70e-2` at `w = 1e5, 1e3, 10, 1, 1e-2`, monotone, always forward, and at
+  `1e-2` it recovers 98% of the `2.74e-2` twist the QP produces with the
+  lateral rows effectively absent. At the default weight it also answers the
+  demand linearly, which the frozen case does not.
+- with incompatible *measured steering rates*, so that `c` leaves `range(A)`:
+  the hard QP **fails outright** (`solveNoMbcUpdate` returns false), while the
+  softened one solves and reports `||sigma|| = 0.0836`.
+
+The out-of-range component of `c` comes specifically from the `ldot . v` term of
+the acceleration bias, i.e. from the four independent measured steering rates —
+exactly the quantity the report says no controller can coordinate. Uncoordinated
+*angles* alone are not enough: the stabilisation term `-Kp A alpha` is in
+`range(A)` by construction, and so is the `Jdot` part of the bias while the
+hinges are still.
+
+**ROW-09.** `lateralSlack()` returns `A x* - c` from the unscaled geometry rows
+(exact, `1e-12`). Its convergence to the range-space defect is asserted as a
+*rate*, which is stronger than any single tolerance: over
+`w = 1e6, 1e8, 1e10, 1e12` the error `||sigma - (I-P)c||` is
+`1.36e-4, 1.36e-6, 1.36e-8, 1.36e-10` and `||A^T sigma||/||sigma||` is
+`1.24e-3, 1.25e-5, 1.25e-7, 1.25e-9` — first order in `1/w` with no
+conditioning floor, ending below the plan's `1e-9`. `||sigma|| >= ||(I-P)c||`
+holds exactly at every weight.
+
+**Implementation route.** Soft rows, not new decision columns: the four lateral
+rows move from the hard matrix into the existing soft objective at
+`lateralSlackWeight`, which is the explicit-slack problem written out
+(minimising `w||Ax - c||^2` IS minimising `w||sigma||^2` s.t. `Ax - c = sigma`).
+`BND-06` (`LateralSlacksCarryNoBoxConstraint`) confirms `nrVars`,
+`nrBoundConstraints`, `nrInequalityConstraints` and
+`nrGenInequalityConstraints` are identical (46/6/0/1) with and without the
+option, and that the realised slack takes both signs.
+
+**`lateralSlackWeight`: a two-sided window, not a monotone curve.** The plan's
+`1e5` starting point is far too low. The value is bounded from **both** sides,
+and only one of the two bounds is visible to the kinematic ticker.
+
+Lower bound — ticker, `FourSteeringCommandChangeKeepsResidualsBounded`, worst
+lateral slip over the commanded-twist sequence (bound 0.15 m/s):
+
+| `w` | 1e5 | 2e6 | 3e6 | 5e6 | 1e7 | 3e7 | 1e8 | 1e9 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| worst slip (m/s) | 1.85 | 1.58 | 1.57 | 0.082 | 0.040 | 0.025 | 0.0145 | 0.0119 |
+
+A cliff between 3e6 and 5e6, not a gradual trade-off. The pre-softening hard-row
+implementation sat at 0.079.
+
+Upper bound — MuJoCo, `four-pure-yaw`, Tasks backend, maximum yaw tracking error
+(suite bound 0.15 rad). Invisible to the ticker, which has no contact physics:
+
+| `w` | baseline (hard rows) | 1e6 | 1e7 | 1e8 | 1e9 | 1e10 |
+| --- | --- | --- | --- | --- | --- | --- |
+| yaw error (rad) | 0.0604 | 0.0641 | 0.0885 | 0.1306 | **0.171 FAIL** | **0.202 FAIL** |
+
+Too large a weight makes the lateral rows resist the very chassis yaw they are
+meant only to keep honest. Had this been tuned against the ticker alone, 1e8 or
+1e9 would have looked strictly better and 1e9 would have shipped a MuJoCo
+failure — the same trap as the earlier `driveAcceleration` 20->100 regression.
+
+**Chosen: `lateralSlackWeight = 1e7`** — 3.3x in weight above the skid cliff
+with a 3.7x margin in the metric, and 1.7x below the yaw bound. Full MuJoCo
+comparison against the hard-row baseline at that value:
+
+| case | metric | baseline | soft, 1e7 |
+| --- | --- | --- | --- |
+| four-forward | max lateral slip | 2.1e-17 | 1.0e-17 |
+| four-crab | max lateral slip | 1.082e-7 | 1.083e-7 |
+| four-ackermann-left | max lateral slip | 2.207e-3 | 2.206e-3 |
+| four-ackermann-left | max drive torque | 0.773 Nm | 0.772 Nm |
+| four-pure-yaw | max lateral slip | 1.438e-3 | 8.33e-4 |
+| four-pure-yaw | max rolling slip | 3.884e-4 | 1.799e-4 |
+| four-pure-yaw | max drive torque | 2.011 Nm | 1.144 Nm |
+| four-pure-yaw | max yaw error | 0.0604 rad | 0.0885 rad |
+
+Everything improves or is unchanged except the four-pure-yaw yaw tracking
+error, which is the cost of the upper bound above and stays at 59% of its
+budget. `min_normal_force_n` (183.9 / 165.2) and the contact-fallback and
+no-contact fractions (all 0) are unchanged.
+
+**Regression.** Rolling CTest 14/14, full CTest 104/104, MuJoCo 8/8 on the four
+four-steering cases x both backends. Beyond that mandated subset, every other
+four-steering case that passes at baseline still passes
+(`four-reverse`, `four-ackermann-right`, `four-ramp-crab`,
+`four-lateral-impulse`, `four-mode-cycle`, both backends), as do the
+differential cases (`diff-hold`, `diff-forward`, `diff-turn-left`,
+`diff-circle-left`, `diff-mode-cycle`). Two cases fail — `four-steering-rate`
+("finite-width maneuver produced no measurable scrub") and `four-low-friction`
+("no measurable slip"). Both were checked against the pre-Task-2 build and fail
+there **identically**; they are pre-existing and unrelated, which is why the
+project's "MuJoCo 8/8" baseline is the four-case subset rather than the whole
+25-case suite.
+
+**`steeringPlanar` retired.** Removed from the options struct, the validator,
+the constructor's name check, `buildRowLayout`, the ConstraintSet loader, the
+JSON schema, both tutorial translations and every test. `differentialPlanar`
+stays: two lateral rows on three planar DOF are not over-determined, so its
+single-row selection is still correct. A configuration that still sets
+`steeringPlanar` or `steeringPlanarWheels` is now **rejected** rather than
+ignored, since silently falling back to four hard lateral rows is precisely the
+frozen-chassis failure the option was removed to prevent.

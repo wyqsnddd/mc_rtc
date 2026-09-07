@@ -114,6 +114,13 @@ private:
   double totalTimeMs_ = 0.0;
   double maxRollingResidual_ = 0.0;
   double maxLateralResidual_ = 0.0;
+  /** ||sigma^lat||, the norm of the realised lateral slack of the current cycle.
+   *
+   * Zero while the lateral rows are hard. With softLateralRows it is the single
+   * scalar that says how much skid the QP had to accept, and it is what
+   * lateralSlackWeight is tuned against.
+   */
+  double lateralSlackNorm_ = 0.0;
   double minFrictionMargin_ = 0.0;
   double referenceLinearSpeed_ = 0.0;
   double referenceLateralSpeed_ = 0.0;

@@ -410,10 +410,41 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   options.rollingWeight = rollingWeight_;
   options.constrainNormal = true;
   options.differentialPlanar = !fourSteering_;
-  options.steeringPlanar = fourSteering_;
-  if(fourSteering_) { options.steeringPlanarWheels = {"front_left", "rear_left"}; }
+  // Four lateral rows on three planar chassis DOF are over-determined: at
+  // steering angles that share no common ICR the block has full row rank 3, so
+  // hard rows admit only the zero twist. Softening all four keeps the QP
+  // feasible and makes the incompatibility observable as lateralSlack(). A
+  // two-wheel differential chassis is not over-determined and keeps hard rows.
+  options.softLateralRows = fourSteering_;
   if(fourSteering_)
   {
+    // Swept, not guessed, and bounded from BOTH sides - the value below sits in
+    // a window about two decades wide, not on a monotone "bigger is safer"
+    // curve. A simple comparison against the tracking weights does not predict
+    // either edge, because the lateral rows contend for the chassis DOF with
+    // the predicted-rate rows, which act on the wheel DOF instead.
+    //
+    // Too small and a commanded-twist step skids: the worst lateral slip of
+    // FourSteeringCommandChangeKeepsResidualsBounded is 1.85 m/s at 1e5, 1.58
+    // at 2e6 and 1.57 at 3e6 - all far outside its 0.15 m/s bound - then falls
+    // off a cliff to 0.082 at 5e6, 0.040 at 1e7 and 0.025 at 3e7.
+    //
+    // Too large and the lateral rows resist the chassis yaw they are supposed
+    // only to keep honest, which the kinematic ticker cannot see at all. In
+    // MuJoCo (four-pure-yaw, Tasks) the maximum yaw tracking error rises
+    // monotonically with the weight - 0.064 rad at 1e6, 0.089 at 1e7, 0.131 at
+    // 1e8 - and breaks the suite's 0.15 rad bound at 1e9 (0.171) and 1e10
+    // (0.202). The hard-row implementation this replaces sat at 0.060.
+    //
+    // 1e7 is the balance point: 3.3x in weight above the skid cliff with a 3.7x
+    // margin in the metric, and 1.7x below the yaw bound, with a MuJoCo lateral
+    // slip and drive torque both better than the hard-row baseline.
+    options.lateralSlackWeight = settings("lateralSlackWeight", 1e7);
+    if(!std::isfinite(options.lateralSlackWeight) || options.lateralSlackWeight <= 0.0)
+    {
+      mc_rtc::log::error_and_throw<std::invalid_argument>(
+          "RollingContact lateralSlackWeight must be finite and positive");
+    }
     options.trackRotatingRates = true;
     // A rate row predicts rate^+ = rate + dt * S * alphaD, so its coefficients
     // carry dt and its weight enters the objective multiplied by dt^2. Express
@@ -726,6 +757,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   logger().addLogEntry("RollingContact_total_ms", [this]() { return totalTimeMs_; });
   logger().addLogEntry("RollingContact_max_longitudinal_residual", [this]() { return maxRollingResidual_; });
   logger().addLogEntry("RollingContact_max_lateral_residual", [this]() { return maxLateralResidual_; });
+  logger().addLogEntry("RollingContact_lateral_slack_norm", [this]() { return lateralSlackNorm_; });
   logger().addLogEntry("RollingContact_min_friction_margin", [this]() { return minFrictionMargin_; });
   logger().addLogEntry("RollingContact_diagnostics_valid", [this]() { return diagnosticsValid_; });
   logger().addLogEntry("RollingContact_invalid_reason", [this]() { return invalidReason_; });
@@ -992,6 +1024,7 @@ void MCRollingContactController::reset(const ControllerResetData & data)
   totalTimeMs_ = 0.0;
   maxRollingResidual_ = 0.0;
   maxLateralResidual_ = 0.0;
+  lateralSlackNorm_ = 0.0;
   minFrictionMargin_ = 0.0;
   referenceLinearSpeed_ = 0.0;
   referenceLateralSpeed_ = 0.0;
@@ -1623,6 +1656,7 @@ void MCRollingContactController::updateDiagnostics(bool solverSuccess)
   invalidReason_ = solverSuccess ? std::string{} : std::string{"solver-failure"};
   maxRollingResidual_ = 0.0;
   maxLateralResidual_ = 0.0;
+  lateralSlackNorm_ = 0.0;
   minFrictionMargin_ = std::numeric_limits<double>::infinity();
   const auto & geometry = rolling_->geometryResults();
   Eigen::VectorXd alphaD;
@@ -1636,6 +1670,7 @@ void MCRollingContactController::updateDiagnostics(bool solverSuccess)
     floatingBaseEffortNorm_ = floatingDof == 0 ? 0.0 : effort.head(floatingDof).norm();
   }
   else { alphaD = rbd::dofToVector(robot().mb(), robot().mbc().alphaD); }
+  lateralSlackNorm_ = rolling_->lateralSlack(alphaD).norm();
   for(size_t i = 0; i < geometry.size(); ++i)
   {
     rollingResiduals_[i] = geometry[i].rollingDirection.dot(geometry[i].slipVelocity);

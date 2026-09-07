@@ -48,19 +48,11 @@ void RollingContactConstraintOptions::validate(size_t wheelCount) const
   {
     throw std::invalid_argument("RollingContactConstraint differentialPlanar requires exactly two wheels");
   }
-  if(steeringPlanar && wheelCount < 3)
+  // Validated unconditionally: a nonsense weight is a configuration error whether
+  // or not softLateralRows happens to be on today.
+  if(!std::isfinite(lateralSlackWeight) || lateralSlackWeight <= 0.0)
   {
-    throw std::invalid_argument("RollingContactConstraint steeringPlanar requires at least three wheels");
-  }
-  if(!steeringPlanarWheels.empty() && (!steeringPlanar || steeringPlanarWheels.size() != 2
-                                      || steeringPlanarWheels[0] == steeringPlanarWheels[1]))
-  {
-    throw std::invalid_argument(
-        "RollingContactConstraint steeringPlanarWheels requires steeringPlanar and two distinct wheel names");
-  }
-  if(differentialPlanar && steeringPlanar)
-  {
-    throw std::invalid_argument("RollingContactConstraint planar specializations are mutually exclusive");
+    throw std::invalid_argument("RollingContactConstraint lateralSlackWeight must be positive and finite");
   }
   // isfinite first so NaN and +/-inf are both rejected; a bare x < 0.0 would let NaN through.
   if(!std::isfinite(rollingRateWeight) || rollingRateWeight < 0.0 || !std::isfinite(steeringRateWeight)
@@ -151,13 +143,6 @@ struct RollingContactConstraint::Impl
       }
       geometries.emplace_back(robot, wheel);
     }
-    for(const auto & name : options.steeringPlanarWheels)
-    {
-      if(names.count(name) == 0)
-      {
-        throw std::invalid_argument("RollingContactConstraint steeringPlanarWheels contains unknown wheel: " + name);
-      }
-    }
     activations.resize(wheels.size(), 1.0);
     rollingRateReferences.assign(wheels.size(), 0.0);
     steeringRateReferences.assign(wheels.size(), 0.0);
@@ -186,11 +171,14 @@ struct RollingContactConstraint::Impl
     bool fixedLongitudinal;
     bool driveLock;
     double scale;
-    /** Objective weight this row was requested at.
+    /** Objective weight this row was requested at, or -1.0 to follow the block weight.
      *
-     * Read back by rescaleRateRows() to re-derive `scale` after a block weight
+     * Read back by rescaleWeightedRows() to re-derive `scale` after a block weight
      * change. `scale` also folds in the activation, so the weight the QP actually
-     * sees equals this value only at activation 1.0.
+     * sees equals this value only at activation 1.0. The sentinel matters: a row
+     * that follows the block weight must keep a block-weight-independent scale,
+     * so re-deriving it from a resolved copy of the old weight would silently
+     * shrink it on the next rollingWeight() change.
      */
     double weight;
   };
@@ -211,27 +199,30 @@ struct RollingContactConstraint::Impl
    *
    * A soft row scaled by s contributes rollingWeight * s^2 * residual^2, so
    * s = sqrt(rowWeight / rollingWeight) realises the requested per-row weight.
-   * Hard rows carry no weight and keep a unit scale. validate() guarantees a
-   * strictly positive rollingWeight on every path that reaches here.
+   * A negative `rowWeight` means the row follows the block weight and keeps the
+   * bare activation scale. Hard rows carry no weight and keep a unit scale.
+   * validate() guarantees a strictly positive rollingWeight on every path that
+   * reaches here.
    */
   double rowScale(size_t wheel, bool hard, double rowWeight) const
   {
     if(hard) { return 1.0; }
+    if(rowWeight < 0.0) { return std::sqrt(activations[wheel]); }
     return std::sqrt(activations[wheel]) * std::sqrt(rowWeight / options.rollingWeight);
   }
 
   /** Re-derive only the scales that depend on the block weight; the row set is unchanged.
    *
-   * Mode-row scales are block-weight-independent, so a full buildRowLayout() would
-   * be both wasteful and disruptive: it zeroes softA/softB until the next update().
-   * Runtime setters for the per-axis rate weights, if they are ever needed, belong
-   * here too.
+   * Rows that follow the block weight are already block-weight-independent, so a
+   * full buildRowLayout() would be both wasteful and disruptive: it zeroes
+   * softA/softB until the next update(). Runtime setters for the per-row weights,
+   * if they are ever needed, belong here too.
    */
-  void rescaleRateRows()
+  void rescaleWeightedRows()
   {
     for(auto & row : softRows)
     {
-      if(row.axis != rollingRateAxis && row.axis != steeringRateAxis) { continue; }
+      if(row.weight < 0.0) { continue; }
       row.scale = rowScale(row.wheel, false, row.weight);
     }
   }
@@ -244,10 +235,9 @@ struct RollingContactConstraint::Impl
               bool driveLock = false,
               double weight = -1.0)
   {
-    const double rowWeight = weight < 0.0 ? options.rollingWeight : weight;
     auto & rows = hard ? hardRows : softRows;
     auto & labels = hard ? hardLabels : softLabels;
-    rows.push_back({wheel, axis, fixedLongitudinal, driveLock, rowScale(wheel, hard, rowWeight), rowWeight});
+    rows.push_back({wheel, axis, fixedLongitudinal, driveLock, rowScale(wheel, hard, weight), weight});
     labels.push_back(wheels[wheel].name + "/" + axisName(axis));
   }
 
@@ -262,6 +252,23 @@ struct RollingContactConstraint::Impl
     addRow(wheel, axis, hard, fixedLongitudinal, driveLock);
   }
 
+  /** Append one wheel's lateral row and record it for lateralSlack().
+   *
+   * A wheel at zero activation contributes nothing either way. Above that,
+   * softLateralRows keeps the row in the objective at every activation, where
+   * addModeRow would promote it back to the hard block as soon as the wheel
+   * settled at full activation - which is exactly the over-determination the
+   * option exists to avoid.
+   */
+  void addLateralRow(size_t wheel)
+  {
+    if(activations[wheel] <= 0.0) { return; }
+    if(options.softLateralRows) { addRow(wheel, lateralAxis, false, false, false, options.lateralSlackWeight); }
+    else { addModeRow(wheel, lateralAxis, true); }
+    lateralWheels.push_back(wheel);
+    lateralLabels.push_back(wheels[wheel].name);
+  }
+
   void buildRowLayout(bool markDirty = true)
   {
     const auto previousHardLabels = hardLabels;
@@ -270,6 +277,8 @@ struct RollingContactConstraint::Impl
     softRows.clear();
     hardLabels.clear();
     softLabels.clear();
+    lateralWheels.clear();
+    lateralLabels.clear();
     // Keep the specialization's canonical order: all longitudinal rows, then
     // independent lateral rows, then normal rows handled by this object.
     for(size_t i = 0; i < wheels.size(); ++i)
@@ -295,35 +304,7 @@ struct RollingContactConstraint::Impl
           selectedActivation = activations[i];
         }
       }
-      if(selected != wheels.size()) { addModeRow(selected, lateralAxis, true); }
-    }
-    else if(options.steeringPlanar)
-    {
-      std::vector<size_t> active;
-      active.reserve(wheels.size());
-      for(size_t i = 0; i < wheels.size(); ++i)
-      {
-        const auto mode = wheels[i].mode;
-        if((mode == mc_rbdyn::RollingContactMode::Rolling || mode == mc_rbdyn::RollingContactMode::Fixed)
-           && activations[i] > 0.0)
-        {
-          active.push_back(i);
-        }
-      }
-      std::vector<size_t> selected;
-      selected.reserve(2);
-      for(const auto & name : options.steeringPlanarWheels)
-      {
-        const auto wheel = std::find_if(active.begin(), active.end(), [this, &name](size_t i)
-                                        { return wheels[i].name == name; });
-        if(wheel != active.end()) { selected.push_back(*wheel); }
-      }
-      for(const size_t wheel : active)
-      {
-        if(selected.size() == 2) { break; }
-        if(std::find(selected.begin(), selected.end(), wheel) == selected.end()) { selected.push_back(wheel); }
-      }
-      for(const size_t wheel : selected) { addModeRow(wheel, lateralAxis, true); }
+      if(selected != wheels.size()) { addLateralRow(selected); }
     }
     else
     {
@@ -332,7 +313,7 @@ struct RollingContactConstraint::Impl
         const auto mode = wheels[i].mode;
         if(mode == mc_rbdyn::RollingContactMode::Rolling || mode == mc_rbdyn::RollingContactMode::Fixed)
         {
-          addModeRow(i, lateralAxis, true);
+          addLateralRow(i);
         }
       }
     }
@@ -483,6 +464,13 @@ struct RollingContactConstraint::Impl
   std::vector<Row> softRows;
   std::vector<std::string> hardLabels;
   std::vector<std::string> softLabels;
+  /** Wheels carrying a lateral row this cycle, in emission order, and their names.
+   *
+   * Kept apart from the row vectors because the lateral rows can sit in either
+   * block and lateralSlack() reads them from the unscaled geometry either way.
+   */
+  std::vector<size_t> lateralWheels;
+  std::vector<std::string> lateralLabels;
   Eigen::MatrixXd hardA;
   Eigen::VectorXd hardB;
   Eigen::MatrixXd softA;
@@ -645,9 +633,10 @@ void RollingContactConstraint::rollingWeight(double weight)
   next.rollingWeight = weight;
   next.validate(impl_->wheels.size());
   impl_->options.rollingWeight = weight;
-  // Rate rows carry their per-row weight as sqrt(rowWeight / rollingWeight), so
-  // the new block weight has to be divided back out of their scale.
-  impl_->rescaleRateRows();
+  // Rate and lateral-slack rows carry their per-row weight as
+  // sqrt(rowWeight / rollingWeight), so the new block weight has to be divided
+  // back out of their scale.
+  impl_->rescaleWeightedRows();
   if(impl_->softTask) { impl_->softTask->weight(weight); }
   if(impl_->tvmSoftTask) { impl_->tvmSoftTask->requirements.weight() = weight; }
 }
@@ -743,6 +732,30 @@ const std::vector<std::string> & RollingContactConstraint::softRowLabels() const
   return impl_->softLabels;
 }
 
+Eigen::VectorXd RollingContactConstraint::lateralSlack(const Eigen::VectorXd & alphaD) const
+{
+  if(alphaD.size() != impl_->robot.mb().nrDof())
+  {
+    throw std::invalid_argument("RollingContactConstraint lateralSlack expects one acceleration per DoF");
+  }
+  Eigen::VectorXd slack(static_cast<Eigen::Index>(impl_->lateralWheels.size()));
+  for(size_t i = 0; i < impl_->lateralWheels.size(); ++i)
+  {
+    // Read the unscaled row out of the geometry rather than the emitted block:
+    // the emitted one carries the activation and objective scaling, which would
+    // make the reported slack depend on the weight it is being judged against.
+    const auto & result = impl_->results[impl_->lateralWheels[i]];
+    slack(static_cast<Eigen::Index>(i)) =
+        result.rollingMatrix.row(Impl::lateralAxis).dot(alphaD) - result.rhs(Impl::lateralAxis);
+  }
+  return slack;
+}
+
+const std::vector<std::string> & RollingContactConstraint::lateralSlackLabels() const noexcept
+{
+  return impl_->lateralLabels;
+}
+
 const Eigen::MatrixXd & RollingContactConstraint::tasksFullHardMatrix() const
 {
   if(backend_ != QPSolver::Backend::Tasks)
@@ -805,8 +818,17 @@ static auto rolling_contact_registered = mc_solver::ConstraintSetLoader::registe
       options.rollingWeight = config("rollingWeight", 1000.0);
       options.constrainNormal = config("constrainNormal", true);
       options.differentialPlanar = config("differentialPlanar", false);
-      options.steeringPlanar = config("steeringPlanar", false);
-      options.steeringPlanarWheels = config("steeringPlanarWheels", std::vector<std::string>{});
+      // Rejected rather than ignored. A stale configuration would otherwise
+      // silently fall back to four hard lateral rows on a four-wheel chassis,
+      // which is the frozen-chassis failure softLateralRows exists to prevent.
+      if(config.has("steeringPlanar") || config.has("steeringPlanarWheels"))
+      {
+        throw std::invalid_argument(
+            "RollingContactConstraint steeringPlanar and steeringPlanarWheels were removed; the four lateral rows "
+            "are now softened together, so use softLateralRows and lateralSlackWeight instead");
+      }
+      options.softLateralRows = config("softLateralRows", false);
+      options.lateralSlackWeight = config("lateralSlackWeight", 1e5);
       options.trackRotatingRates = config("trackRotatingRates", false);
       options.rollingRateWeight = config("rollingRateWeight", 200.0);
       options.steeringRateWeight = config("steeringRateWeight", 200.0);

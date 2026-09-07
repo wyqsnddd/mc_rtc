@@ -42,19 +42,42 @@ struct MC_SOLVER_DLLAPI RollingContactConstraintOptions
   double velocityGain = 20.0;
   double rollingWeight = 1000.0;
   bool constrainNormal = true;
-  /** Keep only the first lateral row for the differential-drive specialization. */
-  bool differentialPlanar = false;
-  /** Keep a stable two-row lateral basis for a planar multi-steering chassis.
+  /** Keep only the first lateral row for the differential-drive specialization.
    *
-   * Four or more exact lateral rows are rank-redundant for compatible
-   * steering and become spuriously full rank under arbitrarily small steering
-   * tracking errors. `steeringPlanarWheels` should name a pair that remains
-   * independent throughout the intended maneuvers. If it is empty, the first
-   * and last active wheels are used. Residuals for every wheel remain
-   * available through geometryResults().
+   * A two-wheel chassis contributes two lateral rows to three planar DOF and is
+   * not over-determined, so selecting one independent row remains correct there.
+   * This is not the case for four steering wheels: see softLateralRows.
    */
-  bool steeringPlanar = false;
-  std::vector<std::string> steeringPlanarWheels;
+  bool differentialPlanar = false;
+  /** Soften the lateral rows with one slack per wheel.
+   *
+   * Four lateral rows act on three planar chassis DOF. For steering angles not
+   * coordinated on a common ICR the block has full row rank 3, so hard rows
+   * admit only the zero twist and freeze the chassis; when they are
+   * coordinated, consistency further needs c in range(A), a condition on the
+   * measured steering rates that no controller can guarantee. The slacks make
+   * the QP always feasible and report the incompatibility through
+   * lateralSlack().
+   *
+   * The Tasks decision layout has no free slack columns, so the softening is
+   * realised by moving the lateral rows into the soft objective at
+   * `lateralSlackWeight`. That is the explicit-slack problem written out:
+   * minimising w ||A x - c||^2 is minimising w ||sigma||^2 subject to
+   * A x - c = sigma. No decision variable and no bound is added either way.
+   */
+  bool softLateralRows = false;
+  /** Objective weight on each lateral slack, in the units of an acceleration task.
+   *
+   * A single common weight across wheels, so the least-squares solution does not
+   * preferentially skid one wheel. Set it large relative to the tracking weights
+   * so the lateral rows behave as a high-priority task. Unlike the rate weights
+   * below this one carries no dt, because a lateral row acts on alphaD directly.
+   *
+   * Must be positive and finite whether or not `softLateralRows` is set. This
+   * default is a placeholder for a caller that does not tune it; the
+   * RollingContact sample controller documents and sets its own swept value.
+   */
+  double lateralSlackWeight = 1e5;
 
   /** Track the eight rotating velocities of a four-steering chassis.
    *
@@ -161,6 +184,22 @@ public:
   const Eigen::VectorXd & softRhs() const noexcept;
   const std::vector<std::string> & hardRowLabels() const noexcept;
   const std::vector<std::string> & softRowLabels() const noexcept;
+
+  /** Realised lateral slack sigma = A_lat * alphaD - c_lat, one entry per active lateral row.
+   *
+   * Unscaled: the entries are in the acceleration units of the lateral rows, not
+   * in whatever objective scale the rows carry, so they stay comparable across
+   * weight changes. Entry order follows lateralSlackLabels().
+   *
+   * With `softLateralRows` this is the incompatibility the QP chose to accept;
+   * with hard rows it is a constraint violation and the solver drives it to
+   * zero, so the same accessor reads both configurations.
+   *
+   * @throws std::invalid_argument if @p alphaD does not have one entry per DoF.
+   */
+  Eigen::VectorXd lateralSlack(const Eigen::VectorXd & alphaD) const;
+  /** Names of the wheels carrying a lateral row, in slack order. */
+  const std::vector<std::string> & lateralSlackLabels() const noexcept;
 
   /** Full Tasks equality matrix, including structural-zero robot/lambda columns.
    *

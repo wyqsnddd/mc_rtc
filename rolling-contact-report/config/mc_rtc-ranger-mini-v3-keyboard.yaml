@@ -55,6 +55,10 @@ RollingContact:
   # chassis task weights.
   rollingRateWeight: 4.0e7
   steeringRateWeight: 4.0e7
+  # Pinned to the controller default so a user configuration cannot move it.
+  # Swept against MuJoCo, not against the ticker; see the constructor for the
+  # two-sided window this value sits in.
+  lateralSlackWeight: 1.0e7
   # The posture task is only a regulariser on the steering hinges now.
   steeringPostureWeight: 1.0
   positionFeedbackGain: 5.0

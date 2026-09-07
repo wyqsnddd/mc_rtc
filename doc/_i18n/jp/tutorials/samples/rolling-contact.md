@@ -51,7 +51,11 @@ solver().addConstraintSet(*rolling);
 ```
 
 登録中はオブジェクトを生存させ、破棄時は`rolling`、`dynamics`の順で削除します。四輪操舵では各車輪の
-`steeringJoint`を設定し、`steeringPlanar: true`と独立な2車輪の`steeringPlanarWheels`を指定します。
+`steeringJoint`を設定し、`softLateralRows: true`を指定します。4本の横方向拘束は平面3自由度に作用するため、
+共通の瞬間回転中心を持たない操舵角では行フルランクとなり、ハード拘束のままでは車体が停止します。
+`softLateralRows`は4本すべてを共通重み`lateralSlackWeight`で目的関数に移し、QPを常に可解に保ちつつ、
+不整合を`RollingContactConstraint::lateralSlack()`として観測できるようにします。`differentialPlanar`は
+2輪車体専用です。
 JSONスキーマは`RollingContactWheel`、`RollingContactConstraint`、`RollingContactDynamicsConstraint`、
 `RollingContactController`として提供されています。
 

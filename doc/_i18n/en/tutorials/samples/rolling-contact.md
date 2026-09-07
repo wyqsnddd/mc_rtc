@@ -102,8 +102,12 @@ constraints:
     wheels: *wheels
 ```
 
-For `rolling_4s`, set `steeringJoint` on every wheel, set `steeringPlanar: true`, and name two independent wheels in
-`steeringPlanarWheels` (the sample uses `front_left` and `rear_left`). Do not enable both planar specializations, and do
+For `rolling_4s`, set `steeringJoint` on every wheel and set `softLateralRows: true`. Four lateral rows act on
+three planar chassis degrees of freedom, so for steering angles that share no instantaneous centre of rotation
+the block has full row rank and hard rows admit only the zero twist, freezing the chassis. `softLateralRows`
+moves all four rows into the objective at the single common `lateralSlackWeight`, which keeps the QP feasible
+and exposes the incompatibility through `RollingContactConstraint::lateralSlack()`. Keep `differentialPlanar`
+for two-wheel chassis only, where two lateral rows on three degrees of freedom are not over-determined, and do
 not add duplicate generic chassis rows.
 
 ## Build and run without a GPU

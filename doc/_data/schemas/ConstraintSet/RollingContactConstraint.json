@@ -11,15 +11,18 @@
     "rollingWeight": { "type": "number", "exclusiveMinimum": 0, "default": 1000 },
     "constrainNormal": { "type": "boolean", "default": true },
     "differentialPlanar": { "type": "boolean", "default": false },
-    "steeringPlanar": { "type": "boolean", "default": false },
-    "steeringPlanarWheels":
+    "softLateralRows":
     {
-      "type": "array",
-      "description": "Wheel names used for the independent four-steering planar chassis rows",
-      "minItems": 2,
-      "maxItems": 2,
-      "uniqueItems": true,
-      "items": { "type": "string" }
+      "type": "boolean",
+      "description": "Move the lateral rows into the objective, one slack per wheel, so an over-determined multi-steering chassis stays feasible",
+      "default": false
+    },
+    "lateralSlackWeight":
+    {
+      "type": "number",
+      "description": "Single common objective weight on every lateral slack, in acceleration-task units",
+      "exclusiveMinimum": 0,
+      "default": 100000
     },
     "trackRotatingRates": { "type": "boolean", "default": false },
     "rollingRateWeight": { "type": "number", "minimum": 0, "default": 200 },

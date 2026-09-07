@@ -17,7 +17,9 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <Eigen/LU>
 #include <Eigen/QR>
+#include <Eigen/SVD>
 
 #include <RBDyn/MultiBodyConfig.h>
 
@@ -26,9 +28,11 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #include "utils.h"
 
@@ -332,6 +336,175 @@ BackendParitySnapshot backendParitySnapshot()
   return snapshot;
 }
 
+/** Carrier offsets of the rolling_4s corners, in the order fourSteeringWheels() uses. */
+const std::array<Eigen::Vector2d, 4> & fourSteeringOffsets()
+{
+  static const std::array<Eigen::Vector2d, 4> offsets = {Eigen::Vector2d{0.45, 0.3}, Eigen::Vector2d{0.45, -0.3},
+                                                         Eigen::Vector2d{-0.45, 0.3}, Eigen::Vector2d{-0.45, -0.3}};
+  return offsets;
+}
+
+/** Steering angles that put all four wheels on the common ICR of a planar twist. */
+std::array<double, 4> icrSteeringAngles(double linear, double lateral, double yaw)
+{
+  std::array<double, 4> angles{};
+  for(size_t i = 0; i < angles.size(); ++i)
+  {
+    angles[i] = std::atan2(lateral + yaw * fourSteeringOffsets()[i].x(), linear - yaw * fourSteeringOffsets()[i].y());
+  }
+  return angles;
+}
+
+/** The 4x3 planar lateral block a_i^T = [-sin d_i, cos d_i, x_i cos d_i + y_i sin d_i].
+ *
+ * Built through mc_rbdyn::steeringRollingMatrix() rather than restated here, so
+ * the rank findings below are about the shipped planar rows.
+ */
+Eigen::MatrixXd planarLateralBlock(const std::array<double, 4> & steeringAngles)
+{
+  std::vector<mc_rbdyn::PlanarWheel> planar(4);
+  for(size_t i = 0; i < planar.size(); ++i)
+  {
+    planar[i].offset = fourSteeringOffsets()[i];
+    planar[i].steeringAngle = steeringAngles[i];
+    planar[i].radius = 0.2;
+  }
+  const auto rows = mc_rbdyn::steeringRollingMatrix(planar, Eigen::Vector3d::Zero());
+  Eigen::MatrixXd block(4, 3);
+  for(Eigen::Index i = 0; i < 4; ++i) { block.row(i) = rows.matrix.block<1, 3>(2 * i + 1, 0); }
+  return block;
+}
+
+/** Steering angles sharing no common ICR, reused by every lateral-row test. */
+const std::array<double, 4> & uncoordinatedSteeringAngles()
+{
+  static const std::array<double, 4> angles = {0.30, -0.10, 0.20, -0.30};
+  return angles;
+}
+
+/** Put the four steering hinges at @p angles and refresh the kinematic state. */
+void setSteeringAngles(mc_rbdyn::Robot & robot, const std::array<double, 4> & angles)
+{
+  const std::array<std::string, 4> names = {"front_left", "front_right", "rear_left", "rear_right"};
+  for(size_t i = 0; i < names.size(); ++i)
+  {
+    robot.mbc().q[robot.jointIndexByName(names[i] + "_steer")][0] = angles[i];
+  }
+  robot.forwardKinematics();
+  robot.forwardVelocity();
+}
+
+/** A four-wheel state whose stabilised lateral right-hand side is NOT in range(A).
+ *
+ * Uncoordinated angles alone are not enough: the stabilisation term -Kp * A * alpha
+ * lies in range(A) by construction, and so does the Jdot part of the bias while the
+ * hinges are still. The out-of-range component comes from the ldot . v term, i.e.
+ * from the four independent *measured steering rates* - exactly the quantity the
+ * report says no controller can coordinate. A moving chassis is required too,
+ * since ldot . v vanishes when the carriers are at rest.
+ */
+void setIncompatibleFourWheelState(mc_rbdyn::Robot & robot)
+{
+  setSteeringAngles(robot, uncoordinatedSteeringAngles());
+  const std::array<std::string, 4> names = {"front_left", "front_right", "rear_left", "rear_right"};
+  const std::array<double, 4> steeringRates = {0.5, -0.3, 0.7, -0.9};
+  Eigen::VectorXd velocity = Eigen::VectorXd::Zero(robot.mb().nrDof());
+  velocity(2) = 0.2;
+  velocity(3) = 0.35;
+  velocity(4) = 0.12;
+  for(size_t i = 0; i < names.size(); ++i)
+  {
+    velocity(robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName(names[i] + "_steer")))) =
+        steeringRates[i];
+  }
+  rbd::vectorToParam(velocity, robot.mbc().alpha);
+  robot.forwardVelocity();
+}
+
+/** The unscaled lateral rows and their right-hand side, straight from the geometry. */
+std::pair<Eigen::MatrixXd, Eigen::VectorXd> unscaledLateralRows(const mc_solver::RollingContactConstraint & rolling,
+                                                                Eigen::Index nrDof)
+{
+  const auto & results = rolling.geometryResults();
+  Eigen::MatrixXd A(static_cast<Eigen::Index>(results.size()), nrDof);
+  Eigen::VectorXd c(static_cast<Eigen::Index>(results.size()));
+  for(size_t i = 0; i < results.size(); ++i)
+  {
+    A.row(static_cast<Eigen::Index>(i)) = results[i].rollingMatrix.row(1);
+    c(static_cast<Eigen::Index>(i)) = results[i].rhs(1);
+  }
+  return {A, c};
+}
+
+/** Rows of @p matrix whose label contains @p needle, stacked in label order. */
+Eigen::MatrixXd labelledRows(const Eigen::MatrixXd & matrix,
+                             const std::vector<std::string> & labels,
+                             const std::string & needle)
+{
+  std::vector<Eigen::Index> selected;
+  for(size_t i = 0; i < labels.size(); ++i)
+  {
+    if(labels[i].find(needle) != std::string::npos) { selected.push_back(static_cast<Eigen::Index>(i)); }
+  }
+  Eigen::MatrixXd out(static_cast<Eigen::Index>(selected.size()), matrix.cols());
+  for(size_t i = 0; i < selected.size(); ++i) { out.row(static_cast<Eigen::Index>(i)) = matrix.row(selected[i]); }
+  return out;
+}
+
+Eigen::VectorXd singularValues(const Eigen::MatrixXd & matrix)
+{
+  return Eigen::JacobiSVD<Eigen::MatrixXd>(matrix).singularValues();
+}
+
+/** Rank at an explicit absolute threshold, reported by both available oracles. */
+Eigen::Index rankAt(const Eigen::MatrixXd & matrix, double threshold)
+{
+  Eigen::FullPivLU<Eigen::MatrixXd> lu(matrix);
+  lu.setThreshold(threshold);
+  const Eigen::VectorXd sv = singularValues(matrix);
+  const Eigen::Index svdRank = (sv.array() > threshold).count();
+  BOOST_CHECK_EQUAL(lu.rank(), svdRank);
+  return lu.rank();
+}
+
+std::string formatSingularValues(const Eigen::MatrixXd & matrix)
+{
+  std::ostringstream out;
+  const Eigen::VectorXd sv = singularValues(matrix);
+  for(Eigen::Index i = 0; i < sv.size(); ++i) { out << (i == 0 ? "" : ", ") << sv(i); }
+  return out.str();
+}
+
+/** True when the four wheel axes admit a common instantaneous centre of rotation.
+ *
+ * Computed from the geometry alone, independently of the lateral block, so that
+ * GEO-09's equivalence is an observation and not a restatement. The ICR must lie
+ * on the line through rho_i orthogonal to the wheel heading, i.e.
+ * c . (cos d_i, sin d_i) = rho_i . (cos d_i, sin d_i); a common ICR at infinity
+ * is the all-parallel case, which admits a pure translation instead.
+ */
+bool hasCommonICR(const std::array<double, 4> & steeringAngles)
+{
+  Eigen::Matrix<double, 4, 2> lines;
+  Eigen::Vector4d offsets;
+  for(size_t i = 0; i < steeringAngles.size(); ++i)
+  {
+    const Eigen::Vector2d heading{std::cos(steeringAngles[i]), std::sin(steeringAngles[i])};
+    lines.row(static_cast<Eigen::Index>(i)) = heading.transpose();
+    offsets(static_cast<Eigen::Index>(i)) = fourSteeringOffsets()[i].dot(heading);
+  }
+  const Eigen::Vector2d centre = lines.colPivHouseholderQr().solve(offsets);
+  if((lines * centre - offsets).lpNorm<Eigen::Infinity>() < 1e-9) { return true; }
+  // All headings parallel: the centre is at infinity and pure translation is admissible.
+  const Eigen::Vector2d reference{std::cos(steeringAngles[0]), std::sin(steeringAngles[0])};
+  for(size_t i = 1; i < steeringAngles.size(); ++i)
+  {
+    const Eigen::Vector2d heading{std::cos(steeringAngles[i]), std::sin(steeringAngles[i])};
+    if(std::abs(reference.x() * heading.y() - reference.y() * heading.x()) > 1e-9) { return false; }
+  }
+  return true;
+}
+
 template<typename DerivedA, typename DerivedB>
 void checkScaledParity(const Eigen::MatrixBase<DerivedA> & tasksValue,
                        const Eigen::MatrixBase<DerivedB> & tvmValue,
@@ -471,8 +644,7 @@ BOOST_AUTO_TEST_CASE(RollingTasksFourSteeringAckermannTarget)
   const Eigen::VectorXd target = ackermannTarget(robot, 0.15, 0.05);
   mc_solver::RollingContactConstraintOptions options;
   options.velocityGain = 0.0;
-  options.steeringPlanar = true;
-  options.steeringPlanarWheels = {"front_left", "rear_left"};
+  options.softLateralRows = true;
   mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
   TargetAccelerationTask targetTask(robot.mb(), 0);
   targetTask.target(target);
@@ -498,8 +670,7 @@ BOOST_AUTO_TEST_CASE(RollingTasksFourSteeringAckermannTargetWithDynamics)
   mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
   mc_solver::RollingContactConstraintOptions options;
   options.velocityGain = 0.0;
-  options.steeringPlanar = true;
-  options.steeringPlanarWheels = {"front_left", "rear_left"};
+  options.softLateralRows = true;
   mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
   TargetAccelerationTask targetTask(robot.mb(), 0);
   targetTask.target(target);
@@ -530,8 +701,7 @@ BOOST_AUTO_TEST_CASE(RollingTasksFourSteeringAckermannTrajectoryTasks)
   mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
   mc_solver::RollingContactConstraintOptions options;
   options.velocityGain = 5.0;
-  options.steeringPlanar = true;
-  options.steeringPlanarWheels = {"front_left", "rear_left"};
+  options.softLateralRows = true;
   mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
   mc_tasks::PostureTask posture(solver, 0, 5.0, 500.0);
   std::map<std::string, std::vector<double>> postureTarget;
@@ -607,8 +777,7 @@ BOOST_AUTO_TEST_CASE(RollingRateReferencesRoundTripAndValidate)
   auto robots = loadFourSteeringRobot();
   auto wheels = fourSteeringWheels();
   mc_solver::RollingContactConstraintOptions options;
-  options.steeringPlanar = true;
-  options.steeringPlanarWheels = {"front_left", "rear_left"};
+  options.softLateralRows = true;
   options.trackRotatingRates = true;
   BOOST_CHECK_EQUAL(options.rollingRateWeight, 200.0);
   BOOST_CHECK_EQUAL(options.steeringRateWeight, 200.0);
@@ -663,7 +832,7 @@ BOOST_AUTO_TEST_CASE(RotatingRateRowsMatchTheAffinePrediction)
   const Eigen::Index steerDof = robot.mb().jointPosInDof(static_cast<int>(steer));
 
   mc_solver::RollingContactConstraintOptions options;
-  options.steeringPlanar = true;
+  options.softLateralRows = true;
   options.trackRotatingRates = true;
   options.rollingWeight = 1000.0;
   options.rollingRateWeight = 250.0;
@@ -707,7 +876,7 @@ BOOST_AUTO_TEST_CASE(RotatingRateRowsFollowTheBlockWeight)
   const Eigen::Index steerDof =
       robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")));
   mc_solver::RollingContactConstraintOptions options;
-  options.steeringPlanar = true;
+  options.softLateralRows = true;
   options.trackRotatingRates = true;
   options.rollingWeight = 1000.0;
   options.steeringRateWeight = 40.0;
@@ -744,7 +913,7 @@ BOOST_AUTO_TEST_CASE(RotatingRateRowsAreAbsentWhenDisabledDetachedOrInactive)
   mc_solver::TasksQPSolver solver(robots, 0.005);
   const auto wheels = fourSteeringWheels();
   mc_solver::RollingContactConstraintOptions options;
-  options.steeringPlanar = true;
+  options.softLateralRows = true;
 
   {
     mc_solver::RollingContactConstraint disabled(solver.robots(), 0, wheels, options);
@@ -794,7 +963,7 @@ BOOST_AUTO_TEST_CASE(RotatingRateRowsAreOmittedAtZeroWeight)
   auto robots = loadFourSteeringRobot();
   mc_solver::TasksQPSolver solver(robots, 0.005);
   mc_solver::RollingContactConstraintOptions options;
-  options.steeringPlanar = true;
+  options.softLateralRows = true;
   options.trackRotatingRates = true;
 
   // A zero weight is the documented way to switch one axis off. It has to drop the
@@ -865,8 +1034,7 @@ BOOST_AUTO_TEST_CASE(RotatingRateRowsSteerTowardsTheReference)
     const auto wheels = fourSteeringWheels();
     mc_solver::RollingContactConstraintOptions options;
     options.velocityGain = 0.0;
-    options.steeringPlanar = true;
-    options.steeringPlanarWheels = {"front_left", "rear_left"};
+    options.softLateralRows = true;
     options.trackRotatingRates = trackRotatingRates;
     mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
     TargetAccelerationTask targetTask(robot.mb(), 0);
@@ -924,11 +1092,33 @@ BOOST_AUTO_TEST_CASE(RollingConstraintConfigurationLoaders)
   BOOST_CHECK_CLOSE(rolling->options().rollingRateWeight, 42.0, 1e-12);
   BOOST_CHECK_CLOSE(rolling->options().steeringRateWeight, 43.0, 1e-12);
 
+  auto softLateralConfig = rollingConfiguration("rollingContact", differentialWheels());
+  softLateralConfig.add("softLateralRows", true);
+  softLateralConfig.add("lateralSlackWeight", 12345.0);
+  const auto loadedSoft = std::dynamic_pointer_cast<mc_solver::RollingContactConstraint>(
+      mc_solver::ConstraintSetLoader::load(solver, softLateralConfig));
+  BOOST_REQUIRE(loadedSoft);
+  BOOST_CHECK(loadedSoft->options().softLateralRows);
+  BOOST_CHECK_CLOSE(loadedSoft->options().lateralSlackWeight, 12345.0, 1e-12);
+
+  // steeringPlanar/steeringPlanarWheels were retired with the hard lateral rows.
+  // Ignoring them would silently restore four hard rows on a four-wheel chassis,
+  // so a stale configuration is rejected instead.
+  for(const std::string removed : {"steeringPlanar", "steeringPlanarWheels"})
+  {
+    auto staleConfig = rollingConfiguration("rollingContact", differentialWheels());
+    if(removed == "steeringPlanar") { staleConfig.add(removed, true); }
+    else { staleConfig.add(removed, std::vector<std::string>{"left", "right"}); }
+    BOOST_CHECK_THROW(mc_solver::ConstraintSetLoader::load(solver, staleConfig), std::invalid_argument);
+  }
+
   auto defaultRateConfig = rollingConfiguration("rollingContact", differentialWheels());
   const auto loadedDefaultRates = mc_solver::ConstraintSetLoader::load(solver, defaultRateConfig);
   const auto defaultRates = std::dynamic_pointer_cast<mc_solver::RollingContactConstraint>(loadedDefaultRates);
   BOOST_REQUIRE(defaultRates);
   BOOST_CHECK(!defaultRates->options().trackRotatingRates);
+  BOOST_CHECK(!defaultRates->options().softLateralRows);
+  BOOST_CHECK_CLOSE(defaultRates->options().lateralSlackWeight, 1e5, 1e-12);
   BOOST_CHECK_CLOSE(defaultRates->options().rollingRateWeight, 200.0, 1e-12);
   BOOST_CHECK_CLOSE(defaultRates->options().steeringRateWeight, 200.0, 1e-12);
 
@@ -1428,8 +1618,7 @@ BOOST_AUTO_TEST_CASE(RollingTVMFourSteeringRepeatedLifecycle)
     mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
     mc_solver::RollingContactConstraintOptions options;
     options.velocityGain = 5.0;
-    options.steeringPlanar = true;
-    options.steeringPlanarWheels = {"front_left", "rear_left"};
+    options.softLateralRows = true;
     mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
     mc_tasks::PostureTask posture(solver, 0, 5.0, 500.0);
     std::vector<tasks::qp::JointStiffness> steeringGains;
@@ -1474,8 +1663,7 @@ BOOST_AUTO_TEST_CASE(RollingTVMRotatingRateRowsReachTheSolver)
     mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
     mc_solver::RollingContactConstraintOptions options;
     options.velocityGain = 5.0;
-    options.steeringPlanar = true;
-    options.steeringPlanarWheels = {"front_left", "rear_left"};
+    options.softLateralRows = true;
     options.trackRotatingRates = trackRotatingRates;
     options.steeringRateWeight = 50000.0;
     mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
@@ -1515,8 +1703,7 @@ BOOST_AUTO_TEST_CASE(RollingTVMRotatingRateRowsRebuildOnLayoutChange)
   mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
   mc_solver::RollingContactConstraintOptions options;
   options.velocityGain = 5.0;
-  options.steeringPlanar = true;
-  options.steeringPlanarWheels = {"front_left", "rear_left"};
+  options.softLateralRows = true;
   options.trackRotatingRates = true;
   mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
   mc_tasks::PostureTask posture(solver, 0, 5.0, 100.0);
@@ -1552,4 +1739,424 @@ BOOST_AUTO_TEST_CASE(RollingTVMRotatingRateRowsRebuildOnLayoutChange)
   solver.removeTask(&posture);
   solver.removeConstraintSet(rolling);
   solver.removeConstraintSet(dynamics);
+}
+
+BOOST_AUTO_TEST_CASE(LateralRowsAreStructurallyOverDeterminedOnThreePlanarDof)
+{
+  // ROW-08. Four lateral rows act on three planar chassis DOF. The rank of that
+  // block is the whole argument for softening them: rank 3 means the only
+  // admissible planar twist is zero, so hard rows freeze the chassis.
+  const auto coordinated = icrSteeringAngles(0.15, 0.0, 0.05);
+  const std::array<double, 4> uncoordinated = {0.30, -0.10, 0.20, -0.30};
+  BOOST_REQUIRE(hasCommonICR(coordinated));
+  BOOST_REQUIRE(!hasCommonICR(uncoordinated));
+
+  // The planar 4x3 block of the theory, straight out of steeringRollingMatrix().
+  const Eigen::MatrixXd planarCoordinated = planarLateralBlock(coordinated);
+  const Eigen::MatrixXd planarUncoordinated = planarLateralBlock(uncoordinated);
+  BOOST_TEST_MESSAGE("Planar lateral block, coordinated: sv=[" << formatSingularValues(planarCoordinated) << "]");
+  BOOST_TEST_MESSAGE("Planar lateral block, uncoordinated: sv=[" << formatSingularValues(planarUncoordinated) << "]");
+  BOOST_CHECK_EQUAL(rankAt(planarCoordinated, 1e-9), 2);
+  BOOST_CHECK_EQUAL(rankAt(planarUncoordinated, 1e-9), 3);
+  // Assert the singular values, not only the rank integer: a nominally full but
+  // near-singular block is a different finding from a robustly full one.
+  const Eigen::VectorXd coordinatedSv = singularValues(planarCoordinated);
+  BOOST_CHECK_CLOSE(coordinatedSv(0), 1.97723, 1e-2);
+  BOOST_CHECK_CLOSE(coordinatedSv(1), 0.951658, 1e-2);
+  BOOST_CHECK_SMALL(coordinatedSv(2), 1e-12);
+  const Eigen::VectorXd uncoordinatedSv = singularValues(planarUncoordinated);
+  BOOST_CHECK_CLOSE(uncoordinatedSv(0), 1.95018, 1e-2);
+  BOOST_CHECK_CLOSE(uncoordinatedSv(1), 0.87305, 1e-2);
+  // Not marginal: the third direction is a fifth of the second, far above any
+  // sensible rank threshold, so the over-determination is structural.
+  BOOST_CHECK_CLOSE(uncoordinatedSv(2), 0.440016, 1e-2);
+
+  // The whole-body rows the QP actually assembles carry the same block. The
+  // steering and drive columns are exactly zero (assumption A3: the steering
+  // axis passes through the carrier centre), so the lateral rows reach the
+  // chassis only, and their planar sub-block reproduces the theory's a_i^T.
+  for(const bool coordinatedCase : {true, false})
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, 0.005);
+    setSteeringAngles(solver.robot(0), coordinatedCase ? coordinated : uncoordinated);
+    mc_solver::RollingContactConstraintOptions options;
+    options.velocityGain = 0.0;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+    const Eigen::MatrixXd lateral = labelledRows(rolling.hardMatrix(), rolling.hardRowLabels(), "/lateral");
+    BOOST_REQUIRE_EQUAL(lateral.rows(), 4);
+    BOOST_TEST_MESSAGE("Whole-body lateral block, " << (coordinatedCase ? "coordinated" : "uncoordinated")
+                                                    << ": sv=[" << formatSingularValues(lateral) << "]");
+    BOOST_CHECK_SMALL(lateral.rightCols(lateral.cols() - 6).lpNorm<Eigen::Infinity>(), 1e-12);
+    BOOST_CHECK_EQUAL(rankAt(lateral, 1e-9), coordinatedCase ? 2 : 3);
+    const Eigen::VectorXd expected = singularValues(coordinatedCase ? planarCoordinated : planarUncoordinated);
+    const Eigen::VectorXd observed = singularValues(lateral);
+    BOOST_CHECK_SMALL((observed.head(3) - expected).norm(), 1e-9);
+    BOOST_CHECK_SMALL(observed(3), 1e-12);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(IcrConcurrencyIsExactlyTheLateralRankCondition)
+{
+  // GEO-09. hasCommonICR() is computed from the wheel-axis lines alone, so this
+  // is an equivalence between two independently-derived predicates, not a
+  // restatement of one in terms of the other.
+  std::vector<std::array<double, 4>> configurations;
+  // Coordinated by construction: every planar twist has a common ICR.
+  for(const double yaw : {0.05, 0.4, -0.3})
+  {
+    for(const double linear : {0.15, -0.2})
+    {
+      for(const double lateral : {0.0, 0.1}) { configurations.push_back(icrSteeringAngles(linear, lateral, yaw)); }
+    }
+  }
+  // Pure translation: all headings parallel, ICR at infinity.
+  for(const double heading : {0.0, 0.3, -0.9, 1.2})
+  {
+    configurations.push_back({heading, heading, heading, heading});
+  }
+  // Deliberately not coordinated.
+  configurations.push_back({0.30, -0.10, 0.20, -0.30});
+  configurations.push_back({0.0, 0.0, 0.0, 0.2});
+  configurations.push_back({0.1, 0.2, 0.3, 0.4});
+  configurations.push_back({-0.5, 0.5, 0.5, -0.5});
+  configurations.push_back({0.7, -0.7, 0.2, 0.9});
+
+  size_t coordinatedCount = 0;
+  for(const auto & angles : configurations)
+  {
+    const Eigen::MatrixXd block = planarLateralBlock(angles);
+    const bool concurrent = hasCommonICR(angles);
+    const Eigen::Index rank = rankAt(block, 1e-9);
+    BOOST_TEST_MESSAGE("ICR=" << concurrent << " rank=" << rank << " sv=[" << formatSingularValues(block) << "]");
+    BOOST_CHECK_EQUAL(concurrent, rank <= 2);
+    coordinatedCount += concurrent ? 1 : 0;
+  }
+  // Both branches are exercised, so the equivalence above is not vacuous.
+  BOOST_CHECK_EQUAL(coordinatedCount, 16u);
+  BOOST_CHECK_EQUAL(configurations.size() - coordinatedCount, 5u);
+}
+
+BOOST_AUTO_TEST_CASE(LateralSlacksAreTheRangeSpaceDefect)
+{
+  // ROW-09. The softening is realised by moving the lateral rows into the
+  // objective, which is the explicit-slack formulation written out: minimising
+  // w||A x - c||^2 IS minimising w||sigma||^2 subject to A x - c = sigma. Both
+  // halves are asserted: that lateralSlack() reports A x* - c, and that the
+  // realised slack is the residual of the least-squares projection of c onto
+  // range(A), i.e. orthogonal to that range.
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto & robot = solver.robot(0);
+  setIncompatibleFourWheelState(robot);
+
+  // The identity regulariser below competes with the lateral rows, so the
+  // realised slack only reaches the pure least-squares residual as the lateral
+  // weight grows. That approach is itself the assertion: a slack that is not the
+  // range-space defect would not converge to it at rate 1/w.
+  double previousError = 0.0;
+  double previousOrthogonality = 0.0;
+  double defectNorm = 0.0;
+  for(const double weight : {1e6, 1e8, 1e10, 1e12})
+  {
+    mc_solver::RollingContactConstraintOptions options;
+    options.velocityGain = 20.0;
+    options.softLateralRows = true;
+    options.rollingWeight = 1.0;
+    options.lateralSlackWeight = weight;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+    TargetAccelerationTask targetTask(robot.mb(), 0);
+    Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+    target(3) = 1.0;
+    targetTask.target(target);
+    solver.addTask(&targetTask);
+    solver.addConstraintSet(rolling);
+    BOOST_REQUIRE(solve(solver, rolling));
+    const Eigen::VectorXd solution = solver.solver().alphaDVec(0);
+
+    // No lateral row reached the hard block.
+    BOOST_CHECK_EQUAL(labelledRows(rolling.hardMatrix(), rolling.hardRowLabels(), "/lateral").rows(), 0);
+    const std::vector<std::string> expectedLabels = {"front_left", "front_right", "rear_left", "rear_right"};
+    BOOST_CHECK(rolling.lateralSlackLabels() == expectedLabels);
+
+    const auto [A, c] = unscaledLateralRows(rolling, robot.mb().nrDof());
+    const Eigen::VectorXd slack = rolling.lateralSlack(solution);
+    BOOST_REQUIRE_EQUAL(slack.size(), 4);
+    // First half of ROW-09, and exact: the accessor reports A x* - c.
+    BOOST_CHECK_SMALL((slack - (A * solution - c)).lpNorm<Eigen::Infinity>(), 1e-12);
+
+    // c is genuinely outside range(A), so there is a defect to find at all.
+    const Eigen::VectorXd defect = A * A.completeOrthogonalDecomposition().solve(c) - c;
+    const double error = (slack - defect).lpNorm<Eigen::Infinity>();
+    const double orthogonality = (A.transpose() * slack).lpNorm<Eigen::Infinity>() / slack.norm();
+    BOOST_TEST_MESSAGE("w=" << weight << ": ||c||=" << c.norm() << ", ||(I-P)c||=" << defect.norm()
+                            << ", ||sigma||=" << slack.norm() << ", ||sigma - (I-P)c||=" << error
+                            << ", ||A^T sigma||/||sigma||=" << orthogonality);
+    BOOST_REQUIRE_GT(defect.norm(), 1e-3);
+    // The least-squares residual is minimal, so no realised slack can be shorter.
+    BOOST_CHECK_GE(slack.norm(), defect.norm() - 1e-12);
+    if(previousError != 0.0)
+    {
+      // One hundredfold weight, one hundredfold closer: first order in 1/w.
+      BOOST_CHECK_GT(previousError / error, 50.0);
+      BOOST_CHECK_LT(previousError / error, 200.0);
+      BOOST_CHECK_GT(previousOrthogonality / orthogonality, 50.0);
+    }
+    previousError = error;
+    previousOrthogonality = orthogonality;
+    defectNorm = defect.norm();
+    solver.removeConstraintSet(rolling);
+    solver.removeTask(&targetTask);
+  }
+  // Second half of ROW-09 at the end of the sweep: the realised slack is the
+  // residual of the least-squares projection, and orthogonal to range(A).
+  BOOST_TEST_MESSAGE("Range-space defect norm: " << defectNorm);
+  BOOST_CHECK_SMALL(previousError, 1e-9);
+  BOOST_CHECK_SMALL(previousOrthogonality, 1e-8);
+}
+
+BOOST_AUTO_TEST_CASE(IncompatibleFourWheelDataSurfacesAsLateralSlack)
+{
+  // SMK-07. Incompatible four-wheel data must surface as slack rather than as
+  // infeasibility: the solve succeeds and the slack norm is non-zero. The hard
+  // half of the comparison is the decisive test below.
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  setIncompatibleFourWheelState(solver.robot(0));
+
+  auto wheels = fourSteeringWheels();
+  mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = 20.0;
+  options.softLateralRows = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  mc_tasks::PostureTask posture(solver, 0, 5.0, 100.0);
+  solver.addConstraintSet(dynamics);
+  solver.addConstraintSet(rolling);
+  solver.addTask(&posture);
+  BOOST_REQUIRE(solver.run());
+
+  const Eigen::VectorXd slack = rolling.lateralSlack(solver.solver().alphaDVec(0));
+  BOOST_TEST_MESSAGE("Incompatible four-wheel lateral slack: [" << slack.transpose() << "], norm " << slack.norm());
+  BOOST_CHECK_GT(slack.norm(), 1e-6);
+  BOOST_CHECK(slack.allFinite());
+
+  solver.removeTask(&posture);
+  solver.removeConstraintSet(rolling);
+  solver.removeConstraintSet(dynamics);
+}
+
+BOOST_AUTO_TEST_CASE(HardLateralRowsFreezeTheChassisAndSoftOnesDoNot)
+{
+  // The decisive regression test. Both halves are asserted, so it demonstrates
+  // the difference rather than only the fixed behaviour.
+  BOOST_REQUIRE(!hasCommonICR(uncoordinatedSteeringAngles()));
+
+  struct Outcome
+  {
+    bool solved = false;
+    double planarNorm = 0.0;
+    double forward = 0.0;
+    double hardLateralResidual = 0.0;
+    double slackNorm = 0.0;
+  };
+
+  auto run = [&](bool soft, double slackWeight, double demand, bool incompatible)
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, 0.005);
+    auto & robot = solver.robot(0);
+    if(incompatible) { setIncompatibleFourWheelState(robot); }
+    else { setSteeringAngles(robot, uncoordinatedSteeringAngles()); }
+    mc_solver::RollingContactConstraintOptions options;
+    options.velocityGain = incompatible ? 20.0 : 0.0;
+    options.softLateralRows = soft;
+    options.lateralSlackWeight = slackWeight;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+    TargetAccelerationTask targetTask(robot.mb(), 0);
+    Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+    target(3) = demand;
+    targetTask.target(target);
+    solver.addTask(&targetTask);
+    solver.addConstraintSet(rolling);
+    Outcome out;
+    out.solved = solve(solver, rolling);
+    if(out.solved)
+    {
+      const Eigen::VectorXd solution = solver.solver().alphaDVec(0);
+      // Planar chassis acceleration: [vx, vy, omega] at dof 3, 4 and 2.
+      out.planarNorm = Eigen::Vector3d{solution(3), solution(4), solution(2)}.norm();
+      out.forward = solution(3);
+      const Eigen::MatrixXd hardLateral = labelledRows(rolling.hardMatrix(), rolling.hardRowLabels(), "/lateral");
+      if(hardLateral.rows() != 0)
+      {
+        const auto [A, c] = unscaledLateralRows(rolling, robot.mb().nrDof());
+        out.hardLateralResidual = (A * solution - c).lpNorm<Eigen::Infinity>();
+      }
+      out.slackNorm = rolling.lateralSlack(solution).norm();
+    }
+    solver.removeConstraintSet(rolling);
+    solver.removeTask(&targetTask);
+    return out;
+  };
+
+  // Half one: a chassis at rest, so the stabilised right-hand side is exactly
+  // zero and the hard system A xi_dot = 0 is consistent. Rank 3 on three planar
+  // DOF then leaves xi_dot = 0 as the only solution: the QP freezes the chassis
+  // no matter how hard the task pulls, and the freeze is a property of the row
+  // structure, so raising the demand tenfold changes nothing.
+  const Outcome frozen = run(false, 1e5, 1.0, false);
+  const Outcome frozenHarder = run(false, 1e5, 10.0, false);
+  BOOST_REQUIRE(frozen.solved);
+  BOOST_REQUIRE(frozenHarder.solved);
+  BOOST_TEST_MESSAGE("Hard lateral rows at rest: ||planar alphaD|| = " << frozen.planarNorm << " at demand 1, "
+                                                                      << frozenHarder.planarNorm << " at demand 10");
+  BOOST_CHECK_SMALL(frozen.planarNorm, 1e-12);
+  BOOST_CHECK_SMALL(frozenHarder.planarNorm, 1e-12);
+  BOOST_CHECK_SMALL(frozen.hardLateralResidual, 1e-9);
+
+  // Half two: the same problem with the four lateral rows softened moves, and
+  // the twist is a trade-off against the lateral weight rather than a frozen
+  // zero. It grows monotonically as the rows are relaxed, and it answers the
+  // demand: at a negligible weight it reaches the twist the QP would produce
+  // with no lateral rows at all, and it scales linearly with the demand.
+  const Outcome unconstrained = run(true, 1e-9, 1.0, false);
+  BOOST_REQUIRE(unconstrained.solved);
+  double previousPlanar = -1.0;
+  for(const double weight : {1e5, 1e3, 1e1, 1.0, 1e-2})
+  {
+    const Outcome relaxed = run(true, weight, 1.0, false);
+    BOOST_REQUIRE(relaxed.solved);
+    BOOST_TEST_MESSAGE("Soft lateral rows at w=" << weight << ": ||planar alphaD|| = " << relaxed.planarNorm
+                                                 << ", vx = " << relaxed.forward
+                                                 << ", ||sigma|| = " << relaxed.slackNorm);
+    BOOST_CHECK_GT(relaxed.planarNorm, previousPlanar);
+    BOOST_CHECK_GT(relaxed.forward, 0.0);
+    previousPlanar = relaxed.planarNorm;
+  }
+  BOOST_TEST_MESSAGE("Twist with the lateral rows effectively absent: " << unconstrained.planarNorm);
+  // Relaxing the lateral rows recovers the twist the QP would produce with no
+  // lateral rows at all: the softened rows trade against the command, they do
+  // not remove the chassis degrees of freedom the way the rank deficiency does.
+  BOOST_CHECK_GT(previousPlanar, 0.9 * unconstrained.planarNorm);
+  // At the default weight the chassis still moves, by four orders of magnitude
+  // more than the hard case, which is exactly zero.
+  const Outcome soft = run(true, 1e5, 1.0, false);
+  BOOST_CHECK_GT(soft.planarNorm, 1e-6);
+  BOOST_CHECK_GT(soft.forward, 0.0);
+  // And it answers the demand linearly, which the frozen case does not.
+  const Outcome softHarder = run(true, 1e5, 10.0, false);
+  BOOST_CHECK_CLOSE(softHarder.planarNorm, 10.0 * soft.planarNorm, 1e-6);
+
+  // Half three: incompatible measured steering rates put c outside range(A).
+  // That is where hard rows stop merely freezing the chassis and become
+  // unsatisfiable, while the softened rows report the defect and carry on.
+  const Outcome hardMoving = run(false, 1e5, 1.0, true);
+  const Outcome softMoving = run(true, 1e5, 1.0, true);
+  BOOST_TEST_MESSAGE("Incompatible data, hard: solved=" << hardMoving.solved << ", lateral row residual "
+                                                        << hardMoving.hardLateralResidual << "; soft: solved="
+                                                        << softMoving.solved << ", ||sigma|| = "
+                                                        << softMoving.slackNorm);
+  BOOST_CHECK(!hardMoving.solved || hardMoving.hardLateralResidual > 1e-6);
+  BOOST_REQUIRE(softMoving.solved);
+  BOOST_CHECK_GT(softMoving.slackNorm, 1e-6);
+}
+
+BOOST_AUTO_TEST_CASE(LateralSlacksCarryNoBoxConstraint)
+{
+  // BND-06. The softening moves rows into the objective; it adds no decision
+  // variable, so there is nothing to bound and nothing that could be bounded.
+  auto snapshot = [](bool soft, bool incompatible)
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, 0.005);
+    if(incompatible) { setIncompatibleFourWheelState(solver.robot(0)); }
+    else { setSteeringAngles(solver.robot(0), uncoordinatedSteeringAngles()); }
+    auto wheels = fourSteeringWheels();
+    mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+    mc_solver::RollingContactConstraintOptions options;
+    options.velocityGain = 20.0;
+    options.softLateralRows = soft;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+    mc_tasks::PostureTask posture(solver, 0, 5.0, 100.0);
+    solver.addConstraintSet(dynamics);
+    solver.addConstraintSet(rolling);
+    solver.addTask(&posture);
+    BOOST_REQUIRE(solver.run());
+    const std::array<int, 4> counts = {solver.data().nrVars(), solver.solver().nrBoundConstraints(),
+                                       solver.solver().nrInequalityConstraints(),
+                                       solver.solver().nrGenInequalityConstraints()};
+    const Eigen::VectorXd slack = rolling.lateralSlack(solver.solver().alphaDVec(0));
+    solver.removeTask(&posture);
+    solver.removeConstraintSet(rolling);
+    solver.removeConstraintSet(dynamics);
+    return std::make_pair(counts, slack);
+  };
+
+  // Compatible data, so both configurations solve and the counts are comparable.
+  const auto hard = snapshot(false, false);
+  const auto soft = snapshot(true, false);
+  BOOST_TEST_MESSAGE("Hard nrVars/bounds/ineq/genIneq: " << hard.first[0] << "/" << hard.first[1] << "/"
+                                                         << hard.first[2] << "/" << hard.first[3]);
+  BOOST_TEST_MESSAGE("Soft nrVars/bounds/ineq/genIneq: " << soft.first[0] << "/" << soft.first[1] << "/"
+                                                         << soft.first[2] << "/" << soft.first[3]);
+  BOOST_CHECK(hard.first == soft.first);
+
+  // A bounded slack would show as a one-sided residual; this one takes both
+  // signs, so nothing is clamping it in either direction.
+  const auto incompatible = snapshot(true, true);
+  BOOST_TEST_MESSAGE("Soft lateral slack on incompatible data: [" << incompatible.second.transpose() << "]");
+  BOOST_CHECK(incompatible.first == soft.first);
+  BOOST_CHECK_GT(incompatible.second.maxCoeff(), 1e-9);
+  BOOST_CHECK_LT(incompatible.second.minCoeff(), -1e-9);
+}
+
+BOOST_AUTO_TEST_CASE(LateralSlackRowsFollowTheBlockWeightAndRejectInvalidWeights)
+{
+  constexpr double dt = 0.005;
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, dt);
+  mc_solver::RollingContactConstraintOptions options;
+  options.softLateralRows = true;
+  options.rollingWeight = 1000.0;
+  options.lateralSlackWeight = 4e4;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+  solver.addConstraintSet(rolling);
+  rolling.update(solver);
+
+  // The realised weight of a soft row is rollingWeight * scale^2, and the scale
+  // is read off against the unscaled lateral row the geometry publishes.
+  auto realisedLateralWeight = [&]()
+  {
+    const Eigen::Index row = softRowIndex(rolling, "front_left/lateral");
+    const Eigen::RowVectorXd unscaled = rolling.geometryResults()[0].rollingMatrix.row(1);
+    const Eigen::Index column = 0;
+    Eigen::Index best = column;
+    for(Eigen::Index i = 0; i < unscaled.size(); ++i)
+    {
+      if(std::abs(unscaled(i)) > std::abs(unscaled(best))) { best = i; }
+    }
+    const double scale = rolling.softMatrix()(row, best) / unscaled(best);
+    return rolling.rollingWeight() * scale * scale;
+  };
+
+  const double before = realisedLateralWeight();
+  const size_t layoutRevision = rolling.layoutRevision();
+  rolling.rollingWeight(250.0);
+  rolling.update(solver);
+  const double after = realisedLateralWeight();
+  BOOST_TEST_MESSAGE("Realised lateral-slack weight before rollingWeight(250): " << before << ", after: " << after);
+  BOOST_CHECK_CLOSE(before, 4e4, 1e-9);
+  BOOST_CHECK_CLOSE(after, 4e4, 1e-9);
+  BOOST_CHECK_EQUAL(rolling.layoutRevision(), layoutRevision);
+  BOOST_REQUIRE(solve(solver, rolling));
+  solver.removeConstraintSet(rolling);
+
+  for(const double weight : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity()})
+  {
+    auto invalid = options;
+    invalid.lateralSlackWeight = weight;
+    BOOST_CHECK_THROW(invalid.validate(4), std::invalid_argument);
+  }
 }
