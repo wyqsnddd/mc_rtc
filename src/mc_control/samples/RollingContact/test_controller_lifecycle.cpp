@@ -1,5 +1,6 @@
 #include "mc_rolling_contact_controller.h"
 
+#include <mc_observers/ObserverLoader.h>
 #include <mc_rbdyn/RobotLoader.h>
 
 #include <boost/test/unit_test.hpp>
@@ -30,6 +31,17 @@ mc_rbdyn::RobotModulePtr robotModule(const std::string & name)
   return mc_rbdyn::RobotLoader::get_robot_module(name);
 }
 
+void loadObserverModules()
+{
+  static const bool configured = []()
+  {
+    mc_observers::ObserverLoader::clear();
+    mc_observers::ObserverLoader::update_module_path({ROLLING_CONTACT_OBSERVER_MODULE_PATH});
+    return true;
+  }();
+  (void)configured;
+}
+
 mc_rtc::Configuration controllerConfiguration(const std::string & scenario)
 {
   mc_rtc::Configuration config;
@@ -41,6 +53,84 @@ mc_rtc::Configuration controllerConfiguration(const std::string & scenario)
     settings.add("longitudinal", "soft");
   }
   return config;
+}
+
+/** ObserverPipelines config used by the closed-loop tests below: Encoder runs
+ * before BodySensor because BodySensorObserver::run() reads
+ * realRobot().X_b1_b2(sensor.parentBody(), floatingBaseBody), which depends
+ * on the joint state Encoder's update() just refreshed via
+ * forwardKinematics() (mc_observers/BodySensorObserver.cpp:89-134,
+ * mc_observers/EncoderObserver.cpp:169-170).
+ *
+ * Unlike the report configs under rolling-contact-report/config/ (which use
+ * "position: encoderValues" / "velocity: encoderVelocities" because
+ * mc_mujoco publishes a real encoder packet every tick), this test harness
+ * constructs MCRollingContactController directly and never populates
+ * robot().encoderValues()/encoderVelocities() - there is no simulator or
+ * ticker doing that here. EncoderObserver::run() throws on an empty encoder
+ * array in "encoderValues"/"encoderVelocities" mode (see
+ * mc_observers/EncoderObserver.cpp:88-97), so use "control" mode instead: it
+ * mirrors robot().mbc().q/alpha, which
+ * MCRollingContactController::syncControlRobotFromSensors() has already
+ * synchronized from the mocked sensors earlier in the same run(), so Encoder
+ * is still genuinely exercised ahead of BodySensor in the pipeline.
+ */
+mc_rtc::Configuration observerPipelineConfig(bool withBodySensor = true)
+{
+  std::string yaml = "ObserverPipelines:\n"
+                     "  - name: RollingContactPipeline\n"
+                     "    gui: false\n"
+                     "    observers:\n"
+                     "      - type: Encoder\n"
+                     "        update: true\n"
+                     "        position: control\n"
+                     "        velocity: control\n";
+  if(withBodySensor)
+  {
+    yaml += "      - type: BodySensor\n"
+           "        update: true\n"
+           "        bodySensor: FloatingBase\n"
+           "        method: sensor\n"
+           "        updatePose: true\n"
+           "        updateVel: true\n";
+  }
+  return mc_rtc::Configuration::fromYAMLData(yaml);
+}
+
+/** Build a closed-loop Ranger controller with the Encoder + BodySensor
+ * observer pipeline attached, mirroring how MCGlobalController wires
+ * ObserverPipelines for a real deployment: createObserverPipelines() runs
+ * right after construction and reset() runs before resetObserverPipelines()
+ * (see MCGlobalController::initController(), mc_global_controller.cpp:353-368
+ * and :968). Pass withBodySensor=false only for the mutation test: dropping
+ * BodySensor from the pipeline must make realRobot()'s pose/twist stop
+ * tracking the sensor.
+ */
+std::unique_ptr<mc_control::MCRollingContactController> makeClosedLoopController(const std::string & scenario,
+                                                                                 bool withBodySensor = true)
+{
+  loadObserverModules();
+  auto config = controllerConfiguration(scenario);
+  config("RollingContact").add("closedLoopFeedback", true);
+  config.load(observerPipelineConfig(withBodySensor));
+  auto controller = std::make_unique<mc_control::MCRollingContactController>(
+      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
+  controller->createObserverPipelines(config);
+  controller->reset({controller->robot().mbc().q});
+  return controller;
+}
+
+/** Run the observer pipeline for one cycle, then the controller, mirroring
+ * MCGlobalController::run(): runObserverPipelines() happens before
+ * controller_->run() every tick (mc_global_controller.cpp:809,813). A caller
+ * that skips this and calls controller.run() directly restores a stale free
+ * joint from realRobot() every cycle (see the comment on the restore block in
+ * MCRollingContactController::run()).
+ */
+bool stepClosedLoop(mc_control::MCRollingContactController & controller)
+{
+  controller.runObserverPipelines();
+  return controller.run();
 }
 
 void exercise(mc_control::MCController::Backend backend, const std::string & robot, int repetitions)
@@ -134,6 +224,75 @@ double chassisYaw(const sva::PTransformd & start, const sva::PTransformd & end)
 {
   const Eigen::Matrix3d relative = end.rotation().transpose() * start.rotation();
   return std::atan2(relative(1, 0), relative(0, 0));
+}
+
+/** Drive a changing FloatingBase sensor trajectory through a closed-loop
+ * Ranger controller for a few cycles and check that realRobot() - not a copy
+ * of the control robot - tracks it.
+ *
+ * This is the discriminator between "state observation" and the old
+ * hand-rolled mirror it replaced: a mirror would make realRobot() equal
+ * whatever the QP predicted for the control robot's free joint that cycle,
+ * which has no reason to equal the sensor. Here the sensor value changes
+ * every cycle and is asserted against directly, both at the public posW()/
+ * velW() API (world frame) and at the internal mbc().alpha[0] storage (body
+ * frame, RBDyn's Free-joint convention), so a pipeline that silently stopped
+ * updating realRobot() - e.g. because BodySensor was dropped, see the
+ * withBodySensor parameter - is caught either way.
+ *
+ * Pass withBodySensor=false only to mutation-test this check: BOOST_CHECK
+ * (not BOOST_REQUIRE) is used for the tracking assertions so a dropped
+ * BodySensor observer is reported as failures rather than aborting the test
+ * body, letting every cycle's mismatch show up in the log.
+ */
+void driveObserverPipelineAndCheckRealRobotTracksSensor(bool withBodySensor)
+{
+  auto controller = makeClosedLoopController("hold", withBodySensor);
+  auto & sensor = controller->robot().data()->bodySensors[
+      controller->robot().data()->bodySensorsIndex.at("FloatingBase")];
+
+  for(int cycle = 0; cycle < 10; ++cycle)
+  {
+    const double t = static_cast<double>(cycle);
+    // A changing pose/twist per cycle: if realRobot() were a stale copy (or
+    // simply never updated) it would not track this motion.
+    const Eigen::Vector3d position{0.05 * t, -0.02 * t, 0.16};
+    const Eigen::Quaterniond orientation{Eigen::AngleAxisd(0.05 * t, Eigen::Vector3d::UnitZ())};
+    const Eigen::Vector3d linearVelocity{0.05, -0.02, 0.0};
+    const Eigen::Vector3d angularVelocity{0.0, 0.0, 0.05};
+    sensor.position(position);
+    sensor.orientation(orientation);
+    sensor.linearVelocity(linearVelocity);
+    sensor.angularVelocity(angularVelocity);
+    if(cycle == 0) { controller->resetObserverPipelines(); }
+    BOOST_REQUIRE(stepClosedLoop(*controller));
+
+    const auto & real = controller->realRobot();
+    BOOST_CHECK_SMALL((real.posW().translation() - position).norm(), 1e-9);
+    BOOST_CHECK_SMALL((real.posW().rotation() - orientation.toRotationMatrix()).norm(), 1e-9);
+    BOOST_CHECK_SMALL((real.velW().linear() - linearVelocity).norm(), 1e-9);
+    BOOST_CHECK_SMALL((real.velW().angular() - angularVelocity).norm(), 1e-9);
+
+    // The sensor orientation is the world-to-body rotation E_0_b (same
+    // convention as posW().rotation(), see the comments on the other
+    // closed-loop tests above), and BodySensorObserver's X_s_fb collapses to
+    // Identity for this robot (FloatingBase's parent body is "chassis" and
+    // X_b_s is Identity), so rotating the world-frame sensor velocity by
+    // that same E_0_b predicts exactly what realRobot.velW(velW_) must have
+    // written into mbc().alpha[0].
+    const Eigen::Matrix3d worldToBody = orientation.toRotationMatrix();
+    const Eigen::Vector3d expectedBodyAngular = worldToBody * angularVelocity;
+    const Eigen::Vector3d expectedBodyLinear = worldToBody * linearVelocity;
+    const auto & alpha0 = real.mbc().alpha[0];
+    BOOST_REQUIRE_EQUAL(alpha0.size(), 6u);
+    const Eigen::Vector3d actualBodyAngular{alpha0[0], alpha0[1], alpha0[2]};
+    const Eigen::Vector3d actualBodyLinear{alpha0[3], alpha0[4], alpha0[5]};
+    BOOST_CHECK_SMALL((actualBodyAngular - expectedBodyAngular).norm(), 1e-9);
+    BOOST_CHECK_SMALL((actualBodyLinear - expectedBodyLinear).norm(), 1e-9);
+    BOOST_TEST_MESSAGE("[observer-tracking] cycle=" << cycle << " |dpos|="
+                                                     << (real.posW().translation() - position).norm()
+                                                     << " |dvel|=" << (real.velW().linear() - linearVelocity).norm());
+  }
 }
 
 } // namespace
@@ -330,29 +489,28 @@ BOOST_AUTO_TEST_CASE(FourSteeringMirrorsForwardPlusNegativeYaw)
 
 BOOST_AUTO_TEST_CASE(RollingContactControllerSynchronizesFloatingBase)
 {
-  auto config = controllerConfiguration("hold");
-  config("RollingContact").add("closedLoopFeedback", true);
-  mc_control::MCRollingContactController controller(
-      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
-  controller.reset({controller.robot().mbc().q});
+  auto controller = makeClosedLoopController("hold");
 
   // BodySensor orientation follows the mc_rbdyn convention (inertial to
-  // sensor). The controller must convert this measured packet into the free
-  // joint MBC and mirror it into realRobot() before the QP runs.
+  // sensor). syncControlRobotFromSensors() converts this measured packet into
+  // the free joint MBC of the control robot; the Encoder/BodySensor observer
+  // pipeline is what actually produces realRobot()'s estimate from it (see
+  // makeClosedLoopController / stepClosedLoop above).
   const Eigen::Vector3d measuredPosition{0.11, -0.035, 0.16};
   const Eigen::Quaterniond measuredWorldToBody{Eigen::AngleAxisd(0.23, Eigen::Vector3d::UnitZ())};
   const Eigen::Vector3d measuredLinearVelocity{0.18, -0.07, 0.0};
   const Eigen::Vector3d measuredAngularVelocity{0.0, 0.0, 0.21};
-  auto & sensor = controller.robot().data()->bodySensors[
-      controller.robot().data()->bodySensorsIndex.at("FloatingBase")];
+  auto & sensor = controller->robot().data()->bodySensors[
+      controller->robot().data()->bodySensorsIndex.at("FloatingBase")];
   sensor.position(measuredPosition);
   sensor.orientation(measuredWorldToBody);
   sensor.linearVelocity(measuredLinearVelocity);
   sensor.angularVelocity(measuredAngularVelocity);
+  controller->resetObserverPipelines();
 
-  BOOST_REQUIRE(controller.run());
-  const auto & control = controller.robot();
-  const auto & real = controller.realRobot();
+  BOOST_REQUIRE(stepClosedLoop(*controller));
+  const auto & control = controller->robot();
+  const auto & real = controller->realRobot();
   const auto & chassis = control.frame("chassis").position();
   const auto & floatingBase = control.bodySensor("FloatingBase");
   const sva::PTransformd measuredFloatingBase(floatingBase.orientation(), floatingBase.position());
@@ -380,29 +538,26 @@ BOOST_AUTO_TEST_CASE(KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading)
   // pin both halves of it here.
   ScopedPseudoTerminalStdin tty;
   BOOST_REQUIRE_MESSAGE(tty.active(), "could not allocate a pseudo-terminal for the keyboard scenario");
-  auto config = controllerConfiguration("keyboard");
-  config("RollingContact").add("closedLoopFeedback", true);
-  mc_control::MCRollingContactController controller(
-      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
-  controller.reset({controller.robot().mbc().q});
+  auto controller = makeClosedLoopController("keyboard");
 
   // Sensor orientation is the inertial-to-body rotation, so this is a chassis
   // whose +X axis really points at -0.4 rad in the world.
   constexpr double sensorYaw = 0.4;
-  auto & sensor = controller.robot().data()->bodySensors[
-      controller.robot().data()->bodySensorsIndex.at("FloatingBase")];
+  auto & sensor = controller->robot().data()->bodySensors[
+      controller->robot().data()->bodySensorsIndex.at("FloatingBase")];
   sensor.orientation(Eigen::Quaterniond{Eigen::AngleAxisd(sensorYaw, Eigen::Vector3d::UnitZ())});
-  sensor.position(controller.robot().posW().translation());
-  BOOST_REQUIRE(controller.run());
+  sensor.position(controller->robot().posW().translation());
+  controller->resetObserverPipelines();
+  BOOST_REQUIRE(stepClosedLoop(*controller));
 
   // The true world heading of the chassis' +X axis: E_0_b^T * e_x.
-  const Eigen::Vector3d worldForward = controller.robot().posW().rotation().transpose().col(0);
+  const Eigen::Vector3d worldForward = controller->robot().posW().rotation().transpose().col(0);
   const double worldYaw = std::atan2(worldForward.y(), worldForward.x());
   BOOST_CHECK_CLOSE(worldYaw, -sensorYaw, 1e-6);
 
   // baseYawTarget_ holds the mirrored value, which is exactly why run() negates
   // it. If this ever equals worldYaw instead, the negation must go with it.
-  const double baseYawTarget = controller.datastore().call<double>("RollingContact::GetBaseYawTarget");
+  const double baseYawTarget = controller->datastore().call<double>("RollingContact::GetBaseYawTarget");
   BOOST_CHECK_CLOSE(baseYawTarget, sensorYaw, 1e-6);
   BOOST_CHECK_CLOSE(-baseYawTarget, worldYaw, 1e-6);
 
@@ -412,13 +567,13 @@ BOOST_AUTO_TEST_CASE(KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading)
   // i.e. mirrored about the world X axis. Drive it through the GUI input,
   // which the keyboard poll adds to the key state every cycle; setCommandedTwist
   // would be overwritten by that same poll.
-  BOOST_REQUIRE(controller.gui()->handleRequest({"Rolling Contact", "Command"}, "Forward velocity",
-                                                mc_rtc::Configuration::fromData("0.3")));
+  BOOST_REQUIRE(controller->gui()->handleRequest({"Rolling Contact", "Command"}, "Forward velocity",
+                                                 mc_rtc::Configuration::fromData("0.3")));
   const Eigen::Vector3d targetBefore =
-      controller.datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionTarget");
-  for(int cycle = 0; cycle < 20; ++cycle) { BOOST_REQUIRE(controller.run()); }
+      controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionTarget");
+  for(int cycle = 0; cycle < 20; ++cycle) { BOOST_REQUIRE(stepClosedLoop(*controller)); }
   const Eigen::Vector3d targetAfter =
-      controller.datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionTarget");
+      controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionTarget");
 
   const Eigen::Vector3d walked = targetAfter - targetBefore;
   BOOST_REQUIRE_GT(walked.head<2>().norm(), 1e-6);
@@ -426,6 +581,11 @@ BOOST_AUTO_TEST_CASE(KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading)
   BOOST_TEST_MESSAGE("[keyboard-heading] sensorYaw=" << sensorYaw << " worldYaw=" << worldYaw
                                                      << " walkedYaw=" << walkedYaw);
   BOOST_CHECK_SMALL(std::remainder(walkedYaw - worldYaw, 2.0 * 3.14159265358979323846), 1e-6);
+}
+
+BOOST_AUTO_TEST_CASE(RollingContactObserverPipelineDrivesRealRobotEstimate)
+{
+  driveObserverPipelineAndCheckRealRobotTracksSensor(/* withBodySensor = */ true);
 }
 
 BOOST_AUTO_TEST_CASE(RollingContactControllerRejectsInvalidConfiguration)

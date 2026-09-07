@@ -753,16 +753,21 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
                        { return closedLoopFeedback_ ? realRobot().velW() : robot().velW(); });
   // The FloatingBase packet and the chassis frame must describe the same
   // physical origin. Compare the measured robot (not the one-step predicted
-  // control state) so this remains a meaningful runtime model check.
+  // control state) so this remains a meaningful runtime model check. The raw
+  // BodySensor packet itself only ever lands on robot(): the observer
+  // pipeline consumes it to estimate realRobot()'s posW()/velW(), but does
+  // not copy the sensor object into realRobot(), so read it from robot()
+  // unconditionally and only switch the comparison target (the frame) with
+  // closedLoopFeedback_.
   logger().addLogEntry("RollingContact_floating_base_chassis_error", [this]()
                        {
-                         const auto & measured = closedLoopFeedback_ ? realRobot() : robot();
-                         if(!measured.hasBodySensor("FloatingBase"))
+                         if(!robot().hasBodySensor("FloatingBase"))
                          {
                            return std::numeric_limits<double>::infinity();
                          }
-                         const auto & sensor = measured.bodySensor("FloatingBase");
+                         const auto & sensor = robot().bodySensor("FloatingBase");
                          const sva::PTransformd sensorPose(sensor.orientation(), sensor.position());
+                         const auto & measured = closedLoopFeedback_ ? realRobot() : robot();
                          return (sensorPose.matrix() - measured.frame("chassis").position().matrix()).norm();
                        });
   for(size_t i = 0; i < wheels_.size(); ++i)
@@ -870,9 +875,12 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
                            [this, steeringJoint]()
                            {
                              // The MuJoCo adapter publishes encoder values on the
-                             // controlled robot. Use that stream for the measured
-                             // steering angle instead of realRobot(), whose MBC is
-                             // not updated when no observer pipeline is configured.
+                             // controlled robot. Use that raw stream directly for the
+                             // measured steering angle rather than realRobot(): the
+                             // Encoder observer only updates realRobot() when
+                             // closedLoopFeedback_ has an ObserverPipelines block
+                             // configured and run, and this log entry should stay
+                             // meaningful regardless of that.
                              const auto & refJointOrder = robot().refJointOrder();
                              const auto it = std::find(refJointOrder.begin(), refJointOrder.end(),
                                                        robot().mb().joint(steeringJoint).name());
@@ -1692,16 +1700,18 @@ void MCRollingContactController::updateDiagnostics(bool solverSuccess)
   if(!diagnosticsValid_ && invalidReason_.empty()) { invalidReason_ = "non-finite-diagnostic"; }
 }
 
-void MCRollingContactController::synchronizeMeasuredState()
+void MCRollingContactController::syncControlRobotFromSensors()
 {
   // mc_mujoco publishes joint encoders and the FloatingBase body sensor on the
-  // control robot. Keep both the control and real MBCs in sync with those
-  // measurements before evaluating tasks. In particular, no observer
-  // pipeline is configured for the mc_mujoco keyboard profile, so leaving the
-  // real MBC untouched would keep its floating base at the initial pose and
-  // expose stale state through outputRealRobot()/ff_real.
+  // control robot only. Feed them into the control MBC so the QP built this
+  // tick sees the measured state (closed-loop feedback), matching how a real
+  // hardware interface's encoder/IMU packet would be consumed. This is
+  // independent from state observation: realRobot() is estimated by the
+  // Encoder/BodySensor observer pipeline (see ObserverPipelines in the
+  // controller configuration), which runs before MCController::run() and
+  // reads these same raw sensor values off the control robot, so it does not
+  // need (and must not be overwritten by) a copy from here.
   auto & measuredRobot = robot();
-  auto & realMeasuredRobot = realRobot();
   const auto & encoders = measuredRobot.encoderValues();
   const auto & encoderVelocities = measuredRobot.encoderVelocities();
   const auto & refJointOrder = measuredRobot.refJointOrder();
@@ -1753,35 +1763,6 @@ void MCRollingContactController::synchronizeMeasuredState()
   }
   measuredRobot.forwardKinematics();
   measuredRobot.forwardVelocity();
-
-  // QPSolver keeps a separate realRobots() collection for sensor/estimator
-  // state. The mc_mujoco adapter intentionally feeds sensors to the control
-  // robot, so mirror the synchronized state explicitly. Do not copy the
-  // controller's predicted/output state after this point: the copy happens
-  // before MCController::run(), while both MBCs still represent the same
-  // measurement.
-  realMeasuredRobot.mbc().q = measuredRobot.mbc().q;
-  realMeasuredRobot.mbc().alpha = measuredRobot.mbc().alpha;
-  realMeasuredRobot.mbc().alphaD = measuredRobot.mbc().alphaD;
-  realMeasuredRobot.mbc().jointTorque = measuredRobot.mbc().jointTorque;
-  realMeasuredRobot.data()->encoderValues = measuredRobot.encoderValues();
-  realMeasuredRobot.data()->encoderVelocities = measuredRobot.encoderVelocities();
-  realMeasuredRobot.data()->jointTorques = measuredRobot.jointTorques();
-  for(const auto & sensor : measuredRobot.bodySensors())
-  {
-    if(!realMeasuredRobot.hasBodySensor(sensor.name())) { continue; }
-    auto & realSensor =
-        realMeasuredRobot.data()->bodySensors[realMeasuredRobot.data()->bodySensorsIndex.at(sensor.name())];
-    realSensor.position(sensor.position());
-    realSensor.orientation(sensor.orientation());
-    realSensor.linearVelocity(sensor.linearVelocity());
-    realSensor.angularVelocity(sensor.angularVelocity());
-    realSensor.linearAcceleration(sensor.linearAcceleration());
-    realSensor.angularAcceleration(sensor.angularAcceleration());
-  }
-  realMeasuredRobot.forwardKinematics();
-  realMeasuredRobot.forwardVelocity();
-  realMeasuredRobot.forwardAcceleration();
 }
 
 bool MCRollingContactController::run()
@@ -1793,7 +1774,7 @@ bool MCRollingContactController::run()
   {
     if(closedLoopFeedback_)
     {
-      synchronizeMeasuredState();
+      syncControlRobotFromSensors();
     }
     measuredDrivePositions.resize(wheels_.size());
     for(size_t i = 0; i < wheels_.size(); ++i)
@@ -1842,7 +1823,14 @@ bool MCRollingContactController::run()
       // mc_mujoco adapter. MCController::run() integrates a one-step task
       // prediction into the control MBC; restore the measured root after
       // producing the wheel commands so the next cycle and ff_q never use
-      // that prediction as if it were an observed chassis motion.
+      // that prediction as if it were an observed chassis motion. realRobot()
+      // is the observer pipeline's estimate for this tick: the Encoder and
+      // BodySensor observers run (via runObserverPipelines()) before this
+      // run() is called, so realRobot().mbc().q[0]/alpha[0] already reflect
+      // the same sensor packet syncControlRobotFromSensors() just wrote into
+      // robot(). A caller that drives this controller without running the
+      // configured ObserverPipelines every cycle will restore a stale free
+      // joint here.
       robot().mbc().q[0] = realRobot().mbc().q[0];
       robot().mbc().alpha[0] = realRobot().mbc().alpha[0];
       robot().forwardKinematics();

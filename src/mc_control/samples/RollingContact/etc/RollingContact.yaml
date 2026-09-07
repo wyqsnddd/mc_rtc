@@ -38,3 +38,17 @@ RollingContact:
   closedLoopFeedback: false
   longitudinal: hard
   terrainNormal: [0.0, 0.0, 1.0]
+ObserverPipelines:
+  - name: RollingContactPipeline
+    gui: true
+    observers:
+      - type: Encoder
+        update: true
+        position: encoderValues
+        velocity: encoderVelocities
+      - type: BodySensor
+        update: true
+        bodySensor: FloatingBase
+        method: sensor
+        updatePose: true
+        updateVel: true

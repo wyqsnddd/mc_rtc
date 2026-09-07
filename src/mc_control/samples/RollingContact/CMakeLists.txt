@@ -44,12 +44,16 @@ if(BUILD_TESTING)
     PRIVATE
       ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description"
       ROLLING_CONTACT_ROBOT_MODULE_PATH="$<TARGET_FILE_DIR:rolling_contact>"
+      ROLLING_CONTACT_OBSERVER_MODULE_PATH="$<TARGET_FILE_DIR:EncoderObserver>"
   )
   target_link_libraries(
     testRollingContactControllerLifecycle
     PRIVATE rolling_contact_controller Boost::unit_test_framework
   )
-  add_dependencies(testRollingContactControllerLifecycle rolling_contact)
+  add_dependencies(
+    testRollingContactControllerLifecycle rolling_contact EncoderObserver
+    BodySensorObserver
+  )
   target_compile_definitions(
     testRollingContactControllerLifecycle
     PRIVATE BOOST_TEST_DYN_LINK BOOST_TEST_MAIN

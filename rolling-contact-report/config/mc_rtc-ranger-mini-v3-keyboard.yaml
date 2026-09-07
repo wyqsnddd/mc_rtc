@@ -12,7 +12,20 @@ ClearRobotModulePath: true
 RobotModulePaths: [build/src/mc_robots]
 ClearObserverModulePath: true
 ObserverModulePaths: [build/src/mc_observers]
-ObserverPipelines: []
+ObserverPipelines:
+  - name: RollingContactPipeline
+    gui: true
+    observers:
+      - type: Encoder
+        update: true
+        position: encoderValues
+        velocity: encoderVelocities
+      - type: BodySensor
+        update: true
+        bodySensor: FloatingBase
+        method: sensor
+        updatePose: true
+        updateVel: true
 GUIServer:
   Enable: true
   # Keep the standard IPC endpoint used by mc_mujoco's built-in visualizer.

@@ -65,7 +65,7 @@ private:
   void updateReference();
   void updateModes();
   void updateDiagnostics(bool solverSuccess);
-  void synchronizeMeasuredState();
+  void syncControlRobotFromSensors();
   void safeStop(const std::string & reason);
   std::vector<mc_rbdyn::RollingContactDescription> makeWheels() const;
 
