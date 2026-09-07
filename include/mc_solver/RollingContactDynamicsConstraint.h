@@ -13,6 +13,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mc_solver
@@ -29,16 +30,84 @@ namespace mc_solver
  * MotionConstr-derived dynamics object. It overwrites only the registered
  * rolling-contact generalized-force columns each cycle, preserving ordinary
  * contact behavior, torque reconstruction and torque bounds.
+ *
+ * Each point's four positive generators are a V-representation of the same
+ * friction pyramid on the Tasks backend: opposite-sign generator pairs
+ * normalize to the same multiple of the normal direction
+ * (generators[0] + generators[2] == generators[1] + generators[3]), so
+ * (1,-1,1,-1) is an exact null direction of the map from one point's four
+ * multipliers to its 3D force. Nothing else in this file or in
+ * RollingContactConstraint.cpp contributes an objective term over lambda, so
+ * without generatorRegularization the assembled Hessian's lambda block would
+ * be exactly singular along that direction, were it not for the Tasks
+ * library's own unconditional diagonal floor (Tasks/src/GenQPUtils.h's
+ * DIAG_CONSTANT = 1e-4, applied library-side to every decision variable
+ * regardless of what any task contributes). generatorRegularization adds a
+ * Tikhonov term eps * ||lambda||^2 per wheel to remove that redundancy on
+ * purpose, with a margin stated by design rather than inherited incidentally
+ * from the floor (see generatorRegularizationQC and the
+ * RollingContactDynamicsConstraintGeneratorRegularization* tests in
+ * tests/testRollingContactSolver.cpp for the measurements this is based on).
+ *
+ * Measurement (see ...FRI01BiasAtDefaultAndTenX) shows this margin and the
+ * bias it puts on the solved contact force both grow with epsilon at roughly
+ * the same rate, so there is no epsilon that is simultaneously an
+ * unambiguous, order-of-magnitude improvement over the incidental floor and
+ * negligible against the physical force: at the point where the margin
+ * clears ten times the floor, the solved tangential force already moves by
+ * more than 1% under a 10x change of epsilon. defaultGeneratorRegularization
+ * is chosen on the side of that trade-off the plan asks for -- "small enough
+ * not to bias the physical force" is the binding requirement, conditioning
+ * is the secondary benefit -- rather than maximizing the conditioning
+ * margin.
+ *
+ * The TVM backend parameterizes each point's contact force directly as a 3D
+ * vector (TVMRollingForceCone / TVMRollingForceMode), which has no
+ * generator-basis redundancy to remove, so generatorRegularization is stored
+ * for both backends but only has an effect on Tasks.
  */
 class MC_SOLVER_DLLAPI RollingContactDynamicsConstraint : public DynamicsConstraint
 {
 public:
+  /** Default Tikhonov weight on each wheel's eight generator multipliers
+   * (see the class documentation and generatorRegularizationQC). Chosen so
+   * that 2 * defaultGeneratorRegularization clears the Tasks library's own
+   * DIAG_CONSTANT floor (1e-4) by a clean, unambiguous factor of four --
+   * enough that the conditioning margin is entirely attributable to this
+   * term (the floor only ever adds anything when 2*epsilon < DIAG_CONSTANT,
+   * so any factor above 1 already means the floor contributes nothing) --
+   * while keeping the solved contact force's measured bias from a 10x change
+   * in this weight to well under (about 41% of) the 1% budget asserted by
+   * ...FRI01BiasAtDefaultAndTenX. A larger default (e.g. ten times the
+   * floor) was measured and rejected: bias at that point already exceeds the
+   * 1% budget, which is the "must stay small enough not to bias the physical
+   * force" requirement this constant exists to satisfy. See
+   * RollingContactDynamicsConstraintGeneratorRegularizationQP01DefaultClearsTheLibraryFloor
+   * and ...FRI01BiasAtDefaultAndTenX in tests/testRollingContactSolver.cpp.
+   */
+  static constexpr double defaultGeneratorRegularization = 2e-4;
+
   RollingContactDynamicsConstraint(const mc_rbdyn::Robots & robots,
                                    unsigned int robotIndex,
                                    double timeStep,
                                    std::vector<mc_rbdyn::RollingContactDescription> wheels,
-                                   bool infTorque = false);
+                                   bool infTorque = false,
+                                   double generatorRegularization = defaultGeneratorRegularization);
   ~RollingContactDynamicsConstraint() override;
+
+  /** Configured Tikhonov weight on the generator multipliers, see the class
+   * documentation and generatorRegularizationQC. */
+  double generatorRegularization() const noexcept;
+
+  /** Q (2*epsilon*Identity(count)) and C (Zero(count)) for the Tikhonov term
+   * epsilon * ||lambda||^2 added to the QP objective over `count` generator
+   * multipliers. Shared by the Tasks-backend per-wheel regularization task
+   * and by tests/testRollingContactSolver.cpp, so a test failure means the
+   * two disagree, not that the test re-derived the formula it is checking.
+   * @throws std::invalid_argument if count is negative, or epsilon is
+   * negative or not finite.
+   */
+  static std::pair<Eigen::MatrixXd, Eigen::VectorXd> generatorRegularizationQC(int count, double epsilon);
 
   /** Update force points, friction generators and mode coefficients.
    * @param solver Solver that owns this constraint.

@@ -17,6 +17,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <Eigen/Eigenvalues>
 #include <Eigen/LU>
 #include <Eigen/QR>
 #include <Eigen/SVD>
@@ -683,7 +684,15 @@ BOOST_AUTO_TEST_CASE(RollingTasksFourSteeringAckermannTargetWithDynamics)
   const Eigen::VectorXd solution = solver.solver().alphaDVec(0);
   BOOST_TEST_MESSAGE("Four-steering target error with dynamics: " << (solution - target).norm());
   BOOST_CHECK_SMALL((rolling.hardMatrix() * solution - rolling.hardRhs()).lpNorm<Eigen::Infinity>(), 1e-8);
-  BOOST_CHECK_SMALL((solution - target).norm(), 5e-4);
+  // dynamics is built with the default generatorRegularization, which by
+  // design (see RollingContactDynamicsConstraint.h and
+  // RollingContactDynamicsConstraintGeneratorRegularizationFRI01BiasAtDefaultAndTenX
+  // in this file) trades a small amount of physical fidelity for Hessian
+  // conditioning. On this four-wheel rig that shows up here as ~6.7e-4
+  // (measured) against the pre-generatorRegularization baseline of ~1.7e-4;
+  // 9e-4 keeps a margin over the measured value while still catching a
+  // regression that meaningfully grows it further.
+  BOOST_CHECK_SMALL((solution - target).norm(), 9e-4);
   solver.removeConstraintSet(rolling);
   solver.removeConstraintSet(dynamics);
   solver.removeTask(&targetTask);
@@ -2159,4 +2168,214 @@ BOOST_AUTO_TEST_CASE(LateralSlackRowsFollowTheBlockWeightAndRejectInvalidWeights
     invalid.lateralSlackWeight = weight;
     BOOST_CHECK_THROW(invalid.validate(4), std::invalid_argument);
   }
+}
+
+namespace
+{
+
+/** Tasks/src/GenQPUtils.h::fillQC()'s own unconditional diagonal floor,
+ * reproduced here (the library does not expose it) because it lands on the
+ * lambda block of the real assembled Hessian regardless of what the
+ * generator-regularization term contributes, and QP-01/QP-02 need to report
+ * eigenvalues that account for it honestly instead of pretending it away. */
+constexpr double tasksLibraryDiagConstant = 1e-4;
+
+Eigen::MatrixXd withTasksLibraryFloor(Eigen::MatrixXd Q)
+{
+  for(Eigen::Index i = 0; i < Q.rows(); ++i)
+  {
+    if(std::abs(Q(i, i)) < tasksLibraryDiagConstant) { Q(i, i) += tasksLibraryDiagConstant; }
+  }
+  return Q;
+}
+
+struct GeneratorRegularizationSolution
+{
+  double normalForce = 0.0;
+  double tangentialForce = 0.0;
+  Eigen::VectorXd acceleration;
+};
+
+/** Solve the same asymmetric, kinematically-compatible acceleration target on
+ * the two-wheel differential robot, at a given generatorRegularization. */
+GeneratorRegularizationSolution solveWithGeneratorRegularization(double epsilon)
+{
+  auto robots = loadDifferentialRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto wheels = differentialWheels();
+  mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels, false, epsilon);
+  mc_solver::RollingContactConstraintOptions rollingOptions;
+  rollingOptions.velocityGain = 0.0;
+  rollingOptions.differentialPlanar = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, rollingOptions);
+  solver.addConstraintSet(dynamics);
+  solver.addConstraintSet(rolling);
+
+  TargetAccelerationTask targetTask(solver.robot(0).mb(), 0);
+  const Eigen::VectorXd target = compatibleTarget(solver.robot(0), rolling.hardMatrix(), 2.0, 1.0);
+  targetTask.target(target);
+  solver.addTask(&targetTask);
+  BOOST_REQUIRE(solve(solver, rolling));
+
+  GeneratorRegularizationSolution solution;
+  const Eigen::VectorXd solvedLambda = solver.solver().lambdaVec();
+  BOOST_REQUIRE_EQUAL(solvedLambda.size(), 16);
+  solution.normalForce = dynamics.normalForce("left", solvedLambda.head(8));
+  solution.tangentialForce = dynamics.tangentialForce("left", solvedLambda.head(8));
+  solution.acceleration = solver.solver().alphaDVec(0);
+
+  solver.removeTask(&targetTask);
+  solver.removeConstraintSet(rolling);
+  solver.removeConstraintSet(dynamics);
+  return solution;
+}
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQCFormula)
+{
+  // eq:generator-regularization: eps * ||lambda||^2 contributes Q = 2*eps*I,
+  // C = 0 to the QP objective over one wheel's eight generator multipliers.
+  // This is the exact formula the Tasks-backend per-wheel regularization
+  // task bakes into its Q()/C(), shared here so a test failure means the two
+  // disagree rather than the test re-deriving the same formula independently.
+  const auto formula = mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(8, 0.03);
+  const Eigen::MatrixXd & Q = formula.first;
+  const Eigen::VectorXd & C = formula.second;
+  BOOST_REQUIRE_EQUAL(Q.rows(), 8);
+  BOOST_REQUIRE_EQUAL(Q.cols(), 8);
+  BOOST_REQUIRE_EQUAL(C.size(), 8);
+  BOOST_CHECK_SMALL((Q - 0.06 * Eigen::MatrixXd::Identity(8, 8)).norm(), 1e-15);
+  BOOST_CHECK_SMALL(C.norm(), 1e-15);
+
+  // QP-02: epsilon = 0 must give an exactly-zero block, not merely a small
+  // one, so the floor measured in
+  // RollingContactDynamicsConstraintGeneratorRegularizationQP02ZeroReliesOnlyOnTheLibraryFloor
+  // is provably the Tasks library's own DIAG_CONSTANT and not a residual of
+  // this formula.
+  const auto zero = mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(8, 0.0);
+  BOOST_CHECK_EQUAL(zero.first, Eigen::MatrixXd::Zero(8, 8));
+  BOOST_CHECK_EQUAL(zero.second, Eigen::VectorXd::Zero(8));
+
+  BOOST_CHECK_THROW(mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(8, -1e-6),
+                    std::invalid_argument);
+  BOOST_CHECK_THROW(mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(
+                        8, std::numeric_limits<double>::quiet_NaN()),
+                    std::invalid_argument);
+  BOOST_CHECK_THROW(mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(
+                        8, std::numeric_limits<double>::infinity()),
+                    std::invalid_argument);
+  BOOST_CHECK_THROW(mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(-1, 0.03),
+                    std::invalid_argument);
+}
+
+BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQP02ZeroReliesOnlyOnTheLibraryFloor)
+{
+  // With no regularization, nothing in RollingContactConstraint.cpp or
+  // RollingContactDynamicsConstraint.cpp contributes Q/C over lambda: the
+  // rolling soft task targets alphaD (Impl::SoftTask in
+  // RollingContactConstraint.cpp), and RollingMotionConstr/ModeBound are pure
+  // equality/inequality/bound contributors that never implement Q()/C(). So
+  // the pre-floor lambda block of the assembled Hessian, for one wheel's
+  // eight generator multipliers, is exactly the formula under test at
+  // epsilon = 0.
+  const auto formula = mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(8, 0.0);
+  BOOST_CHECK_EQUAL(formula.first, Eigen::MatrixXd::Zero(8, 8));
+
+  const Eigen::MatrixXd floored = withTasksLibraryFloor(formula.first);
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen(floored);
+  BOOST_REQUIRE_EQUAL(eigen.info(), Eigen::Success);
+  BOOST_TEST_MESSAGE(
+      "QP-02 smallest eigenvalue without the term (library floor only): " << eigen.eigenvalues().minCoeff());
+  // Not "singular" in an absolute sense: the Tasks library's own unconditional
+  // DIAG_CONSTANT (Tasks/src/GenQPUtils.h) floors every diagonal entry
+  // smaller than 1e-4, so the real solver never sees an exact zero here
+  // either way. The claim this term exists for is conditioning quality, not
+  // literal invertibility.
+  BOOST_CHECK_CLOSE(eigen.eigenvalues().minCoeff(), tasksLibraryDiagConstant, 1e-9);
+}
+
+BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQP01DefaultClearsTheLibraryFloor)
+{
+  const double epsilon = mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization;
+  const auto formula = mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(8, epsilon);
+  const Eigen::MatrixXd floored = withTasksLibraryFloor(formula.first);
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen(floored);
+  BOOST_REQUIRE_EQUAL(eigen.info(), Eigen::Success);
+  BOOST_TEST_MESSAGE("QP-01 smallest eigenvalue with the term at the default generatorRegularization ("
+                     << epsilon << "): " << eigen.eigenvalues().minCoeff());
+  // The default must make a real difference over the library's own floor, not
+  // just restate it: require the achieved margin to be at least double the
+  // bare floor. Above that factor the floor branch in the library's
+  // fillQC() (`if abs(Q(i,i)) < DIAG_CONSTANT: Q(i,i) += DIAG_CONSTANT`)
+  // never fires, so the margin is a clean multiple of the floor and entirely
+  // attributable to this term, not to GenQPUtils.h's incidental safety net.
+  // A larger asserted multiple (e.g. ten times) was tried and rejected: see
+  // defaultGeneratorRegularization's documentation and
+  // ...FRI01BiasAtDefaultAndTenX below for why the default (and this bound)
+  // stop at a factor of four instead.
+  BOOST_CHECK_GT(eigen.eigenvalues().minCoeff(), 2.0 * tasksLibraryDiagConstant);
+  BOOST_CHECK_CLOSE(eigen.eigenvalues().minCoeff(), 2.0 * epsilon, 1e-9);
+}
+
+BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationFRI01BiasAtDefaultAndTenX)
+{
+  const double epsilon = mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization;
+  const auto atDefault = solveWithGeneratorRegularization(epsilon);
+  const auto atTenX = solveWithGeneratorRegularization(10.0 * epsilon);
+
+  const double normalForceBias = std::abs(atTenX.normalForce - atDefault.normalForce);
+  const double tangentialForceBias = std::abs(atTenX.tangentialForce - atDefault.tangentialForce);
+  const double accelerationBias = (atTenX.acceleration - atDefault.acceleration).lpNorm<Eigen::Infinity>();
+  BOOST_TEST_MESSAGE("FRI-01 solved values at default generatorRegularization ("
+                     << epsilon << "): normalForce " << atDefault.normalForce << " N, tangentialForce "
+                     << atDefault.tangentialForce << " N");
+  BOOST_TEST_MESSAGE("FRI-01 bias from a 10x generatorRegularization change ("
+                     << epsilon << " -> " << 10.0 * epsilon << "): normalForce " << normalForceBias
+                     << " N, tangentialForce " << tangentialForceBias << " N, acceleration " << accelerationBias
+                     << " rad/s^2 (Linf)");
+
+  // Physical-fidelity budget: a 10x change in the regularization weight must
+  // not move the solved contact force by more than 1% of its own magnitude
+  // (floored at 1 N for the tangential force, which is legitimately near zero
+  // for a mild, close-to-balanced target).
+  BOOST_CHECK_LT(normalForceBias, 1e-2 * std::abs(atDefault.normalForce));
+  BOOST_CHECK_LT(tangentialForceBias, 1e-2 * std::max(1.0, std::abs(atDefault.tangentialForce)));
+}
+
+BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationPreservesProblemSizeAcrossModes)
+{
+  auto robots = loadDifferentialRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto wheels = differentialWheels();
+  mc_solver::RollingContactDynamicsConstraint dynamics(
+      solver.robots(), 0, solver.dt(), wheels, false,
+      mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization);
+  mc_solver::RollingContactConstraintOptions rollingOptions;
+  rollingOptions.velocityGain = 0.0;
+  rollingOptions.differentialPlanar = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, rollingOptions);
+  mc_tasks::PostureTask posture(solver, 0, 5.0, 100.0);
+  solver.addTask(&posture);
+  solver.addConstraintSet(dynamics);
+  solver.addConstraintSet(rolling);
+  BOOST_REQUIRE(solver.run());
+  const int nrVars = solver.data().nrVars();
+  const int totalLambda = solver.data().totalLambda();
+  const int bounds = solver.solver().nrBoundConstraints();
+
+  BOOST_CHECK_CLOSE(dynamics.generatorRegularization(),
+                    mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization, 1e-9);
+
+  dynamics.mode("left", mc_rbdyn::RollingContactMode::Sliding);
+  rolling.mode("left", mc_rbdyn::RollingContactMode::Sliding);
+  BOOST_REQUIRE(solver.run());
+  BOOST_CHECK_EQUAL(solver.data().nrVars(), nrVars);
+  BOOST_CHECK_EQUAL(solver.data().totalLambda(), totalLambda);
+  BOOST_CHECK_EQUAL(solver.solver().nrBoundConstraints(), bounds);
+  BOOST_CHECK_GE(dynamics.frictionMargin("left", solver.solver().lambdaVec().head(8)), -1e-6);
+
+  solver.removeTask(&posture);
+  solver.removeConstraintSet(rolling);
+  solver.removeConstraintSet(dynamics);
 }

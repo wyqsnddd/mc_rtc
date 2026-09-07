@@ -244,6 +244,12 @@ struct RollingContactDynamicsConstraint::Impl
     std::string name_;
   };
 
+  // Defined below, after WheelData: it needs a complete WheelData& to look up
+  // its wheel's contact id. WheelData only needs a non-owning pointer to it
+  // (ownership lives in Impl::regularizationTasks), so the forward
+  // declaration here is enough.
+  struct GeneratorRegularizationTask;
+
   struct WheelData
   {
     WheelData(const mc_rbdyn::Robot & robot, const mc_rbdyn::RollingContactDescription & descriptionIn, int ambiguityIn)
@@ -277,6 +283,8 @@ struct RollingContactDynamicsConstraint::Impl
     Eigen::VectorXd lambdaLower;
     Eigen::VectorXd lambdaUpper;
     std::unique_ptr<ModeBound> modeBound;
+    // Non-owning: Impl::regularizationTasks owns it (see GeneratorRegularizationTask).
+    GeneratorRegularizationTask * regularizationTask = nullptr;
     int slidingGenerator = 2;
     bool slidingDirectionEstablished = false;
     std::array<Eigen::Matrix<double, 3, Eigen::Dynamic>, pointsPerWheel> generators;
@@ -286,6 +294,67 @@ struct RollingContactDynamicsConstraint::Impl
     std::array<std::shared_ptr<TVMRollingForceMode>, pointsPerWheel> tvmModes;
     std::array<tvm::TaskWithRequirementsPtr, pointsPerWheel> tvmModeTasks;
     std::vector<sva::PTransformd> tvmPoints;
+  };
+
+  /** Tikhonov term eps * ||lambda_i||^2 on one wheel's eight generator
+   * multipliers, see the RollingContactDynamicsConstraint class
+   * documentation. Q_/C_ never change after construction: unlike
+   * RollingContactConstraint.cpp's Impl::SoftTask, this term carries no
+   * state dependent on robot geometry, so update() is a no-op.
+   *
+   * updateNrVars() duplicates RollingMotionConstr::updateNrVars()'s contact
+   * lookup rather than reading wheel.lambdaBegin once that has run, because
+   * Tasks::QPSolver::updateNrVars() calls every Task's updateNrVars() before
+   * any Constraint's (Tasks/src/QPSolver.cpp): this Task cannot assume
+   * RollingMotionConstr, a Constraint, has already resolved it this cycle.
+   */
+  struct GeneratorRegularizationTask final : public tasks::qp::Task
+  {
+    GeneratorRegularizationTask(Impl & owner, WheelData & wheel, double epsilon)
+    : tasks::qp::Task(1.0), owner_(owner), wheel_(wheel)
+    {
+      const auto qc = RollingContactDynamicsConstraint::generatorRegularizationQC(lambdasPerWheel, epsilon);
+      Q_ = qc.first;
+      C_ = qc.second;
+    }
+
+    std::pair<int, int> begin() const override { return {lambdaBegin_, lambdaBegin_}; }
+
+    void updateNrVars(const std::vector<rbd::MultiBody> &, const tasks::qp::SolverData & data) override
+    {
+      lambdaBegin_ = -1;
+      const auto & contacts = data.allContacts();
+      for(size_t contactIndex = 0; contactIndex < contacts.size(); ++contactIndex)
+      {
+        const auto & id = contacts[contactIndex].contactId;
+        if(id.r1Index == static_cast<int>(owner_.robotIndex) && id.r2Index == -1
+           && id.r1BodyName == wheel_.description.wheelBody && id.r2BodyName == terrainBody
+           && id.ambiguityId == wheel_.ambiguity)
+        {
+          lambdaBegin_ = data.lambdaBegin(static_cast<int>(contactIndex));
+        }
+      }
+      if(lambdaBegin_ < 0)
+      {
+        throw std::runtime_error("Rolling contact generator-regularization variables are missing for wheel: "
+                                 + wheel_.description.name);
+      }
+    }
+
+    void update(const std::vector<rbd::MultiBody> &,
+                const std::vector<rbd::MultiBodyConfig> &,
+                const tasks::qp::SolverData &) override
+    {
+    }
+
+    const Eigen::MatrixXd & Q() const override { return Q_; }
+    const Eigen::VectorXd & C() const override { return C_; }
+
+    Impl & owner_;
+    WheelData & wheel_;
+    int lambdaBegin_ = -1;
+    Eigen::MatrixXd Q_;
+    Eigen::VectorXd C_;
   };
 
   struct RollingMotionConstr final : public tasks::qp::MotionConstr
@@ -344,11 +413,17 @@ struct RollingContactDynamicsConstraint::Impl
 
   Impl(const mc_rbdyn::Robots & robotsIn,
        unsigned int robotIndexIn,
-       std::vector<mc_rbdyn::RollingContactDescription> wheelsIn)
+       std::vector<mc_rbdyn::RollingContactDescription> wheelsIn,
+       double generatorRegularizationIn)
   : robots(robotsIn), robotIndex(robotIndexIn), robot(robots.robot(robotIndex)), wheels(std::move(wheelsIn)),
-    ownerKey("RollingContactDynamics/" + robot.name())
+    ownerKey("RollingContactDynamics/" + robot.name()), generatorRegularization(generatorRegularizationIn)
   {
     if(wheels.empty()) { throw std::invalid_argument("RollingContactDynamicsConstraint requires at least one wheel"); }
+    if(!std::isfinite(generatorRegularization) || generatorRegularization < 0.0)
+    {
+      throw std::invalid_argument(
+          "RollingContactDynamicsConstraint generatorRegularization must be finite and non-negative");
+    }
     std::unordered_set<std::string> names;
     wheelData.reserve(wheels.size());
     contacts.reserve(wheels.size());
@@ -367,11 +442,15 @@ struct RollingContactDynamicsConstraint::Impl
       contacts.emplace_back(id, std::move(placeholderPoints), Eigen::Matrix3d::Identity(), sva::PTransformd::Identity(),
                             generatorsPerPoint, wheel.friction);
     }
+    regularizationTasks.reserve(wheelData.size());
     for(auto & wheel : wheelData)
     {
       wheel.modeBound = std::make_unique<ModeBound>(wheel.lambdaBegin, wheel.lambdaLower, wheel.lambdaUpper,
                                                     wheel.description.name);
       updateModeBound(wheel);
+      regularizationTasks.push_back(
+          std::make_unique<GeneratorRegularizationTask>(*this, wheel, generatorRegularization));
+      wheel.regularizationTask = regularizationTasks.back().get();
     }
   }
 
@@ -509,8 +588,13 @@ struct RollingContactDynamicsConstraint::Impl
   const mc_rbdyn::Robot & robot;
   std::vector<mc_rbdyn::RollingContactDescription> wheels;
   std::string ownerKey;
+  double generatorRegularization;
   std::vector<WheelData> wheelData;
   std::vector<tasks::qp::UnilateralContact> contacts;
+  // Owns each wheel's regularization task; WheelData::regularizationTask is a
+  // non-owning pointer into this, kept index-aligned with wheelData (built in
+  // lockstep in the constructor and never reordered afterwards).
+  std::vector<std::unique_ptr<GeneratorRegularizationTask>> regularizationTasks;
   Eigen::Vector3d terrainNormal = Eigen::Vector3d::UnitZ();
   RollingMotionConstr * motion = nullptr;
 };
@@ -520,9 +604,10 @@ RollingContactDynamicsConstraint::RollingContactDynamicsConstraint(
     unsigned int robotIndex,
     double timeStep,
     std::vector<mc_rbdyn::RollingContactDescription> wheels,
-    bool infTorque)
+    bool infTorque,
+    double generatorRegularization)
 : DynamicsConstraint(robots, robotIndex, timeStep, {0.1, 0.01, 0.5}, 0.5, infTorque, true),
-  impl_(std::make_unique<Impl>(robots, robotIndex, std::move(wheels)))
+  impl_(std::make_unique<Impl>(robots, robotIndex, std::move(wheels), generatorRegularization))
 {
   if(backend_ == QPSolver::Backend::Tasks)
   {
@@ -541,6 +626,27 @@ RollingContactDynamicsConstraint::RollingContactDynamicsConstraint(
 }
 
 RollingContactDynamicsConstraint::~RollingContactDynamicsConstraint() = default;
+
+double RollingContactDynamicsConstraint::generatorRegularization() const noexcept
+{
+  return impl_->generatorRegularization;
+}
+
+std::pair<Eigen::MatrixXd, Eigen::VectorXd> RollingContactDynamicsConstraint::generatorRegularizationQC(int count,
+                                                                                                        double epsilon)
+{
+  if(count < 0)
+  {
+    throw std::invalid_argument(
+        "RollingContactDynamicsConstraint::generatorRegularizationQC count must be non-negative");
+  }
+  if(!std::isfinite(epsilon) || epsilon < 0.0)
+  {
+    throw std::invalid_argument(
+        "RollingContactDynamicsConstraint::generatorRegularizationQC epsilon must be finite and non-negative");
+  }
+  return {2.0 * epsilon * Eigen::MatrixXd::Identity(count, count), Eigen::VectorXd::Zero(count)};
+}
 
 void RollingContactDynamicsConstraint::update(QPSolver & solver)
 {
@@ -564,7 +670,11 @@ void RollingContactDynamicsConstraint::addToSolverImpl(QPSolver & solver)
     try
     {
       DynamicsConstraint::addToSolverImpl(solver);
-      for(auto & wheel : impl_->wheelData) { tasksSolver.solver().addBoundConstraint(wheel.modeBound.get()); }
+      for(auto & wheel : impl_->wheelData)
+      {
+        tasksSolver.solver().addBoundConstraint(wheel.modeBound.get());
+        tasksSolver.addTask(wheel.regularizationTask);
+      }
     }
     catch(...)
     {
@@ -627,7 +737,11 @@ void RollingContactDynamicsConstraint::removeFromSolverImpl(QPSolver & solver)
   if(backend_ == QPSolver::Backend::Tasks)
   {
     auto & tasksSolver = TasksQPSolver::from_solver(solver);
-    for(auto & wheel : impl_->wheelData) { tasksSolver.solver().removeBoundConstraint(wheel.modeBound.get()); }
+    for(auto & wheel : impl_->wheelData)
+    {
+      tasksSolver.solver().removeBoundConstraint(wheel.modeBound.get());
+      tasksSolver.removeTask(wheel.regularizationTask);
+    }
     DynamicsConstraint::removeFromSolverImpl(solver);
     tasksSolver.unregisterRollingContacts(impl_->ownerKey);
   }
@@ -856,7 +970,9 @@ static auto rolling_contact_dynamics_registered = mc_solver::ConstraintSetLoader
       const auto robotIndex = mc_rbdyn::robotIndexFromConfig(config, solver.robots(), "rollingContactDynamics");
       auto constraint = std::make_shared<mc_solver::RollingContactDynamicsConstraint>(
           solver.robots(), robotIndex, solver.dt(), mc_solver::details::loadRollingWheels(config),
-          config("infTorque", false));
+          config("infTorque", false),
+          config("generatorRegularization",
+                 mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization));
       constraint->terrainNormal(config("terrainNormal", Eigen::Vector3d{0.0, 0.0, 1.0}));
       return constraint;
     });
