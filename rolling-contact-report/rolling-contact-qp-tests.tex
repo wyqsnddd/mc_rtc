@@ -1,0 +1,1960 @@
+\documentclass[10pt]{article}
+
+\usepackage{tabu}
+\usepackage{longtable}
+% Cross-reference the parent report's equation labels. This requires
+% rolling-contact-qp.aux to exist, so build rolling-contact-qp.tex first.
+\usepackage{xr}
+\externaldocument{rolling-contact-qp}
+\input{../commands/format-configurations.tex}
+\input{../commands/configurations.tex}
+\input{../commands/theorem-configurations.tex}
+\usepackage{../commands/yuquanTitle}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%% -------------------------------------------
+
+% Report-local notation, kept identical to rolling-contact-qp.tex so that a
+% reader can move between the two documents without re-learning symbols.
+\newcommand{\generalizedConfiguration}{\jangles[][][generalized]}
+\newcommand{\generalizedVelocity}{%
+  \applyOverheadSymbols{dot}{\applyJangles{generalized}}}
+\newcommand{\generalizedAcceleration}{\jangles[ddot][][generalized]}
+\newcommand{\rollingDirection}{\bs{t}}
+\newcommand{\lateralDirection}{\bs{s}}
+\newcommand{\wheelAngle}{\phi}
+\newcommand{\wheelRadius}{r}
+\newcommand{\wheelSelector}{\bs{S}^{\wheelAngle}}
+\newcommand{\steeringSelector}{\bs{S}^{\delta}}
+\newcommand{\tangentProjector}{\text{P}}
+\newcommand{\slipVelocity}[1]{\contactVel_{\text{slip},#1}}
+\newcommand{\rollingMatrix}{\text{A}}
+\newcommand{\rollingTarget}{\bs{b}}
+\newcommand{\rollingResidual}{\bs{e}^{\text{roll}}}
+\newcommand{\slackVariable}{\bs{\sigma}}
+
+% Test-suite notation.
+\newcommand{\testTol}{\varepsilon}
+\newcommand{\numGen}{n_{\text{g}}}
+\newcommand{\parentDoc}{\texttt{rolling-contact-qp.tex}\xspace}
+\newcommand{\harness}{\texttt{rolling\_contact\_qp\_checks.py}\xspace}
+
+% A test card. #1 identifier, #2 title, #3 kind, #4 priority.
+\newenvironment{testcard}[4]{%
+  \par\medskip\noindent
+  \tBlock{#1}\quad\textbf{#2}%
+  \hfill{\small\textit{#3}\,/\,#4}\par\nopagebreak\vspace{2pt}
+  \begin{description}[leftmargin=7.5em,style=sameline,itemsep=1pt,topsep=1pt]
+}{%
+  \end{description}\par\medskip
+}
+
+\project{\tinytf Tests for the rolling-contact QPs}
+\author{
+  Yuquan WANG \\
+  Tencent Robotics X \\
+  Shenzhen, P.R. China\\
+  \vspace{5pt}
+  \texttt{hasbragwang@tencent.com}\vspace{30pt} \\
+}
+\summary{
+  This companion report specifies a unit- and smoke-test suite for an
+  implementation of the two explicit planar quadratic programs of the
+  rolling-contact report: the differential-drive QP and the four-steering-wheel
+  QP. Each test states the invariant asserted, the exact regime in which that
+  invariant holds, a tolerance tied to a physical scale, and the diagnosis a
+  failure implies. Three invariants that are commonly assumed but that are only
+  conditionally true---or, in one case, false---are corrected explicitly before
+  the suite begins.
+}
+
+\rhead{Robotics-X \colorbox{teal}{\textcolor{white}{\quad \bf Rolling-contact QP tests}}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%% -------------------------------------------
+
+\begin{document}
+
+\maketitle
+
+\section{Scope and how to read this suite}
+\label{sec:test-scope}
+
+This report specifies tests for an implementation of
+\eqref{eq:differential-drive-qp} and \eqref{eq:four-steering-wheel-qp} of the
+rolling-contact report \parentDoc. Throughout, \tBlock{T1} denotes the
+differential-drive QP and \tBlock{T2} the four-steering-wheel QP. Equation
+labels without further qualification refer to that report.
+
+The suite tests the \emph{corrected} formulations. Readers working from an
+earlier revision should note that the planar basis is now chassis aligned, the
+reduced matrices are a congruence rather than a row selection, the normal load
+enters through an exogenous row, the force generators are regularized, and the
+four lateral rows of T2 carry slacks. Tests that would pass under the earlier
+revision but fail under the corrected one, or the converse, are marked.
+
+\subsection{Taxonomy}
+
+\begin{description}[leftmargin=6.5em,style=sameline,itemsep=2pt]
+  \item[unit] Isolates one assembly function: a frame, a
+    matrix block, a single constraint row. No solver call.
+  \item[smoke] A fast, decisive, end-to-end run of the
+    assembled controller. Asserts trajectory-level outcomes.
+  \item[property] Holds for every draw from a randomized
+    fixture family; states the draw count and the seed policy.
+  \item[negative] Asserts that something is \emph{not}
+    done, or that a malformed input is rejected rather than silently accepted.
+  \item[regression] Pins a value or a structure that has
+    been wrong before.
+\end{description}
+
+Priorities are \oBlock{P0}, which must pass before the QP is trusted at all;
+\oBlock{P1}, required for release; and \oBlock{P2}, valuable but deferrable.
+
+\subsection{Tolerance policy}
+
+A tolerance is only meaningful next to the scale it measures. Every entry
+therefore states its tolerance relative to a physical quantity rather than as a
+bare number. Three conventions are used throughout:
+\begin{enumerate}[label=(T\arabic*)]
+  \item \label{tol:exact} \tBlock{Exact algebra}: quantities that must agree to
+    working precision, tolerance $\testTol_{\text{alg}}=10^{-9}$ relative to the
+    larger operand. Used for identities that hold symbolically.
+  \item \label{tol:fd} \tBlock{Finite-difference oracles}: tolerance
+    $\testTol_{\text{fd}}=10^{-6}$ absolute with a step $h=10^{-6}$, together
+    with an assertion that halving $h$ reduces the error quadratically. The
+    convergence-rate assertion is the real test; a bare threshold can be passed
+    by a wrong derivative with a small coefficient.
+  \item \label{tol:phys} \tBlock{Physical residuals}: tolerance stated as a
+    fraction of a named scale, for example $10^{-4}$ of $\mass\gravity$ for a
+    force residual or $10^{-3}$\unitVelTS for a velocity residual.
+\end{enumerate}
+
+\subsection{Relation to the numerical harness}
+
+A companion Python harness, \harness, already implements twelve of these
+checks. Entries that it covers are marked \emph{implemented}; the remainder are
+specified here for implementation against the production controller. The
+harness is solver independent by design: it uses finite differences, matrix
+ranks, and explicit nullspace constructions, so a failure points at the
+mathematics rather than at a quadratic-programming library.
+
+\section{Three invariants that are commonly assumed, and their corrections}
+\label{sec:test-corrections}
+
+Before the suite proper, three plausible invariants must be restated. Two hold
+only in a named regime and one is false. Encoding any of them naively produces
+a test that either cannot fail or that fails a correct implementation.
+
+\subsection{Contact forces and gravity}
+\label{sec:correction-gravity}
+
+The natural statement, that the contact forces sum to the robot's weight, is a
+\emph{static-equilibrium specialization} of Newton's law, not an invariant of
+the controller. The general law for the centroidal linear momentum is
+\quickEq{eq:test-newton-general}{
+  \agg{i}{\numContacts}{\force_i} + \mass\gravity
+  = \mass\com[ddot],
+  \qquad\text{equivalently}\qquad
+  \agg{i}{\numContacts}{\force_i}
+  = \mass\left(\com[ddot]-\gravity\right).
+}
+Only when $\com[ddot]=\zeroVector$ and no other external wrench acts does this
+reduce to $\agg{i}{\numContacts}{\force_i}=-\mass\gravity$. On a plane of slope
+$\theta$ the useful specialization splits into
+\quickEq{eq:test-ramp-split}{
+  \agg{i}{\numContacts}{\force_{n,i}} = \mass\gravity[value]\cos\theta,
+  \qquad
+  \norm{\agg{i}{\numContacts}{\tangentProjector_i\force_i}}
+  = \mass\gravity[value]\sin\theta,
+}
+which is feasible only while $\coef{f}\geq\tan\theta$.
+
+A structural caveat matters more than either formula. Both planar QPs carry
+only the three base coordinates $(v_x,v_y,\omega_{\Pi})$, and by
+\eqref{eq:reduced-normal-annihilated} the reduced contact Jacobians annihilate
+$\surfaceNormal_{\Pi}$. Neither QP therefore contains a surface-normal force
+balance at all. The normal split is supplied exogenously by
+\eqref{eq:planar-normal-load-row}. Asserting
+\eqref{eq:test-ramp-split} against a planar QP solution therefore tests the
+\emph{normal-load model}, not the QP; asserting it against the generic
+whole-body QP \eqref{eq:ideal-rolling-whole-body-qp} does test the solver.
+Tests \texttt{DYN-G1}--\texttt{DYN-G3} separate these two cases.
+
+\subsection{Contact forces and the friction cone}
+\label{sec:correction-cone}
+
+The statement that every contact force lies in its friction cone is true, but
+it is true \hlBlock{by construction}: with $\force_i=\cone[f][i]\generator{\force_i}$ and
+$\generator{\force_i}\geq\zeroVector$ the reconstructed force cannot leave the
+polyhedral cone. A test that recomputes
+$\norm{(\force_{t,i},\force_{s,i})}\leq\coef{f}_i\force_{n,i}$ from the
+solution exercises the reconstruction code and nothing else; it cannot fail on
+a wrong model.
+
+The tests with teeth are three different assertions:
+\begin{enumerate}[label=(\roman*)]
+  \item that $\cone[f][i]$ is rebuilt in the \emph{local} rolling frame
+    $[\rollingDirection_i,\lateralDirection_i,\surfaceNormal_i]$ whenever the
+    wheel steers or the terrain normal changes---a cone cached in a world frame
+    is the classic defect, and it still passes the naive membership test;
+  \item that the polygon is an \emph{inner} approximation, so its usable
+    tangential fraction is only $\cos(\pi/\numGen)$ of the true cone, which
+    bounds how hard the controller may push before the model, not the physics,
+    refuses;
+  \item that the cone actually \emph{binds}. Without
+    \eqref{eq:planar-normal-load-row} it does not: since
+    $\transpose{\cone[f][i]}$ maps a symmetric generator set to
+    $\cone[f][i]\bs{1}\propto\surfaceNormal_i$, and the reduced rows annihilate
+    $\surfaceNormal_{\Pi}$, the substitution
+    $\generator{\force_i}\mapsto\generator{\force_i}+\text{s}\bs{1}$ with
+    $\text{s}\geq0$ satisfies every constraint and changes no objective term.
+    The cone is vacuous and the optimal set is an unbounded ray.
+\end{enumerate}
+Tests \texttt{FRI-01}--\texttt{FRI-06} implement these.
+
+\subsection{Steering torques and yaw momentum}
+\label{sec:correction-yaw}
+
+The statement that the steering torques sum to the yaw-momentum derivative is
+\hlBlock{false}, and it is false structurally rather than approximately.
+Actuator torques are \emph{internal}: in
+\eqref{eq:rolling-equations-of-motion} the actuation matrix
+$\actuationMatrix$ has identically zero rows for the unactuated floating-base
+coordinates, and the congruence $\text{B}_{\text{red}}
+=\transpose{\text{P}}\actuationMatrix$ of
+\eqref{eq:reduced-dynamics-congruence} preserves that. No steering torque can
+appear in the chassis-yaw row at all.
+
+What does hold is the centroidal angular-momentum balance. The plane-normal
+component of the rate of centroidal angular momentum equals the net moment of
+the \emph{contact} forces about the center of mass, gravity contributing none:
+\quickEq{eq:test-yaw-balance}{
+  \innerP{\surfaceNormal_{\Pi}}{\angularMomentum[dot][\comSymbol]}
+  = \agg{i}{\numContacts}{
+      \innerP{\surfaceNormal_{\Pi}}
+        {\left(\cross{(\point[][][\inertialFrame,p_i]-\com)}{\force_i}\right)}
+    }.
+}
+Separately, each steering torque satisfies its own joint row of the reduced
+dynamics, balancing the steering-column inertia, the transmitted scrub and
+self-aligning moment, and the coupling terms in $\bs{h}_{\text{red}}$. These
+are different equations with different content.
+
+Both facts are worth testing. Test \texttt{DYN-Y1} asserts
+\eqref{eq:test-yaw-balance}. Test \texttt{DYN-Y2} is a \emph{negative} test
+asserting $\transpose{\bs{e}_{\omega}}\text{B}_{\text{red}}=\transpose{\zeroVector}$,
+which fails loudly for an implementation that wires steering torque into the
+chassis yaw equation---a plausible error that
+\eqref{eq:test-yaw-balance} alone would not catch.
+
+\section{Shared fixtures}
+\label{sec:test-fixtures}
+
+Every test draws from one of the fixtures below so that a tolerance calibrated
+in one entry stays meaningful in the others. Values are those of a
+mobile-manipulator-scale wheeled base and match the defaults of \harness.
+
+\begin{table}[h]
+  \centering
+  \caption{Shared numeric fixtures}
+  \label{tab:test-fixtures}
+  \begin{tabular}{|C{0.20\columnwidth}|C{0.30\columnwidth}|C{0.38\columnwidth}|}
+    \hline
+    Fixture & Parameters & Used by \\
+    \hline
+    \texttt{F-COMMON} &
+      $\mass=45$\unitMass, $\gravity[value]=9.81$,
+      $\wheelRadius_i=0.15$\unitMeter, $\coef{f}=0.7$,
+      $\samplingPeriod=2\unitMs$, $\pGain=50$, $\numGen=6$ &
+      every test; the base parameter set \\
+    \hline
+    \texttt{F-DIFF} &
+      $b=0.50$\unitMeter, $\bs{\rho}_L=(0,\,b/2)$, $\bs{\rho}_R=(0,-b/2)$,
+      yaw inertia $3.2$ &
+      all T1 entries \\
+    \hline
+    \texttt{F-4S} &
+      $\bs{\rho}_i=(\pm0.40,\,\pm0.30)$\unitMeter, four steering joints,
+      $\weight_{\sigma}$ common across wheels &
+      all T2 entries \\
+    \hline
+    \texttt{F-RAMP} &
+      \texttt{F-COMMON} with slope $\theta\in\{0,10,20,30,40\}$\unitDegree
+      about the chassis lateral axis &
+      ramp and friction-margin entries \\
+    \hline
+    \texttt{F-ICR} &
+      \texttt{F-4S} with steering angles solved for a prescribed instantaneous
+      center of rotation at $(1.10,\,0.80)$\unitMeter &
+      T2 feasibility and slack entries \\
+    \hline
+    \texttt{F-RANDOM} &
+      randomized $\bs{\rho}_i$, $\delta_i$, $\wheelRadius_i$, $\coef{f}$,
+      slope and references; $500$ draws, seed fixed and recorded &
+      all property entries \\
+    \hline
+  \end{tabular}
+\end{table}
+
+Slope $40$\unitDegree in \texttt{F-RAMP} is deliberately beyond the friction
+limit, since $\tan 40^{\circ}=0.839>\coef{f}$: it is the fixture for the
+tests that must predict failure rather than report success.
+
+\section{Layer A. Geometry and frame data}
+\label{sec:test-layer-a}
+
+These tests exercise the code that builds QP data before any row is written.
+They require no solver, run in milliseconds, and catch the largest class of
+defects.
+
+\begin{testcard}{GEO-01}{Convention pin: planar geometry is chassis-heading invariant}{regression}{P0}
+  \item[Targets] \eqref{eq:chassis-aligned-tangent-basis},
+    \eqref{eq:wheel-center-planar-offset}, \eqref{eq:planar-carrier-map}
+  \item[Regime] Flat plane or constant-slope ramp; rigid carrier mount.
+  \item[Invariant] Rotate the whole scene about $\surfaceNormal_{\Pi}$ by an
+    arbitrary heading $\psi$. Every planar quantity must be unchanged:
+    $\bs{\rho}_i(\psi)=\bs{\rho}_i(0)$, $\text{H}_i(\psi)=\text{H}_i(0)$, and
+    $\rollingDirection_i^{\Pi}(\psi)=\rollingDirection_i^{\Pi}(0)$.
+  \item[Pass] Sweep $\psi$ over $[-\pi,\pi]$ in $64$ steps; maximum deviation
+    below $\testTol_{\text{alg}}$, convention~\ref{tol:exact}.
+  \item[Diagnosis] Any drift means the implementation resolved a planar
+    quantity in a world-fixed basis. Every downstream row is then short of the
+    Coriolis terms listed in Remark~\ref{re:planar-basis-choice}. This is the
+    single highest-value test in the suite; run it first.
+\end{testcard}
+
+\begin{testcard}{GEO-02}{Chassis-aligned basis is orthonormal, right-handed, and body-constant}{unit}{P0}
+  \item[Targets] \eqref{eq:chassis-aligned-tangent-basis},
+    \eqref{eq:terrain-basis-body-frame}
+  \item[Regime] Chassis forward axis not parallel to $\surfaceNormal_{\Pi}$.
+  \item[Invariant] $\transpose{\text{E}_{\Pi}}\text{E}_{\Pi}=\bs{I}_2$;
+    $\transpose{\text{E}_{\Pi}}\surfaceNormal_{\Pi}=\zeroVector$;
+    $\det[\bs{e}_{\Pi,x}\ \bs{e}_{\Pi,y}\ \surfaceNormal_{\Pi}]=+1$; and
+    ${}^{\fbFrame}\text{E}_{\Pi}$ is constant under a pure heading change.
+  \item[Pass] Convention~\ref{tol:exact}; the determinant must be $+1$, not
+    $\pm1$.
+  \item[Diagnosis] A determinant of $-1$ flips the sign of every yaw moment
+    while leaving all norms correct, so it survives every magnitude-only check.
+\end{testcard}
+
+\begin{testcard}{GEO-03}{Degenerate forward axis aborts rather than normalizing garbage}{negative}{P1}
+  \item[Targets] \eqref{eq:chassis-aligned-tangent-basis}
+  \item[Regime] Chassis pitched so its forward axis approaches
+    $\surfaceNormal_{\Pi}$.
+  \item[Invariant] As
+    $\norm{\tangentProjector_{\Pi}\rotation{\inertialFrame}{\fbFrame}\basisVec{x}}
+    \to0$ the assembly must raise a diagnosable error, not divide by a small
+    number.
+  \item[Pass] Sweep the pitch to within $10^{-8}$\unitDegree of the
+    degeneracy; the implementation must reject below a declared threshold and
+    must never emit a non-finite basis.
+  \item[Diagnosis] A silent normalization produces a basis that is orthonormal
+    to machine precision but whose direction is noise, so GEO-01 passes while
+    the controller steers randomly.
+\end{testcard}
+
+\begin{testcard}{GEO-04}{Local contact triad and the tangent projector}{unit}{P0}
+  \item[Targets] \eqref{eq:rolling-local-frame}, \eqref{eq:tangent-projector}
+  \item[Regime] Any wheel pose; per-wheel normals allowed to differ from
+    $\surfaceNormal_{\Pi}$ only if assumption~\ref{as:one-plane} is relaxed.
+  \item[Invariant] $\lateralDirection_i=\cross{\surfaceNormal_i}{\rollingDirection_i}$;
+    the triad is orthonormal and right handed;
+    $\tangentProjector_i^2=\tangentProjector_i=\transpose{\tangentProjector_i}$;
+    $\tangentProjector_i\surfaceNormal_i=\zeroVector$;
+    $\text{tr}\,\tangentProjector_i=2$; and the claimed identity
+    $\tangentProjector_i
+     =\rollingDirection_i\transpose{\rollingDirection_i}
+     +\lateralDirection_i\transpose{\lateralDirection_i}$ holds.
+  \item[Pass] Convention~\ref{tol:exact}.
+  \item[Diagnosis] The trace and idempotence checks localize the fault: a trace
+    of $3$ means the normal was never subtracted, a trace of $1$ means it was
+    subtracted twice.
+\end{testcard}
+
+\begin{testcard}{GEO-05}{$\text{H}_i$ is the planar form of $\contactVel+\cross{\bs{\omega}}{\bs{\rho}}$}{unit}{P0}
+  \item[Targets] \eqref{eq:planar-carrier-map}
+  \item[Regime] Rigid carrier mount, planar motion.
+  \item[Invariant] For random $\bs{\xi}^{\Pi}_{\fbFrame}$ and $\bs{\rho}_i$,
+    $\text{H}_i\bs{\xi}^{\Pi}_{\fbFrame}$ equals the tangential projection of
+    the full three-dimensional rigid-body velocity
+    $\contactVel_{\fbFrame}+\cross{\bs{\omega}}{\bs{d}_i}$ computed
+    independently.
+  \item[Pass] Convention~\ref{tol:exact} over $200$ random draws from
+    \texttt{F-RANDOM}.
+  \item[Diagnosis] A sign error in the $-y_i$ or $+x_i$ entry inverts the
+    moment arm of one wheel, which no single-wheel test detects.
+\end{testcard}
+
+\begin{testcard}{GEO-06}{Contact point offset is invisible to the planar rows}{unit}{P1}
+  \item[Targets] \eqref{eq:wheel-center-contact-point},
+    \eqref{eq:reduced-normal-annihilated}
+  \item[Regime] Planar reduction only.
+  \item[Invariant] Replacing $\point[][][\inertialFrame,p_i]$ by
+    $\point[][][\inertialFrame,c_i]$ changes no planar base row, because the
+    two differ by $-\wheelRadius_i\surfaceNormal_i$ and the reduced rows
+    annihilate $\surfaceNormal_{\Pi}$. It does change the wheel-spin column.
+  \item[Pass] Base rows identical to $\testTol_{\text{alg}}$; wheel column
+    differs by exactly $\wheelRadius_i$.
+  \item[Diagnosis] This test tells the implementer where the carrier/contact
+    distinction does and does not matter, preventing a spurious ``fix''.
+\end{testcard}
+
+\begin{testcard}{GEO-07}{Steering angle is chassis relative, and its rate is the joint rate}{negative}{P0}
+  \item[Targets] \eqref{eq:steering-directions},
+    \eqref{eq:steering-direction-derivatives},
+    \eqref{eq:steering-wheel-angular-velocity}
+  \item[Regime] T2, assumption~\ref{as:steering-axis}.
+  \item[Invariant] With the steering modules mechanically locked and the
+    chassis yawing at $\omega_{\Pi}$, every $\dot\delta_i$ read by the QP must
+    be zero. Substituting the absolute heading rate
+    $\dot\delta_i^{\text{abs}}=\dot\delta_i+\omega_{\Pi}$ must make this test
+    fail.
+  \item[Pass] $\abs{\dot\delta_i}<10^{-9}$\unitVelJS with the modules locked
+    and $\omega_{\Pi}=1$\unitVelJS; the mutant must exceed
+    $0.9$\unitVelJS.
+  \item[Diagnosis] The absolute convention silently consumes the entire
+    steering-rate budget during any turn, and biases
+    $\dot{\rollingDirection}^{\Pi}_i$ by $\omega_{\Pi}\lateralDirection^{\Pi}_i$.
+\end{testcard}
+
+\begin{testcard}{GEO-08}{Reduced contact Jacobian: normal annihilation and cross-wheel sparsity}{unit}{P0}
+  \item[Targets] \eqref{eq:reduced-normal-annihilated},
+    \eqref{eq:reduced-dynamics-congruence}
+  \item[Regime] Planar reduction, any steering configuration.
+  \item[Invariant] $\transpose{\text{J}_{\text{red},i}}\surfaceNormal_{\Pi}
+    =\zeroVector$ exactly; and $\text{J}_{\text{red},i}$ has bit-exact zeros on
+    every joint column except wheel $i$'s own spin and steering columns.
+  \item[Pass] Convention~\ref{tol:exact}; the sparsity assertion is exact
+    equality to zero, not a threshold.
+  \item[Diagnosis] A nonzero cross-wheel entry means one wheel's contact force
+    is being fed into another wheel's torque row. A nonzero normal projection
+    means the implementer restored an out-of-plane coordinate without saying so,
+    which invalidates \eqref{eq:planar-normal-load-row}.
+\end{testcard}
+
+\begin{testcard}{GEO-09}{ICR concurrency is exactly the rank condition on the lateral block}{property}{P1}
+  \item[Targets] \eqref{eq:steering-expanded-constraints},
+    Remark~\ref{re:four-steering-lateral-slack}
+  \item[Regime] T2, fixture \texttt{F-ICR} and \texttt{F-RANDOM}.
+  \item[Invariant] Let $\text{A}$ stack
+    $\transpose{(\lateralDirection^{\Pi}_i)}\text{H}_i$. Then
+    $\text{rank}(\text{A})=2$ if and only if the four axle lines are
+    concurrent; otherwise $\text{rank}(\text{A})=3$.
+  \item[Pass] $500$ draws: concurrent constructions give
+    $\sigma_3/\sigma_1<10^{-10}$ after nondimensionalization by a length scale;
+    random ones give $\sigma_3/\sigma_1>10^{-3}$. Nondimensionalize before
+    thresholding, since $\text{A}$ mixes dimensionless and length entries.
+  \item[Diagnosis] Thresholding the raw singular value makes the verdict depend
+    on whether offsets are in metres or millimetres.
+\end{testcard}
+
+\begin{testcard}{GEO-10}{Rows and contact Jacobian are built from one geometry}{unit}{P1}
+  \item[Targets] \eqref{eq:planar-carrier-map},
+    \eqref{eq:reduced-dynamics-congruence}
+  \item[Regime] Both chassis.
+  \item[Invariant] Perturb a single stored $\delta_i$ or $\bs{\rho}_i$ and
+    require that the kinematic rows \emph{and} $\text{J}_{\text{red},i}$ both
+    change consistently: they must be functions of the same cached geometry.
+  \item[Pass] Both change; neither is stale. Compare against a full rebuild.
+  \item[Diagnosis] Catches a partially updated cache, in which the kinematics
+    steer but the force map does not.
+\end{testcard}
+
+\section{Layer B. Constraint-row assembly}
+\label{sec:test-layer-b}
+
+These tests assert that each printed row is the exact derivative of its
+velocity-level constraint, and that the row set has the intended rank.
+
+\begin{testcard}{ROW-01}{T1 rows are the exact derivative at $\pGain=0$}{unit}{P0}
+  \item[Targets] \eqref{eq:differential-drive-qp},
+    \eqref{eq:differential-geometric-constraints}
+  \item[Regime] Assumptions~\ref{as:planar-basis} and~\ref{as:rigid-wheel};
+    fixture \texttt{F-DIFF}.
+  \item[Invariant] With $\pGain=0$, the three printed rows equal
+    $\frac{d}{dt}$ of the velocity constraints along a trajectory that
+    satisfies them, verified by central differences.
+  \item[Pass] Convention~\ref{tol:fd}, including the quadratic convergence
+    assertion.
+  \item[Diagnosis] Implemented in \harness. A residual proportional to
+    $\omega_{\Pi}v_x$ means the inertial basis crept back in; see ROW-05.
+\end{testcard}
+
+\begin{testcard}{ROW-02}{The $b/2$ signs match the wheel geometry}{unit}{P0}
+  \item[Targets] \eqref{eq:differential-drive-qp},
+    \eqref{eq:differential-wheel-geometry}
+  \item[Regime] \texttt{F-DIFF}.
+  \item[Invariant] Driving the right wheel faster than the left must yield
+    $\omega_{\Pi}>0$, matching
+    \eqref{eq:differential-angular-velocity}.
+  \item[Pass] $\omega_{\Pi}=(\wheelRadius_R\dot{\wheelAngle}_R
+    -\wheelRadius_L\dot{\wheelAngle}_L)/b$ to $\testTol_{\text{alg}}$, sign
+    included.
+  \item[Diagnosis] A swapped sign inverts every turn while leaving speeds
+    correct, so it passes any test that checks only $v_x$.
+\end{testcard}
+
+\begin{testcard}{ROW-03}{The measured residual decays at the discrete rate set by $\pGain$}{unit}{P0}
+  \item[Targets] \eqref{eq:differential-drive-qp},
+    \eqref{eq:geometric-wheel-acceleration-task}
+  \item[Regime] Nonzero measured lateral velocity, $0<\pGain\samplingPeriod<2$.
+  \item[Invariant] One cycle multiplies the lateral residual by exactly
+    $(1-\pGain\samplingPeriod)$. At $\pGain=0$ the residual is frozen, not
+    removed.
+  \item[Pass] Per-cycle ratio within $10^{-9}$ of $1-\pGain\samplingPeriod$;
+    the $\pGain=0$ branch must hold the residual to $\testTol_{\text{alg}}$.
+  \item[Diagnosis] Implemented in \harness. Asserting a continuous-time decay
+    $e^{-\pGain\samplingPeriod}$ instead is a false-failure trap.
+\end{testcard}
+
+\begin{testcard}{ROW-04}{Basis-convention pin on the rows themselves}{negative}{P0}
+  \item[Targets] \eqref{eq:differential-drive-qp},
+    Remark~\ref{re:planar-basis-choice}
+  \item[Regime] Turning motion with $\omega_{\Pi}v_x\neq0$.
+  \item[Invariant] The chassis-aligned rows are exact. The inertial-convention
+    rows differ from them by exactly $-\omega_{\Pi}v_x$ in the lateral row and
+    $+\omega_{\Pi}v_y$ in each rolling row.
+  \item[Pass] Both branches asserted: the implemented rows match the first, and
+    a deliberately mutated inertial assembler reproduces the second offset to
+    convention~\ref{tol:fd}.
+  \item[Diagnosis] Implemented in \harness. The two-branch form guarantees the
+    test is discriminating rather than vacuous.
+\end{testcard}
+
+\begin{testcard}{ROW-05}{T2 rows are the exact derivative, with no $\dot{\text{H}}_i$ term}{unit}{P0}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    \eqref{eq:steering-expanded-constraints}
+  \item[Regime] Assumptions~\ref{as:planar-basis}--\ref{as:steering-axis}.
+  \item[Invariant] The printed rolling and lateral rows equal the central
+    difference of $\transpose{\rollingDirection^{\Pi}_i}\text{H}_i
+    \bs{\xi}^{\Pi}_{\fbFrame}$ and its lateral counterpart. No
+    $\dot{\text{H}}_i$ term appears, since $\dot{\text{H}}_i=\zeroMatrix$.
+  \item[Pass] Convention~\ref{tol:fd}. Additionally assert that the term
+    $-\omega_{\Pi}^2\innerP{\rollingDirection^{\Pi}_i}{\bs{\rho}_i}$, required
+    under the inertial convention, is \emph{absent}.
+  \item[Diagnosis] Implemented in \harness.
+\end{testcard}
+
+\begin{testcard}{ROW-06}{Direction derivatives and their preserved invariants}{unit}{P0}
+  \item[Targets] \eqref{eq:steering-direction-derivatives}
+  \item[Regime] T2, chassis-relative $\dot\delta_i$.
+  \item[Invariant] $\dot{\rollingDirection}^{\Pi}_i
+    =\dot\delta_i\lateralDirection^{\Pi}_i$ and
+    $\dot{\lateralDirection}^{\Pi}_i
+    =-\dot\delta_i\rollingDirection^{\Pi}_i$, with
+    $\innerP{\rollingDirection^{\Pi}_i}{\dot{\rollingDirection}^{\Pi}_i}=0$ and
+    $\innerP{\rollingDirection^{\Pi}_i}{\lateralDirection^{\Pi}_i}=0$ preserved
+    along the motion.
+  \item[Pass] Convention~\ref{tol:fd} against central differences; the
+    orthogonality invariants to $\testTol_{\text{alg}}$.
+  \item[Diagnosis] Implemented in \harness. A missing minus sign in
+    $\dot{\lateralDirection}^{\Pi}_i$ is invisible at
+    $\dot\delta_i=0$, so the fixture must steer.
+\end{testcard}
+
+\begin{testcard}{ROW-07}{Rate-prediction block is an exact affine substitution}{unit}{P1}
+  \item[Targets] \eqref{eq:four-steering-rate-prediction},
+    \eqref{eq:four-steering-decision-vector}
+  \item[Regime] T2.
+  \item[Invariant] Eliminating $\bs{\nu}_{\mathrm{rot}}^{\mathrm{4s},+}$ by
+    substitution leaves the solution, the active set, and every bound margin
+    unchanged; only the problem dimension drops by eight.
+  \item[Pass] Solutions agree to $\testTol_{\text{alg}}$ on the shared
+    variables; the active sets are identical as sets.
+  \item[Diagnosis] A discrepancy means the prediction was applied with the
+    wrong $\samplingPeriod$ or to the measured rather than the optimized rate.
+\end{testcard}
+
+\begin{testcard}{ROW-08}{Lateral-row redundancy for T1, structural rank for both}{unit}{P0}
+  \item[Targets] \eqref{eq:differential-geometric-constraints},
+    \eqref{eq:differential-drive-qp}
+  \item[Regime] \texttt{F-DIFF}, $b>0$, $\wheelRadius_i>0$.
+  \item[Invariant] Both wheels yield the identical lateral row, so only one
+    copy belongs in the QP; and the printed $3\times5$ kinematic block has full
+    row rank $3$ for every $b>0$ and $\wheelRadius_i>0$.
+  \item[Pass] Row equality to $\testTol_{\text{alg}}$; rank exactly $3$ over
+    $500$ draws from \texttt{F-RANDOM}.
+  \item[Diagnosis] Implemented in \harness. Two copies are algebraically
+    harmless but degrade conditioning and can confuse an active-set solver.
+\end{testcard}
+
+\begin{testcard}{ROW-09}{The lateral slacks are exactly the range-space defect}{property}{P1}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    Remark~\ref{re:four-steering-lateral-slack}
+  \item[Regime] T2, common $\weight_{\sigma}$, $\weight_{\sigma}$ large.
+  \item[Invariant] As $\weight_{\sigma}\to\infty$,
+    $\min\norm{\slackVariable^{\text{lat}}}\to\norm{\transpose{\bs{Z}}\bs{c}}$
+    where $\bs{Z}$ spans $\text{null}(\transpose{\text{A}})$ and $\bs{c}$ is
+    the measured right-hand side.
+  \item[Pass] Agreement within $1\%$ at
+    $\weight_{\sigma}/\weight_{v_x}=10^{6}$, with the residual decreasing
+    monotonically in $\weight_{\sigma}$ over four decades.
+  \item[Diagnosis] Confirms the slack reports a genuine kinematic
+    incompatibility rather than absorbing an assembly error.
+\end{testcard}
+
+\begin{testcard}{ROW-10}{Degenerate steering configurations}{unit}{P1}
+  \item[Targets] \eqref{eq:steering-expanded-constraints}
+  \item[Regime] T2, \texttt{F-4S}.
+  \item[Invariant] With all wheels tangent to circles about the base origin,
+    only rotation is admissible and the admissible twist direction is
+    $(0,0,1)$. With all steering angles equal, yaw is forced to zero and only
+    translation survives.
+  \item[Pass] The computed nullspace direction matches the expected one to
+    $10^{-8}$ after normalization.
+  \item[Diagnosis] These are the two configurations where an implementation
+    that silently pseudo-inverts produces motion that the mechanism cannot
+    execute.
+\end{testcard}
+
+\begin{testcard}{ROW-11}{T2 rows carry no proportional stabilization}{negative}{P2}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    \eqref{eq:differential-drive-qp}
+  \item[Regime] Both chassis.
+  \item[Invariant] T1's rows carry $-\pGain$ times the measured residual; T2's
+    printed rows do not. An implementation that reuses one assembler for both
+    must not silently apply $\pGain$ to T2.
+  \item[Pass] Setting $\pGain\neq0$ changes T1's right-hand side and leaves
+    T2's unchanged.
+  \item[Diagnosis] Documents a deliberate asymmetry so it is not ``fixed'' by a
+    later refactor. If stabilization is wanted for T2 it must be added
+    explicitly, alongside the slacks.
+\end{testcard}
+
+\begin{testcard}{ROW-12}{Steering-angle wrap-around}{regression}{P2}
+  \item[Targets] \eqref{eq:steering-directions}
+  \item[Regime] T2, $\delta_i$ crossing $\pm\pi$.
+  \item[Invariant] The rows are $2\pi$-periodic in $\delta_i$ and change sign
+    under $\delta_i\mapsto\delta_i+\pi$; $\dot\delta_i$ must be computed from an
+    unwrapped angle.
+  \item[Pass] Row values agree across the wrap to $\testTol_{\text{alg}}$; the
+    finite-differenced $\dot\delta_i$ shows no spike at the crossing.
+  \item[Diagnosis] A wrap spike injects a large spurious
+    $\dot{\rollingDirection}^{\Pi}_i$ for one cycle, which reads as a transient
+    slip.
+\end{testcard}
+
+\section{Layer C. Dynamics, equilibrium and momentum}
+\label{sec:test-layer-c}
+
+This layer contains the corrected forms of the requester's claims (1) and (3),
+together with the tests that protect the congruence reduction. It needs a
+full-model dynamics oracle, for example a recursive Newton--Euler or composite
+rigid-body implementation of \eqref{eq:rolling-equations-of-motion}.
+
+\begin{testcard}{DYN-01}{Reduced inertia is a congruence, not a row slice}{unit}{P0}
+  \item[Targets] \eqref{eq:reduced-dynamics-congruence}
+  \item[Regime] Both chassis; full model available.
+  \item[Invariant] $\text{M}_{\text{red}}=\transpose{\text{P}}\jsim\text{P}$.
+    In particular $\text{M}_{\text{red}}$ is symmetric positive definite, which
+    a row selection of $\jsim$ is not.
+  \item[Pass] Blockwise agreement to $10^{-9}$ relative to
+    $\norm{\jsim}$; symmetry to $\testTol_{\text{alg}}$; smallest eigenvalue
+    strictly positive.
+  \item[Diagnosis] A row-slicing implementation fails the symmetry assertion
+    immediately, which is why symmetry is the primary check rather than a
+    secondary one.
+\end{testcard}
+
+\begin{testcard}{DYN-02}{$\bs{h}_{\text{red}}$ carries the $\dot{\text{P}}\bs{u}$ term}{unit}{P0}
+  \item[Targets] \eqref{eq:reduced-dynamics-congruence},
+    Remark~\ref{re:planar-basis-choice}
+  \item[Regime] Turning motion, so that $\dot{\text{P}}\bs{u}\neq\zeroVector$.
+  \item[Invariant] $\bs{h}_{\text{red}}=\transpose{\text{P}}
+    (\jsim\dot{\text{P}}\bs{u}+\gravityandcoriolis)$. The velocity-product part
+    is not optional: it is where the Coriolis and centripetal terms of the
+    rotating chassis-aligned basis live.
+  \item[Pass] Compare against the full model at nonzero $\omega_{\Pi}$;
+    agreement to $10^{-4}$ of $\mass\gravity[value]$,
+    convention~\ref{tol:phys}. Separately assert that dropping
+    $\dot{\text{P}}\bs{u}$ changes $\bs{h}_{\text{red}}$ by more than that
+    tolerance, so the test is discriminating.
+  \item[Diagnosis] Omitting the term makes the controller correct in a straight
+    line and wrong in every turn, in proportion to $\omega_{\Pi}^2$.
+\end{testcard}
+
+\begin{testcard}{DYN-03}{Correction of claim (1): Newton's law, general and static}{property}{P0}
+  \item[Targets] \eqref{eq:test-newton-general},
+    \eqref{eq:rolling-equations-of-motion}
+  \item[Regime] Stated per branch; see \secRef{sec:correction-gravity}.
+  \item[Invariant] General:
+    $\agg{i}{\numContacts}{\force_i}=\mass(\com[ddot]-\gravity)$.
+    Static: $\agg{i}{\numContacts}{\force_i}=-\mass\gravity$. In the planar
+    QPs only the two in-plane components are earned by the solver; the
+    surface-normal component is supplied by
+    \eqref{eq:planar-normal-load-row} and is therefore a test of the load
+    model.
+  \item[Pass] In-plane residual below $10^{-4}\mass\gravity[value]$; the
+    normal component asserted separately against the load model, not against
+    the QP.
+  \item[Diagnosis] Implemented in \harness. Asserting the naive
+    ``forces equal gravity'' during acceleration produces a false failure of
+    magnitude $\mass\norm{\com[ddot]}$.
+\end{testcard}
+
+\begin{testcard}{DYN-04}{Correction of claim (3): yaw momentum equals the contact moment}{property}{P0}
+  \item[Targets] \eqref{eq:test-yaw-balance},
+    \eqref{eq:reduced-dynamics-congruence}
+  \item[Regime] Both chassis, any motion.
+  \item[Invariant] $\innerP{\surfaceNormal_{\Pi}}{\angularMomentum[dot][\comSymbol]}$
+    equals the net plane-normal moment of the contact forces about the center
+    of mass. Actuator torques contribute nothing.
+  \item[Pass] Residual below $10^{-4}\mass\gravity[value]\ell$ with $\ell$ the
+    largest carrier offset, convention~\ref{tol:phys}.
+  \item[Diagnosis] Implemented in \harness. A residual proportional to
+    $\sum_i\jtorques_{\delta_i}$ is the signature of the defect DYN-05 targets.
+\end{testcard}
+
+\begin{testcard}{DYN-05}{Steering torque cannot enter the chassis yaw row}{negative}{P0}
+  \item[Targets] \eqref{eq:reduced-dynamics-congruence},
+    \secRef{sec:correction-yaw}
+  \item[Regime] Both chassis.
+  \item[Invariant] $\text{B}_{\text{red}}$ has identically zero rows for the
+    three floating-base coordinates; in particular the plane-normal base row is
+    exactly zero.
+  \item[Pass] Exact equality to zero, not a threshold. A mutant that adds
+    $-\jtorques_{\delta_i}$ to the yaw row must fail both this test and DYN-04.
+  \item[Diagnosis] Implemented in \harness. This is the structural form of the
+    correction: it fails on inspection of the matrix, without any simulation,
+    and it catches the error that DYN-04 alone might absorb into tolerance.
+\end{testcard}
+
+\begin{testcard}{DYN-06}{Contact power vanishes under ideal rolling}{property}{P1}
+  \item[Targets] \eqref{eq:ideal-rolling-velocity},
+    \eqref{eq:reduced-dynamics-congruence}
+  \item[Regime] Ideal rolling, no slip, no sliding contacts.
+  \item[Invariant] The material contact point has zero velocity, so each
+    contact force does no work:
+    $\transpose{\bs{u}}\transpose{\text{J}_{\text{red},i}}\force_i=0$.
+    Consequently actuator power equals the rate of mechanical energy.
+  \item[Pass] Contact power below $10^{-6}$ of the actuator power; the energy
+    balance closes to $10^{-4}$ relative over a $5$\unitTime rollout.
+  \item[Diagnosis] A strong independent oracle: it uses no constraint row
+    directly, so it catches sign and frame errors that the row-level tests
+    share a convention with.
+\end{testcard}
+
+\begin{testcard}{DYN-07}{Normal-load model closes the three discarded equilibrium rows}{unit}{P0}
+  \item[Targets] \eqref{eq:planar-normal-load-row},
+    \eqref{eq:reduced-dynamics-congruence}
+  \item[Regime] Assumption~\ref{as:normal-load}; \texttt{F-DIFF} with a caster,
+    \texttt{F-4S} with a load model.
+  \item[Invariant] The supplied $\reff{\force}_{n,i}$ must satisfy the three
+    out-of-plane equations discarded by the reduction: normal force balance and
+    the two tilting-moment balances about the in-plane axes, including the
+    inertial load transfer $\mass\com[ddot]$ under acceleration.
+  \item[Pass] Residual below $10^{-3}\mass\gravity[value]$ statically and under
+    a $2$\unitAccTS longitudinal acceleration.
+  \item[Diagnosis] For T1 the system is over-determined, so a two-wheel model
+    without a caster share cannot close and must be reported as such rather
+    than least-squares fitted silently. For T2 it is indeterminate, so the test
+    checks the chosen distribution rule, not uniqueness.
+\end{testcard}
+
+\begin{testcard}{DYN-08}{Sign conventions, asserted individually}{unit}{P0}
+  \item[Targets] \secRef{sec:rolling-implementation},
+    \eqref{eq:wheel-torque-row}
+  \item[Regime] Both chassis.
+  \item[Invariant] Positive $\dot{\wheelAngle}_i$ produces positive rim speed
+    along $\rollingDirection_i$; positive $\jtorques_{\wheelAngle_i}$ produces
+    positive $\ddot{\wheelAngle}_i$ in isolation; and the drive torque enters
+    the generalized force with the sign of
+    \eqref{eq:rolling-equations-of-motion}.
+  \item[Pass] Each of the three asserted as a separate pass/fail so a failure
+    localizes.
+  \item[Diagnosis] A pair of compensating sign errors reproduces correct
+    straight-line motion, so bundling these three into one assertion hides the
+    common case.
+\end{testcard}
+
+\begin{testcard}{DYN-09}{Quasi-static torque bound must not duplicate the wheel row}{negative}{P1}
+  \item[Targets] \eqref{eq:quasistatic-wheel-force},
+    \eqref{eq:rolling-equations-of-motion}
+  \item[Regime] Both chassis.
+  \item[Invariant] Imposing
+    $\abs{\innerP{\rollingDirection_i}{\force_i}}
+     \leq\abs{\jtorques_{\wheelAngle_i}}/\wheelRadius_i$ alongside the complete
+    wheel row must be detected as duplication: it removes feasible points that
+    the full dynamics admits, because it neglects the wheel's rotational
+    inertia.
+  \item[Pass] Construct a state with nonzero $\ddot{\wheelAngle}_i$ for which
+    the full row is satisfied and the quasi-static inequality is violated;
+    assert the QP with both constraints is infeasible and the QP with the row
+    alone is feasible.
+  \item[Diagnosis] Confirms the warning after
+    \eqref{eq:quasistatic-wheel-force} is respected.
+\end{testcard}
+
+\begin{testcard}{DYN-10}{Momentum-integral rollout}{regression}{P2}
+  \item[Targets] \eqref{eq:test-newton-general}, \eqref{eq:test-yaw-balance}
+  \item[Regime] Closed-loop, $5$\unitTime, both terrains.
+  \item[Invariant] The discrete change in linear and plane-normal angular
+    momentum matches the integrated contact wrench, up to the integrator's
+    order.
+  \item[Pass] Relative error below $10^{-3}$ and decreasing at the expected
+    order as $\samplingPeriod$ is halved.
+  \item[Diagnosis] Turns the two instantaneous balances into a trajectory-level
+    statement, catching a defect that is small per cycle but accumulates.
+\end{testcard}
+
+\section{Layer D. Contact force and friction}
+\label{sec:test-layer-d}
+
+The corrected form of the requester's claim (2) lives here. The organizing
+principle is that cone membership is a tautology, so the tests target the force
+\emph{path}, the cone \emph{rebuild}, and whether the cone \emph{binds}.
+
+\begin{testcard}{FRI-01}{Cone membership is a tautology: test the path, not the value}{unit}{P1}
+  \item[Targets] \eqref{eq:rolling-force-generators},
+    \secRef{sec:correction-cone}
+  \item[Regime] Both chassis.
+  \item[Invariant] Recomputing
+    $\norm{(\force_{t,i},\force_{s,i})}\leq\coef{f}_i\force_{n,i}$ from
+    $\force_i=\cone[f][i]\generator{\force_i}$ with
+    $\generator{\force_i}\geq\zeroVector$ cannot fail. The test must therefore
+    assert instead that the checker is \emph{sensitive}: injecting a force that
+    is not of the form $\cone[f][i]\generator{\force_i}$ must be rejected.
+  \item[Pass] The tautological branch passes trivially; the injected
+    out-of-cone force must be flagged.
+  \item[Diagnosis] Implemented in \harness. Without the sensitivity branch this
+    entry is a test that cannot fail, which is worse than no test.
+\end{testcard}
+
+\begin{testcard}{FRI-02}{The cone is rebuilt when the wheel steers}{negative}{P0}
+  \item[Targets] \eqref{eq:rolling-force-generators},
+    \eqref{eq:steering-directions}
+  \item[Regime] T2, nonzero $\delta_i$.
+  \item[Invariant] $\cone[f][i]$ must be expressed in the current local frame
+    $[\rollingDirection_i,\lateralDirection_i,\surfaceNormal_i]$. Because the
+    cone \emph{set} is rotationally symmetric about $\surfaceNormal_i$, the
+    stale-cone defect is invisible in the set; it is visible only in the
+    \emph{map} $\generator{\force_i}\mapsto\force_i$.
+  \item[Pass] Assert exact rotational equivariance:
+    $\cone[f][i](\delta_i)=\text{R}(\delta_i)\cone[f][i](0)$ to
+    $\testTol_{\text{alg}}$. A cone cached at $\delta_i=0$ must fail for
+    $\delta_i=0.6$~rad of steering.
+  \item[Diagnosis] The classic defect. Testing only cone membership will never
+    catch it, which is why this entry asserts the map.
+\end{testcard}
+
+\begin{testcard}{FRI-03}{The cone is rebuilt when the terrain normal changes}{negative}{P1}
+  \item[Targets] \eqref{eq:rolling-force-generators}, \texttt{F-RAMP}
+  \item[Regime] Ramp, or a terrain-normal update.
+  \item[Invariant] Each generator satisfies
+    $\innerP{\surfaceNormal_i}{\bs{c}_k}=1$ in the current frame. A stale
+    normal breaks this at first order in the tilt.
+  \item[Pass] Deviation below $\testTol_{\text{alg}}$ for the fresh cone; the
+    stale-normal mutant must deviate by at least $1-\cos\theta$ at
+    $\theta=20$\unitDegree.
+  \item[Diagnosis] Distinguishes a normal-update fault from a steering-update
+    fault, which FRI-02 cannot.
+\end{testcard}
+
+\begin{testcard}{FRI-04}{Inner approximation and its quantified conservatism}{property}{P1}
+  \item[Targets] \eqref{eq:rolling-friction-cone},
+    \eqref{eq:rolling-force-generators}
+  \item[Regime] Any $\numGen\geq3$.
+  \item[Invariant] Every representable force satisfies
+    $\norm{(\force_{t,i},\force_{s,i})}\leq\coef{f}_i\force_{n,i}$, and the
+    attained inradius is exactly $\coef{f}_i\cos(\pi/\numGen)$: tangential
+    demands between $\coef{f}_i\cos(\pi/\numGen)\force_{n,i}$ and
+    $\coef{f}_i\force_{n,i}$ are rejected at unfavourable headings.
+  \item[Pass] Both bounds attained to $10^{-9}$; the two-sided form is the
+    assertion, since the upper bound alone is implied by construction.
+  \item[Diagnosis] Implemented in \harness. Fixes the achievable traction
+    budget, which the ramp tests depend on.
+\end{testcard}
+
+\begin{testcard}{FRI-05}{The normal-load row makes the cone bind}{smoke}{P0}
+  \item[Targets] \eqref{eq:planar-normal-load-row},
+    \eqref{eq:reduced-normal-annihilated}
+  \item[Regime] Both chassis, corrected formulation.
+  \item[Invariant] Without \eqref{eq:planar-normal-load-row} the feasible set
+    contains the ray $\generator{\force_i}\mapsto
+    \generator{\force_i}+\text{s}\bs{1}$, $\text{s}\geq0$, on which every
+    constraint holds and the objective is unchanged; the cone never binds and
+    the optimal set is unbounded. With the row, the generator set is a compact
+    simplex and the ray is blocked.
+  \item[Pass] Two branches. Removing the row must reproduce an unbounded or
+    solver-dependent $\generator{\force_i}$; with the row, the feasible
+    generator set must be bounded and the cone must be attained at a commanded
+    traction limit.
+  \item[Diagnosis] Implemented in \harness. This is the highest-severity defect
+    the corrections addressed; keep both branches so a regression is caught.
+\end{testcard}
+
+\begin{testcard}{FRI-06}{Normal-load input validation and detachment}{negative}{P1}
+  \item[Targets] \eqref{eq:planar-normal-load-row}
+  \item[Regime] Both chassis.
+  \item[Invariant] $\reff{\force}_{n,i}<0$ must be rejected at assembly.
+    $\reff{\force}_{n,i}=0$ forces $\generator{\force_i}=\zeroVector$ and hence
+    zero tangential force, which is detachment and must be handled by the
+    contact-mode logic rather than by the QP.
+  \item[Pass] Negative input raises; zero input yields exactly zero tangential
+    force and a mode-manager notification.
+  \item[Diagnosis] A silently clamped negative load produces a wheel that
+    generates traction while airborne.
+\end{testcard}
+
+\begin{testcard}{FRI-07}{Tension is unrepresentable, so lift-off must be guarded outside the QP}{negative}{P1}
+  \item[Targets] \eqref{eq:rolling-force-generators},
+    \eqref{eq:reduced-normal-annihilated}
+  \item[Regime] Both chassis.
+  \item[Invariant] $\force_{n,i}\geq0$ holds by construction, and the planar
+    reduction cannot express tension at all. Therefore a manoeuvre that would
+    physically lift a wheel produces no QP infeasibility and no warning.
+  \item[Pass] Command a load transfer that drives $\reff{\force}_{n,i}$ to
+    zero; assert the QP still solves and that an external monitor raises the
+    lift-off condition.
+  \item[Diagnosis] Prevents the false belief that QP feasibility certifies
+    contact maintenance in the planar model. It does not.
+\end{testcard}
+
+\begin{testcard}{FRI-08}{Ramp station-keeping and the heading-dependent failure slope}{smoke}{P1}
+  \item[Targets] \eqref{eq:test-ramp-split}, \texttt{F-RAMP}
+  \item[Regime] Static hold on slopes $0$ to $40$\unitDegree.
+  \item[Invariant] The normal and tangential sums follow
+    \eqref{eq:test-ramp-split}, and the controller fails between
+    $\arctan(\coef{f}\cos(\pi/\numGen))$ and $\arctan\coef{f}$ depending on the
+    heading relative to the fall line, because the polyhedral cone is
+    anisotropic.
+  \item[Pass] Force split within $10^{-3}\mass\gravity[value]$; the observed
+    failure slope inside the predicted band for every heading tested.
+  \item[Diagnosis] Asserting a single failure slope $\arctan\coef{f}$ is a
+    false-failure trap at unfavourable headings; the band is the correct
+    assertion.
+\end{testcard}
+
+\begin{testcard}{FRI-09}{Friction margin: log both margins and assert their ordering}{unit}{P2}
+  \item[Targets] \secRef{sec:rolling-cases},
+    \eqref{eq:rolling-friction-cone}
+  \item[Regime] Both chassis.
+  \item[Invariant] The circular margin
+    $\coef{f}_i\force_{n,i}-\norm{(\force_{t,i},\force_{s,i})}$ and the
+    polyhedral margin are both recorded, and the polyhedral margin is never
+    larger.
+  \item[Pass] Ordering holds on every cycle of a $5$\unitTime rollout; both are
+    reported in the metrics record.
+  \item[Diagnosis] Reporting only one margin makes a near-saturation event
+    ambiguous between model conservatism and genuine physical limit.
+\end{testcard}
+
+\begin{testcard}{FRI-10}{Sliding-direction row is not imposed while sticking or rolling}{negative}{P1}
+  \item[Targets] \eqref{eq:sliding-friction-direction}
+  \item[Regime] Contact modes $\set{r}$ and $\set{f}$.
+  \item[Invariant] The affine direction row is applied only for sustained
+    sliding. During rolling or sticking, tangential force must remain an
+    interior decision of the cone.
+  \item[Pass] With all contacts rolling, assert the row is absent from the
+    assembled problem and that the solution's tangential force is strictly
+    interior for a non-saturating command.
+  \item[Diagnosis] Imposing it during rolling pins the force to the cone
+    boundary, producing a controller that always saturates friction. Note also
+    that under a polyhedral inner approximation the row is not automatically
+    cone compatible, so its $\varepsilon$ guard must be tested.
+\end{testcard}
+
+\section{Layer E. Bounds, actuation and prediction}
+\label{sec:test-layer-e}
+
+\begin{testcard}{BND-01}{Rate limits act on the one-cycle-ahead rate}{unit}{P0}
+  \item[Targets] \eqref{eq:four-steering-rate-prediction},
+    \eqref{eq:differential-drive-qp}, \eqref{eq:four-steering-wheel-qp}
+  \item[Regime] Both chassis.
+  \item[Invariant] The rate box is imposed on
+    $\dot{\wheelAngle}_i+\samplingPeriod\ddot{\wheelAngle}_i$, not on the
+    measured rate. The assembled row is therefore $[\,1\ \ \samplingPeriod\,]$
+    against the measured rate, and the box scales with $\samplingPeriod$.
+  \item[Pass] Halving $\samplingPeriod$ must halve the reachable acceleration
+    window implied by the rate box, exactly.
+  \item[Diagnosis] Bounding the measured rate makes the constraint a constant,
+    so it never restricts the decision variable and silently disappears.
+\end{testcard}
+
+\begin{testcard}{BND-02}{A yawing chassis with locked steering consumes no steering-rate budget}{negative}{P0}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    \eqref{eq:steering-direction-derivatives}
+  \item[Regime] T2, $\omega_{\Pi}=1$~rad/s, steering modules locked.
+  \item[Invariant] Because $\delta_i$ is chassis relative, the steering-rate
+    bound is independent of $\omega_{\Pi}$: the assembled bound row must have a
+    zero coefficient on $\dot\omega_{\Pi}$.
+  \item[Pass] Exact zero coefficient. A mutant using the absolute heading rate
+    must show a coefficient of $1$ and must consume the full rate budget at
+    $\omega_{\Pi}=1$~rad/s.
+  \item[Diagnosis] The paired mutant is what makes this test discriminating;
+    without it the assertion is satisfied by an implementation that has no
+    steering bound at all.
+\end{testcard}
+
+\begin{testcard}{BND-03}{Rate box and acceleration box become jointly empty at a known threshold}{unit}{P1}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp}
+  \item[Regime] Measured rate already outside, or near, its bound.
+  \item[Invariant] The two boxes are jointly infeasible exactly when
+    $\dot{\wheelAngle}_i+\samplingPeriod\ddot{\wheelAngle}_{i,\text{max}}
+    <\dot{\wheelAngle}_{i,\text{min}}$ or the mirrored condition holds. The
+    implementation must report this rather than clip.
+  \item[Pass] Sweep the measured rate across the analytic threshold; the
+    transition to reported infeasibility must occur within one step of it.
+  \item[Diagnosis] The report explicitly forbids clipping. A clipping
+    implementation passes every steady-state test and fails only on recovery
+    from a disturbance.
+\end{testcard}
+
+\begin{testcard}{BND-04}{Each limit binds at its own analytic threshold, in the right order}{smoke}{P1}
+  \item[Targets] \eqref{eq:differential-drive-qp},
+    \eqref{eq:wheel-torque-bound}, \eqref{eq:rolling-friction-cone}
+  \item[Regime] \texttt{F-DIFF}, reference ramped monotonically.
+  \item[Invariant] As the commanded acceleration is increased, the rate,
+    acceleration, torque and friction limits activate at thresholds computable
+    in closed form from the fixture, and in a predictable order.
+  \item[Pass] Each activation within $2\%$ of its analytic threshold, and the
+    order matches the prediction.
+  \item[Diagnosis] Localizes a scaling error to a single limit. A uniformly
+    shifted set of thresholds indicates a units error in the fixture rather
+    than in the bounds.
+\end{testcard}
+
+\begin{testcard}{BND-05}{Torque bounds are selected at the right stride within each wheel block}{unit}{P1}
+  \item[Targets] \eqref{eq:steering-wheel-decision-block},
+    \eqref{eq:four-steering-torque-vector}
+  \item[Regime] T2.
+  \item[Invariant] The drive-torque limit must attach to
+    $\jtorques_{\wheelAngle_i}$ and the steering-torque limit to
+    $\jtorques_{\delta_i}$, at the correct offset inside the four-entry block.
+  \item[Pass] Set each of the eight torque limits to a distinct sentinel value
+    and read them back from the assembled bound vector by index.
+  \item[Diagnosis] An off-by-one stride swaps drive and steering limits, which
+    is invisible when the two happen to be similar and catastrophic when they
+    are not.
+\end{testcard}
+
+\begin{testcard}{BND-06}{The lateral slacks carry no box}{negative}{P0}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    Remark~\ref{re:four-steering-lateral-slack}
+  \item[Regime] T2.
+  \item[Invariant] $\slackVariable^{\text{lat}}$ must be unbounded. Bounding it
+    re-imposes the generically infeasible hard rows whenever the required slack
+    exceeds the bound.
+  \item[Pass] Assert no finite bound is attached to the slack columns; then
+    supply data requiring a large slack and confirm the QP still solves.
+  \item[Diagnosis] A well-meaning ``sanity bound'' on the slack reintroduces
+    exactly the defect the slack was added to remove.
+\end{testcard}
+
+\begin{testcard}{BND-07}{Normal-load row requires a strictly positive right-hand side}{unit}{P1}
+  \item[Targets] \eqref{eq:planar-normal-load-row}
+  \item[Regime] Both chassis.
+  \item[Invariant] The row is an equality on a nonnegative combination, so
+    $\reff{\force}_{n,i}>0$ is required for a nonempty generator set with
+    interior; $\reff{\force}_{n,i}=0$ collapses it to the origin.
+  \item[Pass] Positive values give a bounded nonempty simplex; zero gives
+    exactly the origin; negative is rejected.
+  \item[Diagnosis] Complements FRI-06 at the level of the assembled row rather
+    than the model input.
+\end{testcard}
+
+\begin{testcard}{BND-08}{Bounds are recomputed every cycle and dimensions are constant}{regression}{P1}
+  \item[Targets] \secRef{sec:rolling-implementation}
+  \item[Regime] Closed loop across a contact-mode change.
+  \item[Invariant] The right-hand sides of all bounds are refreshed from the
+    current measurement each cycle, while the problem dimension and the index
+    map are unchanged.
+  \item[Pass] Dimensions and index maps bit-identical across $10^{3}$ cycles
+    including a mode change; bound values demonstrably tracking the
+    measurement.
+  \item[Diagnosis] A stale bound produces a controller that is correct on the
+    first cycle after a reset and progressively wrong afterwards.
+\end{testcard}
+
+\section{Layer F. QP well-posedness and solver contract}
+\label{sec:test-layer-f}
+
+Throughout this layer the objective is written
+$q(\decisionVar)=\transpose{\decisionVar}\weightMatrix{H}\decisionVar
++\transpose{\bs{g}}\decisionVar$, with no factor of one half. Every numeric
+assertion on $\weightMatrix{H}$ below assumes that convention; if the
+implementation uses $\tfrac12\transpose{\decisionVar}\weightMatrix{H}\decisionVar$
+then the expected Hessian entries double. Pin this once in the test fixture and
+assert it, because two entries disagreeing about the factor is a defect that
+looks like a tolerance failure.
+
+\begin{testcard}{QP-01}{Hessian is positive definite under the corrected objective}{unit}{P0}
+  \item[Targets] \eqref{eq:planar-force-regularization},
+    \eqref{eq:planar-twist-weight}
+  \item[Regime] $\varepsilon_{\lambda}>0$, $\weightMatrix{W}_{\xi}\succ0$, all
+    motion weights positive.
+  \item[Invariant] $\weightMatrix{H}\succ0$ on the whole decision space,
+    including the generator block. Maintain a per-block ledger so a failure
+    identifies which block is singular.
+  \item[Pass] Smallest eigenvalue exceeds
+    $\tfrac12\varepsilon_{\lambda}$; the ledger accounts for every column.
+  \item[Diagnosis] Implemented in \harness.
+\end{testcard}
+
+\begin{testcard}{QP-02}{Setting $\varepsilon_{\lambda}=0$ reproduces the singular case}{regression}{P0}
+  \item[Targets] \eqref{eq:planar-force-regularization},
+    \eqref{eq:reduced-normal-annihilated}
+  \item[Regime] Both chassis, $\numGen>3$.
+  \item[Invariant] With $\varepsilon_{\lambda}=0$ and no load-distribution
+    term, the generator block has nullity exactly $\numGen-3$ per contact and
+    the minimizer is not unique.
+  \item[Pass] Measured nullity equals $\numGen-3$; at $\numGen=3$ the
+    degeneracy disappears, which is the boundary case worth pinning.
+  \item[Diagnosis] Implemented in \harness. Keeping the singular branch as an
+    explicit expectation prevents a later ``simplification'' from silently
+    removing the regularization.
+\end{testcard}
+
+\begin{testcard}{QP-03}{Primal solution is unique across warm starts and solvers}{property}{P0}
+  \item[Targets] \eqref{eq:planar-force-regularization}
+  \item[Regime] Corrected objective, $\varepsilon_{\lambda}>0$.
+  \item[Invariant] Solving from several distinct warm starts, and with two
+    independent solvers, yields the same primal solution.
+  \item[Pass] Agreement to $10^{-6}$ relative on
+    $\dot{\bs{\xi}}^{\Pi}_{\fbFrame}$ and to
+    $\sqrt{\testTol_{\text{alg}}/\varepsilon_{\lambda}}$ on
+    $\generator{\force_i}$, since the generator block is only
+    $\varepsilon_{\lambda}$-strongly convex. Compare duals only where strict
+    complementarity holds.
+  \item[Diagnosis] The $\varepsilon_{\lambda}$-aware tolerance is essential: a
+    uniform tight tolerance on $\generator{\force_i}$ is a false-failure trap.
+\end{testcard}
+
+\begin{testcard}{QP-04}{Equality-row ledger and rank}{unit}{P0}
+  \item[Targets] \eqref{eq:differential-drive-qp},
+    \eqref{eq:four-steering-wheel-qp}
+  \item[Regime] Both chassis.
+  \item[Invariant] The equality rows number exactly as counted from the
+    formulation, and the equality matrix has full row rank for every fixture
+    with $b>0$, $\wheelRadius_i>0$ and, for T2, with the slacks present.
+  \item[Pass] Exact counts; rank equal to the row count over $500$ draws from
+    \texttt{F-RANDOM}, after nondimensionalization.
+  \item[Diagnosis] A rank deficiency here is a duplicated row, most likely the
+    second lateral copy in T1 or a reinstated $\text{G}^{\text{rot}}_i$
+    identity block in T2.
+\end{testcard}
+
+\begin{testcard}{QP-05}{No lateral row can appear in a T2 infeasibility certificate}{smoke}{P0}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    Remark~\ref{re:four-steering-lateral-slack}
+  \item[Regime] T2, arbitrary measured steering angles and rates.
+  \item[Invariant] Because each lateral row owns its own slack column, no
+    lateral row can be part of a minimal infeasible subsystem. Any residual
+    infeasibility must come from the bounds, the dynamics, or the cone.
+  \item[Pass] Over $500$ adversarial draws including deliberately
+    non-concurrent steering, the QP always solves; when infeasibility is forced
+    by bounds, the returned certificate contains no lateral row index.
+  \item[Diagnosis] Directly regression-tests the defect the slacks were added
+    to remove.
+\end{testcard}
+
+\begin{testcard}{QP-06}{Unit rescaling leaves the physical solution invariant}{property}{P1}
+  \item[Targets] \eqref{eq:planar-twist-weight},
+    \secRef{sec:rolling-implementation}
+  \item[Regime] Both chassis.
+  \item[Invariant] Re-expressing lengths in millimetres and forces in
+    kilonewtons, with weights transformed consistently, must leave the physical
+    solution and the active set unchanged.
+  \item[Pass] Physical quantities agree to $10^{-6}$ relative; the active set is
+    identical as a set.
+  \item[Diagnosis] A failure means a weight is a bare scalar where a matrix is
+    required, which is exactly the defect
+    \eqref{eq:planar-twist-weight} was introduced to fix.
+\end{testcard}
+
+\begin{testcard}{QP-07}{KKT residual as a solver-independent optimality oracle}{property}{P1}
+  \item[Targets] both QPs
+  \item[Regime] Any feasible fixture.
+  \item[Invariant] Stationarity, primal and dual feasibility, and complementary
+    slackness hold, computed from an \emph{independently} re-derived
+    $\weightMatrix{H}$, $\bs{g}$ and constraint set rather than from the
+    solver's own internal matrices.
+  \item[Pass] Each residual below $10^{-8}$ after normalization by the
+    corresponding row norm.
+  \item[Diagnosis] Independent re-derivation is what makes this an oracle
+    rather than a self-consistency check.
+\end{testcard}
+
+\begin{testcard}{QP-08}{Stability window of the proportional stabilization}{property}{P1}
+  \item[Targets] \eqref{eq:differential-drive-qp},
+    \eqref{eq:geometric-wheel-acceleration-task}
+  \item[Regime] T1, discrete time.
+  \item[Invariant] The residual recursion is stable exactly for
+    $0\leq\pGain\samplingPeriod<2$, and monotone for
+    $\pGain\samplingPeriod\leq1$. Above $2$ it diverges.
+  \item[Pass] Sweep $\pGain\samplingPeriod$ over $[0,2.5]$; observed decay,
+    oscillatory decay and divergence must match the predicted regions.
+  \item[Diagnosis] Implemented in \harness. Fixes an upper limit on $\pGain$
+    that is otherwise chosen by trial and error.
+\end{testcard}
+
+\begin{testcard}{QP-09}{Runtime contract}{smoke}{P1}
+  \item[Targets] \secRef{sec:rolling-implementation}
+  \item[Regime] Closed loop with mode changes.
+  \item[Invariant] Problem dimensions and index maps are constant; the solver
+    is deterministic given identical input; warm starting reproduces the cold
+    solution; and the solve time stays within budget.
+  \item[Pass] Bit-identical dimensions; cold and warm solutions agree to
+    $10^{-8}$; the $99$th-percentile solve time under the declared budget.
+  \item[Diagnosis] Determinism must be asserted before any golden-file test is
+    meaningful.
+\end{testcard}
+
+\begin{testcard}{QP-10}{Rejection contract}{negative}{P0}
+  \item[Targets] \secRef{sec:rolling-implementation}
+  \item[Regime] Deliberately infeasible or malformed input.
+  \item[Invariant] Certified infeasibility triggers the documented safe
+    fallback; no non-finite value ever reaches an actuator; invalid model data
+    is rejected at assembly rather than propagated.
+  \item[Pass] Inject a non-finite bound, a negative $\reff{\force}_{n,i}$, a
+    zero wheel radius and a non-positive-definite weight; each must be rejected
+    with a distinguishable error, and no command must be emitted.
+  \item[Diagnosis] Accepting an infinite bound is a known defect class in this
+    codebase; it must fail validation, not pass through.
+\end{testcard}
+
+\section{Layer G. Independent oracles and property tests}
+\label{sec:test-layer-g}
+
+An oracle is only useful if it does not share a convention with the code under
+test. Each entry below therefore states what makes it independent.
+
+\begin{testcard}{ORC-01}{Richardson finite differences with a convergence-rate assertion}{unit}{P0}
+  \item[Targets] \eqref{eq:steering-direction-derivatives},
+    \eqref{eq:reduced-dynamics-congruence}
+  \item[Regime] Every hand-derived time derivative in the formulation.
+  \item[Invariant] The analytic derivative matches the central difference, and
+    halving $h$ reduces the error by a factor of four.
+  \item[Pass] Convention~\ref{tol:fd}; the measured convergence order must lie
+    in $[1.8,\,2.2]$ over three refinements. Choose the fixture so the quantity
+    differentiated is $O(1)$, otherwise the rate estimate is dominated by
+    round-off.
+  \item[Diagnosis] The rate assertion is the real content: a threshold alone is
+    passed by a wrong derivative whose error happens to be small.
+\end{testcard}
+
+\begin{testcard}{ORC-02}{Reduced planar QP against its full-coordinate preimage}{smoke}{P0}
+  \item[Targets] \eqref{eq:reduced-dynamics-congruence},
+    \eqref{eq:ideal-rolling-whole-body-qp}
+  \item[Regime] A planar fixture that the full whole-body QP can also express.
+  \item[Invariant] Lifting the reduced solution through $\text{P}$ must yield a
+    point that the full QP also returns, on the shared variables. Because the
+    full problem has additional nullspace, ``agree'' means: the lifted reduced
+    solution is feasible for the full problem, and its objective value matches
+    the full optimum to within the regularization gap.
+  \item[Pass] Shared variables agree to $10^{-6}$ relative; the feasibility
+    residual of the lifted point is below $10^{-8}$.
+  \item[Diagnosis] The single most valuable oracle in the suite: it validates
+    the entire reduction in one assertion. Failure isolates to $\text{P}$,
+    $\text{M}_{\text{red}}$ or $\bs{h}_{\text{red}}$ via DYN-01 and DYN-02.
+\end{testcard}
+
+\begin{testcard}{ORC-03}{Closed-form differential-drive oracle on the solved prediction}{smoke}{P1}
+  \item[Targets] \eqref{eq:differential-linear-velocity},
+    \eqref{eq:differential-angular-velocity}
+  \item[Regime] T1, ideal rolling, $\pGain$ arbitrary.
+  \item[Invariant] The solved one-cycle predicted twist satisfies the closed
+    forms, with the wheel rates taken from the solution rather than from the
+    command.
+  \item[Pass] $10^{-3}$\unitVelTS on $v_x$ and the corresponding angular
+    tolerance on $\omega_{\Pi}$, convention~\ref{tol:phys}.
+  \item[Diagnosis] Using the commanded rather than the solved rates makes this
+    a tautology; the distinction is the whole point.
+\end{testcard}
+
+\begin{testcard}{ORC-04}{Known-ICR analytic oracle for T2}{smoke}{P1}
+  \item[Targets] \eqref{eq:steering-expanded-constraints}, \texttt{F-ICR}
+  \item[Regime] T2, steering angles constructed from a prescribed ICR.
+  \item[Invariant] The solved twist lies along the analytically known
+    admissible direction, and $\norm{\slackVariable^{\text{lat}}}$ is at the
+    soft-lateral minimum rather than at an arbitrary value.
+  \item[Pass] Direction agreement to $10^{-6}$ after normalization; slack at
+    its predicted minimum to $1\%$.
+  \item[Diagnosis] Makes the soft-lateral limit the primary assertion, so the
+    test remains meaningful for finite $\weight_{\sigma}$.
+\end{testcard}
+
+\begin{testcard}{ORC-05}{Metamorphic relations}{property}{P1}
+  \item[Targets] both QPs
+  \item[Regime] \texttt{F-RANDOM}.
+  \item[Invariant] Three relations must hold for every draw. Rotating the whole
+    scene about $\surfaceNormal_{\Pi}$ leaves the chassis-frame solution
+    unchanged. Scaling every $\wheelRadius_i$ by $\alpha$ and every wheel rate
+    by $1/\alpha$ leaves the chassis twist unchanged, exactly on the kinematic
+    rows and up to the changed wheel inertia in the dynamics. Mirroring left
+    and right mirrors the T1 solution.
+  \item[Pass] $500$ draws, seeded and recorded; each relation to $10^{-6}$
+    relative. The radius-scaling relation must be asserted only on the
+    kinematic rows unless the wheel inertia is scaled consistently.
+  \item[Diagnosis] Metamorphic relations need no reference solution, so they
+    remain valid where no oracle exists.
+\end{testcard}
+
+\begin{testcard}{ORC-06}{Randomized property sweep with seeded, replayable streams}{property}{P1}
+  \item[Targets] all layers
+  \item[Regime] \texttt{F-RANDOM}.
+  \item[Invariant] Every invariant marked \emph{property} in this suite holds
+    for every draw.
+  \item[Pass] $500$ draws from a single recorded seed sequence; every failure
+    is shrunk to a minimal reproducer and appended to a replayed corpus that
+    runs on every build.
+  \item[Diagnosis] Without the recorded seed and the replay corpus, a
+    randomized failure is unreproducible and will be dismissed as flaky.
+\end{testcard}
+
+\begin{testcard}{ORC-07}{Golden-file regression}{regression}{P2}
+  \item[Targets] both QPs
+  \item[Regime] Five canonical fixtures spanning both chassis and both
+    terrains.
+  \item[Invariant] Stored solutions reproduce within tolerance.
+  \item[Pass] Gated on QP-03 uniqueness and on strict complementarity; where
+    either fails, store and compare only the physically determined quantities,
+    not $\generator{\force_i}$.
+  \item[Diagnosis] An ungated golden file over a non-unique minimizer produces
+    a test that fails on solver upgrades for no physical reason.
+\end{testcard}
+
+\begin{testcard}{ORC-08}{Closed-loop cross-check against an independent simulator}{smoke}{P2}
+  \item[Targets] both QPs
+  \item[Regime] Rigid-body simulator with the same contact model.
+  \item[Invariant] Trajectories agree, with the discrepancy decreasing at the
+    integrator's order as $\samplingPeriod$ shrinks.
+  \item[Pass] The order-of-convergence assertion, not a fixed trajectory
+    tolerance. Legitimate sources of disagreement---contact-model differences,
+    solver tolerance, the polyhedral cone---must be enumerated and bounded in
+    advance.
+  \item[Diagnosis] A fixed tolerance here is unreliable; convergence order is
+    the assertion that distinguishes a bug from a discretization difference.
+\end{testcard}
+
+\section{Layer H. Smoke tests}
+\label{sec:test-layer-h}
+
+\begin{testcard}{SMK-01}{One-cycle assembly contract}{smoke}{P0}
+  \item[Targets] both QPs
+  \item[Regime] Nominal fixture.
+  \item[Invariant] One cycle assembles with the expected dimensions, no
+    identically zero row, a positive-definite Hessian, and a solved status.
+  \item[Pass] All four conditions; the zero-row check must exclude rows that
+    are legitimately zero only for the current data.
+  \item[Diagnosis] The cheapest test that can fail; run it first in the
+    sequence.
+\end{testcard}
+
+\begin{testcard}{SMK-02}{Static hold on flat ground and on a ramp}{smoke}{P0}
+  \item[Targets] \eqref{eq:test-ramp-split},
+    \eqref{eq:planar-normal-load-row}
+  \item[Regime] Zero command, \texttt{F-RAMP}.
+  \item[Invariant] Nothing moves; the load model closes the three out-of-plane
+    equations; the in-plane forces balance the gravity component.
+  \item[Pass] Twist below $10^{-6}$\unitVelTS; force residuals per DYN-03 and
+    DYN-07.
+  \item[Diagnosis] Separates a controller fault from a load-model fault,
+    because the two are asserted independently.
+\end{testcard}
+
+\begin{testcard}{SMK-03}{Straight-line drive}{smoke}{P0}
+  \item[Targets] both QPs
+  \item[Regime] Constant forward reference, flat ground.
+  \item[Invariant] The chassis tracks the reference; for T1 the lateral
+    residual decays at the rate of ROW-03, while for T2 it is only driven by
+    the objective, since T2 carries no proportional term.
+  \item[Pass] Steady-state tracking error below $1\%$; the two decay behaviours
+    asserted separately.
+  \item[Diagnosis] Expecting T2 to show T1's decay is a false-failure trap; the
+    asymmetry is deliberate, see ROW-11.
+\end{testcard}
+
+\begin{testcard}{SMK-04}{In-place rotation}{smoke}{P0}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    \eqref{eq:differential-drive-qp}
+  \item[Regime] Zero linear reference, nonzero yaw reference.
+  \item[Invariant] T1 produces equal and opposite wheel rates. T2 steers all
+    wheels tangent to a circle about the chassis centre; read from inside the
+    QP, every $\dot\delta_i$ must be zero once the configuration is reached,
+    confirming the chassis-relative convention.
+  \item[Pass] Yaw rate tracked to $1\%$; the T2 steering rates below
+    $10^{-6}$~rad/s in the steady configuration.
+  \item[Diagnosis] The steady-state steering rate is the cleanest end-to-end
+    read-out of the GEO-07 convention.
+\end{testcard}
+
+\begin{testcard}{SMK-05}{Constant-radius arc and the centripetal term}{smoke}{P1}
+  \item[Targets] \eqref{eq:reduced-dynamics-congruence},
+    Remark~\ref{re:planar-basis-choice}
+  \item[Regime] Steady arc, both chassis.
+  \item[Invariant] All wheels share one ICR, and the lateral force required is
+    the centripetal force $\mass v_x\omega_{\Pi}$, which must be supplied
+    through $\bs{h}_{\text{red}}$ and the contact forces.
+  \item[Pass] ICR consistency to $10^{-3}$ of the turn radius; lateral force
+    within $10^{-3}\mass\gravity[value]$ of the analytic centripetal value.
+  \item[Diagnosis] This is the end-to-end counterpart of DYN-02: an
+    implementation missing $\dot{\text{P}}\bs{u}$ tracks a straight line and
+    fails here.
+\end{testcard}
+
+\begin{testcard}{SMK-06}{Crab translation: the manoeuvre that separates T1 from T2}{smoke}{P0}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    \eqref{eq:differential-drive-qp}
+  \item[Regime] Pure lateral reference, all steering angles equal.
+  \item[Invariant] T2 executes it. T1 cannot: its lateral row forbids lateral
+    motion, so it must report the reference as untrackable rather than
+    approximating it with a turn.
+  \item[Pass] T2 tracks to $1\%$. T1 leaves a lateral tracking error equal to
+    the full reference, and its solved lateral velocity remains below
+    $10^{-6}$\unitVelTS.
+  \item[Diagnosis] The single most discriminating scenario: it fails
+    immediately if the two chassis share an assembler that ignores the
+    differential-drive lateral constraint.
+\end{testcard}
+
+\begin{testcard}{SMK-07}{Incompatible four-wheel data surfaces as slack}{smoke}{P0}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp},
+    Remark~\ref{re:four-steering-lateral-slack}
+  \item[Regime] T2, deliberately non-concurrent steering angles.
+  \item[Invariant] The QP solves, returns \emph{one} chassis twist, and reports
+    the incompatibility through $\slackVariable^{\text{lat}}$ with magnitude
+    bounded below per ROW-09. It must not return four independent wheel
+    velocities.
+  \item[Pass] Solved status; slack within $1\%$ of its predicted lower bound;
+    exactly one twist in the solution.
+  \item[Diagnosis] The end-to-end regression for the infeasibility defect.
+\end{testcard}
+
+\begin{testcard}{SMK-08}{Steering-rate-limited slalom}{smoke}{P1}
+  \item[Targets] \eqref{eq:four-steering-wheel-qp} rate bounds
+  \item[Regime] T2, reference that saturates the steering-rate bound.
+  \item[Invariant] The predicted-rate bound activates and the tracking error
+    grows in the predictable way, matching a rate-and-acceleration-limited
+    reference model.
+  \item[Pass] Rate never exceeds the bound; tracking error within $10\%$ of the
+    limited-reference prediction.
+  \item[Diagnosis] Confirms BND-01 and BND-02 end to end, including the
+    chassis-relative convention under sustained yaw.
+\end{testcard}
+
+\begin{testcard}{SMK-09}{Slope sweep to friction and torque failure}{smoke}{P1}
+  \item[Targets] \eqref{eq:test-ramp-split}, \texttt{F-RAMP}
+  \item[Regime] Slopes $0$ to $40$~deg.
+  \item[Invariant] Station keeping succeeds below the predicted band of FRI-08
+    and fails above it; the friction margin decreases monotonically with slope.
+  \item[Pass] The observed failure slope inside the band; monotone margin.
+  \item[Diagnosis] The band must be computed from the load model, not assumed,
+    or this test measures the load model and reports it as a controller fault.
+\end{testcard}
+
+\begin{testcard}{SMK-10}{The tangent basis rotates with the chassis}{smoke}{P0}
+  \item[Targets] \eqref{eq:differential-pose-rate},
+    \eqref{eq:chassis-aligned-tangent-basis}
+  \item[Regime] Closed circular path returning to the start pose.
+  \item[Invariant] Integrating \eqref{eq:differential-pose-rate} with
+    $\text{E}_{\Pi}$ propagated as it rotates closes the circle. Freezing
+    $\text{E}_{\Pi}$ at its initial value does not.
+  \item[Pass] Closure error below $10^{-3}$ of the circle radius for the
+    correct integration; the frozen-basis variant must fail by at least the
+    radius itself.
+  \item[Diagnosis] Directly targets the integration error flagged after
+    \eqref{eq:differential-pose-rate}. The two-branch form guarantees the test
+    discriminates.
+\end{testcard}
+
+\begin{testcard}{SMK-11}{Odometry cross-check, including where it must disagree}{smoke}{P1}
+  \item[Targets] \eqref{eq:differential-pose-rate},
+    \secRef{sec:rolling-implementation}
+  \item[Regime] T1, flat no-slip ground; then a ramp.
+  \item[Invariant] On flat ground, closed-form wheel odometry agrees with the
+    integrated QP state. On a ramp, an odometry model that assumes a world
+    horizontal plane must \emph{disagree}, and the test asserts the
+    disagreement rather than tolerating it.
+  \item[Pass] Flat: agreement to $10^{-3}$ of path length. Ramp: disagreement
+    at least $\sin\theta$ times path length for the horizontal-plane model.
+  \item[Diagnosis] Prevents an odometry model from being ``validated'' on flat
+    ground and silently used on slopes.
+\end{testcard}
+
+\begin{testcard}{SMK-12}{Terrain transition}{smoke}{P1}
+  \item[Targets] \eqref{eq:chassis-aligned-tangent-basis},
+    \eqref{eq:rolling-force-generators}
+  \item[Regime] Roll across a $0$ to $10$~deg slope discontinuity over three to
+    five cycles.
+  \item[Invariant] $\bs{\rho}_i$ and $\text{H}_i$ stay bounded and continuous
+    in the chassis frame; the cone is rebuilt for the new normal; no solver
+    failure occurs at the transition.
+  \item[Pass] No discontinuity in the solved twist exceeding the commanded
+    acceleration times $\samplingPeriod$; cone rebuild confirmed per FRI-03.
+  \item[Diagnosis] Both terrains are otherwise exercised only as steady states;
+    this is the only entry that tests the transition between them.
+\end{testcard}
+
+\begin{testcard}{SMK-13}{Long-horizon closed loop}{smoke}{P1}
+  \item[Targets] both QPs
+  \item[Regime] $60$~s of varied commands, both terrains.
+  \item[Invariant] The rolling residual stays bounded with no monotone growth;
+    T1 shows input-to-state stability from its proportional term, while T2's
+    residual is bounded only by the objective and may drift more.
+  \item[Pass] Residual bounded by a stated envelope; no monotone trend over the
+    last $30$~s. Assert different envelopes for T1 and T2.
+  \item[Diagnosis] Applying T1's envelope to T2 is a false-failure trap.
+\end{testcard}
+
+\section{Smoke sequence and continuous integration}
+\label{sec:test-sequence}
+
+The smoke tests are ordered cheapest and most decisive first, so that a broken
+build fails in seconds rather than minutes:
+\begin{enumerate}
+  \item \texttt{SMK-01}, one-cycle assembly contract;
+  \item \texttt{SMK-02}, static hold on flat ground and on a ramp;
+  \item \texttt{SMK-03}, straight-line drive;
+  \item \texttt{SMK-04}, in-place rotation;
+  \item \texttt{SMK-06}, crab translation, which separates T1 from T2;
+  \item \texttt{SMK-07}, incompatible four-wheel data surfacing as slack;
+  \item \texttt{SMK-10}, closed-circle pose integration;
+  \item \texttt{SMK-05}, constant-radius arc and the centripetal term;
+  \item \texttt{SMK-09}, slope sweep to failure;
+  \item \texttt{SMK-08}, steering-rate-limited slalom;
+  \item \texttt{SMK-12}, terrain transition;
+  \item \texttt{SMK-11}, odometry cross-check;
+  \item \texttt{SMK-13}, long-horizon closed loop.
+\end{enumerate}
+
+Every smoke test records the metrics required in
+\secRef{sec:rolling-cases}: $\norm{\rollingResidual_i}$,
+$\norm{\slipVelocity{i}}$, $\norm{\slackVariable_i}$, normal force, friction
+margin, wheel-torque margin, solver status, and solve time. Recording them
+unconditionally, including on passing runs, is what makes a later regression
+diagnosable.
+
+Suggested gating: all \oBlock{P0} entries on every commit; \oBlock{P0} and
+\oBlock{P1} on every merge; the full suite including \oBlock{P2} and the
+randomized sweeps nightly.
+
+\section{Traceability}
+\label{sec:test-traceability}
+
+\begin{table}[h]
+  \centering
+  \caption{Formulation element to test mapping}
+  \label{tab:test-traceability}
+  \begin{tabular}{|C{0.34\columnwidth}|C{0.54\columnwidth}|}
+    \hline
+    Element of the formulation & Entries \\
+    \hline
+    Chassis-aligned basis, \eqref{eq:chassis-aligned-tangent-basis} &
+      GEO-01, GEO-02, GEO-03, ROW-04, SMK-10 \\
+    \hline
+    Carrier map, \eqref{eq:planar-carrier-map} &
+      GEO-05, GEO-10, ROW-05 \\
+    \hline
+    Congruence reduction, \eqref{eq:reduced-dynamics-congruence} &
+      DYN-01, DYN-02, GEO-08, ORC-02, SMK-05 \\
+    \hline
+    Normal annihilation, \eqref{eq:reduced-normal-annihilated} &
+      GEO-06, GEO-08, FRI-05, FRI-07 \\
+    \hline
+    Normal-load row, \eqref{eq:planar-normal-load-row} &
+      DYN-07, FRI-05, FRI-06, BND-07, SMK-02 \\
+    \hline
+    Force regularization, \eqref{eq:planar-force-regularization} &
+      QP-01, QP-02, QP-03 \\
+    \hline
+    Twist weight, \eqref{eq:planar-twist-weight} &
+      QP-06 \\
+    \hline
+    T1 kinematic rows &
+      ROW-01, ROW-02, ROW-03, ROW-08, ORC-03 \\
+    \hline
+    T1 stabilization, $\pGain$ &
+      ROW-03, ROW-11, QP-08, SMK-03 \\
+    \hline
+    T2 kinematic rows &
+      ROW-05, ROW-06, ROW-10, ROW-12, ORC-04 \\
+    \hline
+    T2 lateral slacks &
+      ROW-09, BND-06, QP-05, SMK-07 \\
+    \hline
+    Rate prediction, \eqref{eq:four-steering-rate-prediction} &
+      ROW-07, BND-01, BND-03 \\
+    \hline
+    Steering convention &
+      GEO-07, BND-02, SMK-04, ROW-06 \\
+    \hline
+    Friction cone, \eqref{eq:rolling-force-generators} &
+      FRI-01, FRI-02, FRI-03, FRI-04, FRI-09, SMK-12 \\
+    \hline
+    Bounds and actuation &
+      BND-01 to BND-08, SMK-08 \\
+    \hline
+    Assumptions \ref{as:planar-basis}--\ref{as:normal-load} &
+      GEO-01, GEO-03, ROW-01, ROW-05, DYN-07, FRI-03 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsection{Testcard to implementing test}
+\label{sec:test-traceability-map}
+
+Every entry below was recovered from the test sources themselves, not from the
+specification: each name is the literal \texttt{BOOST\_AUTO\_TEST\_CASE}
+identifier, or a script and its CTest registration. Files are abbreviated
+\tBlock{RC} for \texttt{tests/testRollingContact.cpp}, \tBlock{RCR} for
+\texttt{tests/testRollingContactRobot.cpp}, \tBlock{RCS} for
+\texttt{tests/testRollingContactSolver.cpp} and \tBlock{LC} for
+\texttt{src/mc\_control/samples/RollingContact/test\_controller\_lifecycle.cpp}.
+A \emph{partial} entry covers part of the card's invariant under a different
+name; \secRef{sec:test-gaps} says what is missing. Cards with no entry are
+listed there too.
+
+{\small
+\begin{longtable}{|l|l|p{0.52\columnwidth}|}
+  \hline
+  Card & File & Implementing test \\
+  \hline
+  \endhead
+  GEO-01 & RCR & \texttt{PlanarWheelOffsetsAreChassisHeadingInvariant} \\
+  GEO-02 & RCR & \texttt{ChassisAlignedPlanarBasisIsOrthonormalRightHandedAndBodyConstant} \\
+  GEO-03 & RCR & \texttt{DegenerateForwardAxisAbortsThePlanarBasis} \\
+  GEO-04 & RC & \emph{partial} \texttt{RollingFramePointRowsSlipAndBias} (triad only) \\
+  GEO-05 & RC & \emph{partial} \texttt{PlanarSpecializationsRecoverCommonChassisTwists} \\
+  GEO-07 & RCR & \texttt{SteeringAngleIsChassisRelativeAndItsRateIsTheJointRateGEO07} \\
+  GEO-08 & RCS & \emph{partial} \texttt{ReducedPlanarQPMatchesItsWholeBodyPreimageORC02} (annihilation),
+    \texttt{LateralRowsAreStructurallyOverDeterminedOnThreePlanarDof} (sparsity) \\
+  GEO-09 & RCS & \texttt{IcrConcurrencyIsExactlyTheLateralRankCondition} \\
+  ROW-01 & RC & \texttt{DifferentialRowsAreTheExactDerivativeAtZeroGainROW01} \\
+  ROW-02 & RC, RCS & \emph{partial} \texttt{PlanarSpecializationsRecoverCommonChassisTwists},
+    \texttt{DifferentialDriveClosedFormHoldsOnTheSolvedPredictionORC03} \\
+  ROW-03 & RCS & \texttt{LateralResidualDecaysAtTheDiscreteRateROW03} \\
+  ROW-04 & RC & \texttt{PlanarRowsPinTheChassisAlignedBasisConventionROW04} \\
+  ROW-05 & RC & \texttt{SteeringRowsAreTheExactDerivativeWithNoHdotTermROW05} \\
+  ROW-06 & RC & \emph{partial} \texttt{RichardsonConvergenceOrderPinsTheHandDerivedDerivativesORC01},
+    \texttt{SteeringRowsIncludeDirectionDerivative} \\
+  ROW-07 & RCS & \texttt{RatePredictionIsAnExactAffineSubstitutionROW07} \\
+  ROW-08 & RCS, RC & \texttt{LateralRowsAreStructurallyOverDeterminedOnThreePlanarDof},
+    \texttt{DifferentialDriveRowsHaveNoDuplicateLateralConstraint} \\
+  ROW-09 & RCS & \texttt{LateralSlacksAreTheRangeSpaceDefect} \\
+  ROW-11 & RCS & \emph{adapted} \texttt{PredictedRateRowsCarryNoProportionalStabilizationROW11} \\
+  DYN-01 & RCS & \texttt{ReducedInertiaIsACongruenceNotARowSliceDYN01} \\
+  DYN-02 & RCS & \emph{adapted} \texttt{ReducedBiasCarriesTheVelocityProductTermDYN02} \\
+  DYN-03 & RCS & \texttt{ContactForcesFollowNewtonsLawGeneralAndStaticDYN03} \\
+  DYN-04 & RCS & \texttt{YawMomentumEqualsTheContactMomentDYN04} \\
+  DYN-05 & RCS & \texttt{SteeringTorqueCannotEnterTheChassisYawRowDYN05} \\
+  DYN-06 & RCS & \emph{adapted} \texttt{ContactPowerVanishesUnderIdealRollingDYN06} \\
+  DYN-08 & RC & \emph{partial} \texttt{SteeringReferenceInvertsTheExpandedConstraints} (rim-speed sign) \\
+  DYN-09 & RCS & \texttt{QuasiStaticTorqueBoundDuplicatesTheWheelRowDYN09} \\
+  FRI-01 & RCS & \texttt{RollingContactDynamicsConstraintGeneratorRegularizationFRI01BiasAtEnabledAndTenX} \\
+  FRI-02 & RCS & \texttt{FrictionConeIsRebuiltWhenTheWheelSteersFRI02} \\
+  FRI-03 & RCS & \texttt{FrictionConeIsRebuiltWhenTheTerrainNormalChangesFRI03} \\
+  FRI-04 & RCS & \emph{partial} \texttt{RollingDynamicConeFrameAndStableLayout} (upper bound only) \\
+  FRI-08 & RCS & \emph{via} \texttt{SlopeSweepToFrictionAndTorqueFailureSMK09} (the band, both headings) \\
+  BND-01 & RCS & \emph{partial} \texttt{YawingChassisConsumesNoSteeringRateBudgetBND02} \\
+  BND-02 & RCS & \texttt{YawingChassisConsumesNoSteeringRateBudgetBND02} \\
+  BND-06 & RCS & \texttt{LateralSlacksCarryNoBoxConstraint} \\
+  BND-08 & RCS & \emph{partial} \texttt{RollingTasksModesKeepVariablesAndEnforceForcePolicy} \\
+  QP-01 & RCS & \texttt{RollingContactDynamicsConstraintGeneratorRegularizationQP01EnabledClearsTheLibraryFloor} \\
+  QP-02 & RCS & \texttt{RollingContactDynamicsConstraintGeneratorRegularizationQP02ZeroReliesOnlyOnTheLibraryFloor} \\
+  QP-03 & RCS & \texttt{PrimalSolutionIsUniqueAcrossWarmStartsAndSolversQP03} \\
+  QP-05 & RCS & \emph{partial} \texttt{HardLateralRowsFreezeTheChassisAndSoftOnesDoNot},
+    \texttt{IncompatibleFourWheelDataSurfacesAsLateralSlack} \\
+  QP-06 & LC & \emph{partial} \texttt{TwistWeightAxesAreUnitNormalizedNotInterchangeable} \\
+  QP-07 & RCS & \texttt{KKTResidualIsAnIndependentOptimalityOracleQP07} \\
+  QP-08 & RCS & \texttt{StabilityWindowOfTheProportionalStabilizationQP08} \\
+  QP-09 & --- & \emph{partial} \texttt{rolling-contact-report/scripts/check-controller-log.py} (P99 budget) \\
+  QP-10 & RCS & \texttt{RejectionContractNamesTheOffendingKeyQP10} \\
+  ORC-01 & RC & \texttt{RichardsonConvergenceOrderPinsTheHandDerivedDerivativesORC01} \\
+  ORC-02 & RCS & \texttt{ReducedPlanarQPMatchesItsWholeBodyPreimageORC02} \\
+  ORC-03 & RCS & \texttt{DifferentialDriveClosedFormHoldsOnTheSolvedPredictionORC03} \\
+  ORC-04 & RCS & \texttt{KnownIcrAnalyticOracleForFourSteeringORC04} \\
+  ORC-05 & RC, RCS & \texttt{PlanarRowsSatisfyTheMetamorphicRelationsORC05},
+    \texttt{WholeBodySolutionIsChassisHeadingInvariantORC05} \\
+  ORC-06 & RCS & \texttt{SeededRandomizedPropertySweepORC06} \\
+  ORC-08 & --- & \emph{adapted} \texttt{scripts/cross-check-mc-mujoco.py}, CTest
+    \texttt{RollingContactMuJoCoCrossCheckORC08} and
+    \texttt{RollingContactMuJoCoCrossCheckPDORC08}
+    (\texttt{-DROLLING\_CONTACT\_MC\_MUJOCO\_CROSS\_CHECK=ON}) \\
+  SMK-01 & RCS & \texttt{OneCycleAssemblyContractSMK01} \\
+  SMK-02 & RCS & \emph{adapted} \texttt{StaticHoldOnFlatGroundAndOnARampSMK02} \\
+  SMK-03 & LC & \emph{adapted} \texttt{StraightLineDriveTracksTheReferenceSMK03} \\
+  SMK-04 & LC & \emph{adapted} \texttt{InPlaceRotationSMK04} \\
+  SMK-05 & RCS & \texttt{ConstantRadiusArcCarriesTheCentripetalForceSMK05} \\
+  SMK-06 & RCS & \texttt{CrabTranslationSeparatesT1FromT2SMK06} \\
+  SMK-07 & RCS & \emph{adapted} \texttt{IncompatibleFourWheelDataSurfacesAsLateralSlack} \\
+  SMK-08 & LC & \emph{adapted} \texttt{SteeringRateLimitedSlalomSMK08} \\
+  SMK-09 & RCS & \texttt{SlopeSweepToFrictionAndTorqueFailureSMK09} \\
+  SMK-10 & LC & \texttt{TangentBasisRotatesWithTheChassisSMK10} \\
+  SMK-11 & LC & \emph{adapted} \texttt{OdometryCrossCheckIncludingWhereItMustDisagreeSMK11} \\
+  SMK-12 & RCS & \texttt{TerrainTransitionKeepsGeometryAndConeContinuousSMK12} \\
+  SMK-13 & LC & \emph{adapted} \texttt{LongHorizonClosedLoopSMK13},
+    CTest \texttt{RollingContactLongHorizonSMK13}
+    (\texttt{-DROLLING\_CONTACT\_LONG\_HORIZON\_SMOKE=ON}) \\
+  \hline
+\end{longtable}
+}
+
+\section{Residual gaps}
+\label{sec:test-gaps}
+
+The suite does not currently cover the following, and each is a deliberate
+omission rather than an oversight:
+\begin{itemize}
+  \item \tBlock{Objective linear term.} The reference quantities
+    $\bs{\xi}^{\Pi,\text{ref}}_{\fbFrame}$,
+    $\reff{\ddot{\wheelAngle}}_i$, $\reff{\ddot\delta}_i$,
+    $\reff{\dot{\wheelAngle}}_i$ and $\reff{\dot\delta}_i$ enter only through
+    $\bs{g}$. No entry above asserts that $\bs{g}$ is assembled with the right
+    sign and the right $\samplingPeriod$ factor. Add a unit test asserting
+    $\bs{g}=-2\samplingPeriod\weightMatrix{W}_{\xi}
+    (\bs{\xi}^{\Pi}_{\fbFrame}-\bs{\xi}^{\Pi,\text{ref}}_{\fbFrame})$ on the
+    twist columns, under the factor convention pinned in
+    \secRef{sec:test-layer-f}.
+  \item \tBlock{Reference frame of $\bs{\xi}^{\Pi,\text{ref}}_{\fbFrame}$.}
+    \eqref{eq:planar-twist-weight} is well posed only if the reference is
+    expressed in the same chassis-aligned basis as the measurement. Nothing
+    asserts this; a reference published in a world frame would rotate under
+    GEO-01.
+  \item \tBlock{Sliding contacts.} The suite assumes
+    $\set{s}=\emptyset$, consistent with the ideal formulations. Testing
+    \eqref{eq:sliding-friction-direction} beyond the negative test FRI-10
+    requires the mode-aware QP \eqref{eq:rolling-whole-body-qp}.
+  \item \tBlock{Wheel and steering-column inertia.} The reduced models carry
+    them inside $\text{M}_{\text{red}}$, but no entry isolates them; a wrong
+    gear ratio would show up only as a torque-magnitude error.
+  \item \tBlock{Rolling resistance and self-aligning moment.} Outside the
+    point-contact model of assumption~\ref{as:steering-axis}; these set the
+    real steering torque and are not represented.
+  \item \tBlock{Non-coplanar contacts.} Assumption~\ref{as:one-plane} is
+    asserted, not relaxed. A leg-wheel machine on non-coplanar terrain needs
+    the generic formulation, not these planar QPs.
+  \item \tBlock{Timing under load.} QP-09 asserts a solve-time budget on an
+    unloaded machine; contention and cache effects on the target are not
+    modelled.
+\end{itemize}
+
+\subsection{Cards adapted rather than implemented as written}
+\label{sec:test-gaps-adapted}
+
+Each entry below is a card whose stated invariant does not transfer to the
+implementation under test, together with what is asserted in its place. In every
+case asserting the card verbatim would assert something untrue, so the
+divergence is recorded here rather than absorbed into a tolerance.
+
+\begin{itemize}
+  \item \tBlock{DYN-07, FRI-05, FRI-06, BND-07 --- the normal-load family has
+    no target.} All four exercise \eqref{eq:planar-normal-load-row}, which is
+    not implemented, and the decision not to implement it was measured rather
+    than assumed. \secRef{sec:planar-normal-load} derives the exogenous
+    normal-load row from $\bs{n}_{\Pi}^{\top}\text{J}_{\text{red},i}=0$, a
+    property of the planar reduction. mc\_rtc solves the whole-body QP, where
+    the floating base carries a vertical degree of freedom. Two measurements
+    settled it: the ray $\generator{\force}\mapsto\generator{\force}+s\bs{1}$ is
+    killed exactly and linearly by one non-optional equation-of-motion row --
+    the base's vertical row, violated by $26.2$, $262$ and $2622$ at
+    $s=1,10,100$ -- and appending the four normal kinematic rows raises the hard
+    block's rank by $+3$ in both an ICR-coordinated and a non-coordinated
+    steering configuration, so they are not $0=0$. The cone-shape premise
+    $\text{C}_i\bs{1}\propto\bs{n}_i$ itself holds bit-for-bit. What the four
+    cards were for is asserted elsewhere: the three out-of-plane equations are
+    closed by the equations of motion and checked directly on the solved contact
+    forces by DYN-03 and by SMK-02 at four slopes, and the cone binding of
+    FRI-05 is measured by SMK-09.
+  \item \tBlock{ROW-11 and the second half of SMK-03.} The card asserts that T1
+    rows carry $-\pGain$ times the measured residual and T2 rows do not.
+    \eqref{eq:four-steering-wheel-qp} is an ideal QP; the general
+    acceleration-level rows mc\_rtc assembles carry $-\pGain\text{G}\bs{u}$ for
+    \emph{both} chassis, so the asymmetry is neither true nor desirable here and
+    asserting it would pin a defect. The test pins the genuinely T2-specific
+    property instead -- that the predicted-rate rows carry no proportional term
+    -- and SMK-03 asserts of both chassis what is true of both: the reference is
+    tracked and the lateral residual is driven to zero rather than merely
+    bounded.
+  \item \tBlock{QP-10's non-finite-bound sub-item, declined.} The only path in
+    this codebase that produces an infinite bound is the documented
+    \texttt{infTorque} option, an intentional escape hatch rather than a defect,
+    so rejecting it would break a supported configuration. The rest of the
+    rejection contract is asserted.
+  \item \tBlock{DYN-02's $\dot{\text{P}}\bs{u}$ term does not transfer.}
+    RBDyn's floating-base $\bs{\alpha}$ is already the body twist of
+    \eqref{eq:base-body-velocity} and the chassis-aligned basis is constant in
+    that frame, so $\text{P}$ is constant along any planar motion and
+    $\dot{\text{P}}=0$ \emph{exactly}. That is measured, not assumed: central
+    differences return $0$ at two step sizes along the planar motion and $0.80$
+    on the same probe once the chassis leaves the plane. The card's content
+    transfers as ``the bias must be the full $\bs{h}(\bs{q},\bs{\alpha})$, not
+    gravity alone'', which is asserted at $14.62$ against a
+    $10^{-4}\mass\gravity[value]=0.0228$ tolerance, i.e. $642\times$ it.
+  \item \tBlock{DYN-01's row-selection contrast does not bite on flat ground.}
+    In mc\_rtc's coordinates $\text{P}$ degenerates to a selection when the
+    contact plane is chassis-aligned, so the congruence and the principal
+    submatrix coincide there and the gap is exactly $0$. The assertion with
+    teeth is the tilted-plane branch, where the gap is $0.458$ and the selection
+    also gets the kinetic energy wrong. Both branches are kept so the flat case
+    is pinned as a property of these coordinates rather than mistaken for
+    evidence.
+  \item \tBlock{ORC-08's order-of-convergence pass condition is unachievable.}
+    The fixtures run with \texttt{closedLoopFeedback: false}, so the control
+    robot integrates open loop and its trajectory does not converge to the
+    simulator's as $\samplingPeriod\to0$; the discrepancy is bounded by
+    contact-model differences, by the simulator's own joint tracking and by real
+    slip, none of which vanish with $\samplingPeriod$. The discrepancy is
+    therefore measured at a ladder of timesteps and reported, and what is
+    asserted are the trajectory-level invariants the ground-truth-injecting
+    runner cannot observe.
+  \item \tBlock{DYN-06's point-contact identity holds only for a non-yawing
+    chassis.} mc\_rtc models each wheel as a two-point contact \emph{line} of
+    width $w$, not the single point of \eqref{eq:ideal-rolling-velocity}, so a
+    yawing chassis gives the endpoints a material velocity
+    $\pm(w/2)\omega_{\Pi}$ that the point model does not have. The exact
+    vanishing is asserted on a straight-line rollout and the finite-width term
+    is reported next to it. The card's $5$\unitTime\ energy-balance rollout is
+    not implemented: an Euler integration at $\samplingPeriod=5$\unitMs\ does
+    not close the energy budget to $10^{-4}$, so the assertion would measure the
+    integrator.
+  \item \tBlock{QP-07's dual feasibility and complementary slackness are
+    vacuous in the chosen fixture.} It carries no dynamics constraint, hence no
+    contact multipliers and no cone, and no \texttt{KinematicsConstraint},
+    hence no bounds. The test asserts that vacuity
+    (\texttt{totalLambda() == 0}) rather than quietly reporting two conditions
+    with nothing to satisfy; stationarity and primal feasibility are asserted,
+    with a perturbation branch showing the oracle discriminates.
+  \item \tBlock{SMK-02's twist bound is stated at $10^{-5}$\unitVelTS.} With
+    contact forces of order $\mass\gravity[value]=228$\unitForce\ on a
+    $23$\unitMass\ chassis, the QP's own numerical tolerance leaves about
+    $10^{-3}$\unitAccTS\ of residual acceleration on a slope, i.e. twice the
+    card's $10^{-6}$\unitVelTS. The bound is still $2500\times$ below the
+    $2.5\times10^{-2}$\unitVelTS\ a chassis sliding freely at $30$\unitDegree\
+    gains in one cycle, and the measured value is recorded at every slope.
+  \item \tBlock{SMK-07's ``within $1\%$ of the predicted lower bound'' holds
+    only asymptotically.} At the production lateral weight the QP trades the
+    lateral rows against everything else and the realised slack sits well above
+    the range-space defect. SMK-07 asserts the bound itself
+    ($\norm{\slackVariable}\ge\norm{(\text{I}-\text{P})\bs{c}}$) and records
+    both numbers; ROW-09 asserts the first-order convergence to it in
+    $1/\weight_{\sigma}$, which is where the $1\%$ figure lives.
+  \item \tBlock{SMK-09's torque half is inert on this vehicle.} The drive
+    torque peaks at $26\%$ of its limit at the steepest slope in the sweep, so
+    the failure the band predicts is a friction failure throughout. The torque
+    margin is recorded at every slope so that a model with a weaker actuator
+    would show the other branch.
+  \item \tBlock{SMK-11's ramp bound is stated against the fall-line
+    displacement.} The card's $\sin\theta$ times path length is the height lost
+    by a straight run down the fall line. A differential chassis pointed down a
+    $15$\unitDegree\ slope curves away from the commanded heading, because the
+    instant it yaws at all gravity gains a body-lateral component while the hard
+    lateral row still forbids lateral velocity at the carrier. Only the
+    fall-line share of the path becomes height, and the bound uses the
+    odometry's own estimate of it.
+  \item \tBlock{SMK-13's strict non-monotonicity is gated on a noise floor.}
+    T1's residual settles at $5\times10^{-10}$\unitVelTS, where a $22\%$ rise
+    over the last $30$\unitTime\ is solver arithmetic; asserting
+    non-monotonicity there would assert noise. The growth factor is asserted in
+    both regimes. Its ramp branch is pinned on the chassis actually descending
+    rather than on the residual, because tilting chassis and terrain together is
+    a rigid rotation of the kinematic problem and the residual is legitimately
+    identical on both terrains to eight digits.
+  \item \tBlock{The companion Python harness is not part of this repository.}
+    Fifteen cards say ``Implemented in \harness''. That file is not present
+    here; twelve of them (ROW-01, ROW-03, ROW-04, ROW-05, ROW-08, DYN-03,
+    DYN-04, DYN-05, FRI-01, QP-01, QP-02, QP-08) are implemented in the C++
+    suite instead and are listed in
+    \secRef{sec:test-traceability-map}; ROW-06 and FRI-04 are partial and
+    FRI-05 is not implemented at all.
+\end{itemize}
+
+\subsection{Cards with no implementation}
+\label{sec:test-gaps-unimplemented}
+
+{\small
+\begin{longtable}{|l|l|p{0.60\columnwidth}|}
+  \hline
+  Card & Prio. & Why not \\
+  \hline
+  \endhead
+  GEO-06 & P1 & The contact-point offset is not a free parameter here:
+    \texttt{contactPoint = carrierCenter - radius * n} is derived, so there is
+    no independent quantity whose invisibility to the rows could be varied. \\
+  GEO-10 & P1 & Single-source construction is structural in
+    \texttt{RollingContactGeometry} -- one object produces the rows and the
+    Jacobian -- so the card guards a duplication this implementation cannot
+    have. \\
+  ROW-10 & P1 & Degenerate steering configurations are covered indirectly by
+    the ICR/rank equivalence of GEO-09 and by ROW-08's singular values; the
+    explicit null-space direction is not asserted. \\
+  ROW-12 & P2 & The $\pm\pi$ branch is handled inside
+    \texttt{steeringWheelReference} and pinned behaviourally by
+    \texttt{SteeringReferenceStaysWithinLimitsAndAvoidsBranchChatter}; the
+    $2\pi$-periodicity of the rows themselves is not asserted. \\
+  DYN-10 & P2 & A momentum-integral rollout needs a golden trace, which
+    ORC-07 also wants and which is deliberately not stored (see below). \\
+  FRI-09 & P2 & The circular and polyhedral margins are both computable, but
+    only the polyhedral one is logged, so the ordering has nothing to compare
+    against without adding a second diagnostic. \\
+  FRI-10 & P1 & Its converse -- the sliding row is present and binding in
+    \texttt{Sliding} -- is asserted by
+    \texttt{RollingTasksModesKeepVariablesAndEnforceForcePolicy}; the negative
+    direction is not. \\
+  BND-03 & P1 & The rate box and the acceleration box do not coexist in this
+    fixture: no \texttt{KinematicsConstraint} is attached, so there is no rate
+    box to make jointly empty (see BND-06). \\
+  BND-04 & P1 & Same cause: only the torque bound is present, so the ordering
+    of thresholds the card wants has one member. \\
+  BND-05 & P1 & The per-wheel torque stride is internal to
+    \texttt{tasks::qp::MotionConstr}, which this suite treats as a dependency
+    rather than as code under test. \\
+  QP-04 & P0 & Adjacent coverage only: the exact row counts and labels are
+    asserted by \texttt{RollingTasksMatrixPlacementAndHardCases} and by SMK-01,
+    and the rank by ROW-08, but no single entry keeps the ledger the card
+    asks for. \\
+  ORC-07 & P2 & Deliberate. The card gates itself on QP-03 uniqueness and on
+    strict complementarity; the $\generator{\force}$ block is not uniquely
+    determined here (four coplanar contacts leave a one-dimensional null space
+    in the normal-force split), so a golden file over it would fail on solver
+    upgrades for no physical reason. \\
+  \hline
+\end{longtable}
+}
+
+\subsection{Open items}
+\label{sec:test-gaps-open}
+
+These are not omissions in the suite. They are behaviours the suite measured and
+recorded, and which need a formulation or model change rather than another test.
+
+\begin{itemize}
+  \item \tBlock{Pure-yaw scrub torque.} A commanded in-place yaw is tracked at
+    $6.7\%$ of the command against real \texttt{mc\_mujoco} under joint PD, and
+    at $31\%$ under torque control, while every mixed command tracks at
+    $84$--$96\%$. The reference itself is correct and mirror-symmetric; the
+    hinges simply do not reach it. Narrowing the simulator's wheel collision
+    half-width from $0.04$ to $0.004$\unitMeter\ -- ten times less contact line,
+    everything else identical -- raises tracking from $31\%$ to $89\%$. The QP
+    places its contact \emph{forces} along the wheel's full $0.08$\unitMeter\
+    line but writes its rolling, lateral and normal \emph{constraints} at the
+    single centre point, so it carries no term for the scrub of re-steering a
+    loaded patch. A fix means constraining wheel spin about the contact normal,
+    which is a formulation change. SMK-04 deliberately does not threshold yaw
+    tracking, because a threshold the headless QP passes at $99.9\%$ would hide
+    this rather than catch it.
+  \item \tBlock{Torque-control tracking disagreement.} ORC-08 found that real
+    \texttt{mc\_mujoco} delivers $67.9\%$ of the commanded crab distance under
+    \texttt{--torque-control} against $98.6\%$ under joint PD, and that the gap
+    does not converge with the timestep -- $0.2953$, $0.2151$ and
+    $0.2914$\unitMeter\ at $5$, $2.5$ and $1$\unitMs. By the card's own
+    criterion that is a controller/simulator disagreement rather than a
+    discretization difference. No wheel detached and drive torque peaked at
+    $6.5$~N$\cdot$m\xspace\ against a $35$~N$\cdot$m\xspace\ limit in either regime.
+  \item \tBlock{Two failing MuJoCo cases.} \texttt{four-steering-rate} and
+    \texttt{four-low-friction} fail in the CPU suite. Both are pre-existing and
+    both are regressions against the archived evidence.
+  \item \tBlock{Steering-rate ceiling at $4$\unitVelJS.} SMK-08 measured
+    that the realised hinge rate follows the configured
+    \texttt{maxSteeringRate} to within $3\%$ up to $4$\unitVelJS\ and is
+    clamped at exactly $4.0$ above it, so the default -- the steering joints'
+    own $8$\unitVelJS\ model velocity limit -- is unreachable and the QP
+    delivers half the saturated rate the reference asks for. No bound in the
+    fixture explains it: the steering torque at the plateau is
+    $0.08$~N$\cdot$m\xspace\ against a $25$~N$\cdot$m\xspace\ limit, and the solved steering
+    acceleration is exactly zero while the rate row still demands
+    $-800$\unitAccVel. It is recorded by the test, not pinned as a contract.
+\end{itemize}
+
+\bibliography{rolling-contact-qp}
+\bibliographystyle{unsrtnat}
+
+\end{document}
