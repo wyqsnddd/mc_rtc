@@ -68,6 +68,34 @@ if(BUILD_TESTING)
       TIMEOUT 60
       ENVIRONMENT "CUDA_VISIBLE_DEVICES=-1;MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON"
   )
+  # SMK-13: long-horizon closed loop. Four 60 s rollouts (12000 cycles each,
+  # both chassis, both terrains) are about as expensive as the whole rest of
+  # this binary, so the Boost case carries a `disabled()` decorator and never
+  # runs in the default RollingContactControllerRepeatedLifecycle invocation.
+  # Boost re-enables a disabled unit when --run_test names it, which is how the
+  # entry below reaches it. Opt-in, following the ORC-08 pattern:
+  #   cmake -S . -B build -DROLLING_CONTACT_LONG_HORIZON_SMOKE=ON
+  # then run ctest -L rolling-contact-slow.
+  option(ROLLING_CONTACT_LONG_HORIZON_SMOKE
+         "Register the SMK-13 long-horizon closed-loop smoke test with CTest" OFF
+  )
+  if(ROLLING_CONTACT_LONG_HORIZON_SMOKE)
+    add_test(
+      NAME RollingContactLongHorizonSMK13
+      COMMAND
+        testRollingContactControllerLifecycle
+        --run_test=LongHorizonClosedLoopSMK13 --log_level=message
+    )
+    set_tests_properties(
+      RollingContactLongHorizonSMK13
+      PROPERTIES
+        TIMEOUT 300
+        LABELS "rolling-contact-slow"
+        ENVIRONMENT "CUDA_VISIBLE_DEVICES=-1;MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON"
+    )
+    mc_rtc_isolate_test_home(RollingContactLongHorizonSMK13)
+  endif()
+
   set(ROLLING_CONTACT_TEST_ROOT "${PROJECT_SOURCE_DIR}")
   set(ROLLING_CONTACT_CHECKER
       "${PROJECT_SOURCE_DIR}/rolling-contact-report/scripts/check-controller-log.py"

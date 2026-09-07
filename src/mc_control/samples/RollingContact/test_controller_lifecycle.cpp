@@ -1,6 +1,7 @@
 #include "mc_rolling_contact_controller.h"
 
 #include <mc_observers/ObserverLoader.h>
+#include <mc_rbdyn/CylindricalSurface.h>
 #include <mc_rbdyn/RobotLoader.h>
 
 #include <boost/test/unit_test.hpp>
@@ -1255,4 +1256,371 @@ BOOST_AUTO_TEST_CASE(TangentBasisRotatesWithTheChassisSMK10)
   // second.
   BOOST_CHECK_LT(drivenClosure, 0.05 * radius);
   BOOST_CHECK_LT(drivenClosure, 0.05 * drivenFrozenClosure);
+}
+
+BOOST_AUTO_TEST_CASE(SteeringRateLimitedSlalomSMK08)
+{
+  // SMK-08. A square-wave slalom whose commanded heading reverses by 2.0 rad
+  // every 0.3 s, far faster than a rate-limited hinge can follow, so the
+  // steering-rate limiter is active for most of every half period.
+  //
+  // Three things are asserted, and a fourth is recorded because it is a finding
+  // rather than a contract:
+  //  (1) the realised hinge rate never exceeds the configured bound;
+  //  (2) the bound is what shapes the trajectory - halving it halves the
+  //      plateau, so it is not inert;
+  //  (3) the realised hinge trajectory matches a rate-limited reference model
+  //      integrated independently of the QP, to 10% of the hinge travel;
+  //  (4) the plateau follows the configured bound proportionally only up to
+  //      4 rad/s and is clamped there above it, so the default -- the steering
+  //      joints' own 8 rad/s model velocity limit -- is not reachable. See the
+  //      note below the sweep.
+  constexpr double dt = 0.005;
+  constexpr double timeConstant = 0.15;
+  constexpr double forward = 0.3;
+  constexpr double amplitude = 1.45; // rad/s of commanded yaw, square wave
+  constexpr int halfPeriod = 60;     // cycles, i.e. 0.3 s
+  constexpr int cycles = 600;
+
+  struct Outcome
+  {
+    double plateau = 0.0;        // largest realised |deltaDot| in the steady slalom
+    double modelDeviation = 0.0; // largest |delta - limited-reference model|
+    double travel = 0.0;         // peak-to-peak hinge travel in the steady slalom
+  };
+
+  auto slalom = [&](double bound, bool useDefaultBound)
+  {
+    auto controller = useDefaultBound
+                          ? makeRangerController()
+                          : makeRangerController([&](mc_rtc::Configuration & settings)
+                                                 { settings.add("maxSteeringRate", bound); });
+    std::array<mc_rbdyn::PlanarWheel, 4> planar{};
+    std::array<double, 4> modelAngle{};
+    std::array<size_t, 4> steerJoint{};
+    std::array<double, 4> lowest{};
+    std::array<double, 4> highest{};
+    lowest.fill(std::numeric_limits<double>::infinity());
+    highest.fill(-std::numeric_limits<double>::infinity());
+    for(size_t i = 0; i < rangerWheels().size(); ++i)
+    {
+      const std::string wheel = rangerWheels()[i];
+      steerJoint[i] = controller->robot().jointIndexByName(wheel + "_steer");
+      planar[i].offset = carrierOffset(*controller, wheel);
+      planar[i].radius = 0.08;
+      modelAngle[i] = controller->robot().mbc().q[steerJoint[i]][0];
+    }
+
+    Outcome out;
+    for(int cycle = 0; cycle < cycles; ++cycle)
+    {
+      const double yaw = ((cycle / halfPeriod) % 2 == 0) ? amplitude : -amplitude;
+      const Eigen::Vector3d twist{forward, 0.0, yaw};
+      controller->setCommandedTwist(twist);
+      BOOST_REQUIRE_MESSAGE(controller->run(), "SMK-08: the QP failed at cycle " << cycle);
+      for(size_t i = 0; i < rangerWheels().size(); ++i)
+      {
+        const double rate = controller->robot().mbc().alpha[steerJoint[i]][0];
+        const double angle = controller->robot().mbc().q[steerJoint[i]][0];
+        // (1) The realised rate respects the bound, every cycle. The bound is a
+        // clamp on the *reference*, and the rate row that carries it into the QP
+        // is a weighted objective rather than a box constraint (BND-06: no
+        // KinematicsConstraint is attached here), so the realised rate can
+        // overshoot it slightly - 0.7% at 3 rad/s is the worst measured. The
+        // tolerance says exactly that rather than pretending the bound is hard.
+        BOOST_CHECK_MESSAGE(std::abs(rate) <= 1.02 * bound,
+                            "SMK-08: hinge rate " << rate << " rad/s exceeds the " << bound
+                                                  << " rad/s bound by more than 2% at cycle " << cycle);
+        // The limited-reference model, integrated from the shipped
+        // mc_rbdyn::steeringWheelReference and the two documented controller
+        // parameters, independently of the QP.
+        planar[i].steeringAngle = modelAngle[i];
+        planar[i].steeringRate = 0.0;
+        const auto reference = mc_rbdyn::steeringWheelReference(planar[i], twist, modelAngle[i]);
+        modelAngle[i] +=
+            dt * std::clamp((reference.steeringAngle - modelAngle[i]) / timeConstant, -bound, bound);
+        // Measure over the second half only, so the plateau and the model
+        // deviation describe the slalom and not the swing into it.
+        if(cycle >= cycles / 2)
+        {
+          out.plateau = std::max(out.plateau, std::abs(rate));
+          out.modelDeviation = std::max(out.modelDeviation, std::abs(angle - modelAngle[i]));
+          lowest[i] = std::min(lowest[i], angle);
+          highest[i] = std::max(highest[i], angle);
+        }
+      }
+    }
+    for(size_t i = 0; i < rangerWheels().size(); ++i)
+    {
+      out.travel = std::max(out.travel, highest[i] - lowest[i]);
+    }
+    return out;
+  };
+
+  // (2) The bound shapes the trajectory: the plateau follows it proportionally.
+  double previousPlateau = 0.0;
+  for(const double bound : {1.0, 2.0, 3.0, 4.0})
+  {
+    const Outcome outcome = slalom(bound, false);
+    BOOST_TEST_MESSAGE("SMK-08 bound " << bound << " rad/s: plateau " << outcome.plateau
+                                       << " rad/s, hinge travel " << outcome.travel
+                                       << " rad, deviation from the limited-reference model "
+                                       << outcome.modelDeviation << " rad");
+    BOOST_CHECK_GT(outcome.plateau, 0.95 * bound);
+    BOOST_CHECK_LT(outcome.plateau, 1.02 * bound);
+    BOOST_CHECK_GT(outcome.plateau, previousPlateau);
+    BOOST_REQUIRE_GT(outcome.travel, 0.1);
+    // (3) The realised trajectory is the limited reference, to 10% of the hinge
+    // travel the slalom asks for.
+    BOOST_CHECK_LT(outcome.modelDeviation, 0.1 * outcome.travel);
+    previousPlateau = outcome.plateau;
+  }
+
+  // (4) The default bound is the steering joints' own model velocity limit.
+  auto probe = makeRangerController();
+  double modelLimit = std::numeric_limits<double>::infinity();
+  for(const auto * wheel : rangerWheels())
+  {
+    const auto joint = probe->robot().jointIndexByName(std::string(wheel) + "_steer");
+    modelLimit = std::min({modelLimit, std::abs(probe->robot().vl()[joint][0]),
+                           std::abs(probe->robot().vu()[joint][0])});
+  }
+  const Outcome atDefault = slalom(modelLimit, true);
+  BOOST_TEST_MESSAGE("SMK-08 at the model velocity limit " << modelLimit << " rad/s: plateau " << atDefault.plateau
+                                                           << " rad/s (" << 100.0 * atDefault.plateau / modelLimit
+                                                           << "% of it), hinge travel " << atDefault.travel
+                                                           << " rad, deviation from the limited-reference model "
+                                                           << atDefault.modelDeviation << " rad");
+  BOOST_CHECK_LE(atDefault.plateau, 1.02 * modelLimit);
+  // Recorded rather than asserted as a contract: the plateau tracks the
+  // configured bound to within 3% up to 4 rad/s (0.972, 1.944, 3.021, 3.890 at
+  // 1, 2, 3 and 4 rad/s) and is clamped at exactly 4.0 rad/s above it, so at
+  // the 8 rad/s default the QP delivers half the rate the reference asks for
+  // and the deviation from the limited-reference model grows from 4% of the
+  // hinge travel to 34% of it. That ceiling is not explained by any bound in
+  // this fixture - the steering torque at the plateau is 0.08 N.m of a 25 N.m
+  // limit and the solved steering acceleration is exactly zero while the rate
+  // row still demands -800 rad/s^2 - and it is reported as an open item rather
+  // than pinned here. The one thing asserted is that it IS a ceiling: the
+  // plateau at the 8 rad/s default is no larger than the one at 4 rad/s.
+  BOOST_CHECK_LE(atDefault.plateau, previousPlateau + 0.2);
+}
+
+BOOST_AUTO_TEST_CASE(OdometryCrossCheckIncludingWhereItMustDisagreeSMK11)
+{
+  // SMK-11. Closed-form wheel odometry against the integrated QP state, on flat
+  // ground and then on a ramp. The point of the card is the second half: an
+  // odometry model that assumes a world-horizontal plane must DISAGREE on a
+  // slope, and the test asserts the disagreement rather than tolerating it, so
+  // that such a model cannot be "validated" on flat ground and then used on
+  // slopes.
+  constexpr double dt = 0.005;
+  constexpr int cycles = 2000;
+  const double pi = 3.14159265358979323846;
+
+  for(const double slopeDegrees : {0.0, 15.0})
+  {
+    const double slope = slopeDegrees * pi / 180.0;
+    // Body-to-world is Ry(slope), so posW().rotation() - the world-to-body map -
+    // is its transpose and the plane normal in world coordinates is
+    // Ry(slope) * e_z. The same construction the solver-side ramp tests use.
+    const Eigen::Matrix3d bodyToWorld(Eigen::AngleAxisd(slope, Eigen::Vector3d::UnitY()));
+    const Eigen::Vector3d normal = bodyToWorld * Eigen::Vector3d::UnitZ();
+    auto controller = makeController("RollingContactDifferential", "forward",
+                                     [&](mc_rtc::Configuration & settings)
+                                     { settings.add("terrainNormal", normal); });
+    controller->robot().posW(sva::PTransformd(bodyToWorld.transpose(), controller->robot().posW().translation()));
+    controller->robot().forwardKinematics();
+    controller->reset({controller->robot().mbc().q});
+
+    // Wheel data read off the robot, not restated: the radius comes from the
+    // same CylindricalSurface the controller builds its wheels from, and the
+    // track from the carrier frames.
+    const double radius =
+        dynamic_cast<const mc_rbdyn::CylindricalSurface &>(controller->robot().surface("LeftWheel")).radius();
+    const Eigen::Vector2d left = carrierOffset(*controller, "left");
+    const Eigen::Vector2d right = carrierOffset(*controller, "right");
+    const double track = left.y() - right.y();
+    BOOST_REQUIRE_GT(track, 0.1);
+    const auto leftDrive = controller->robot().jointIndexByName("left_drive");
+    const auto rightDrive = controller->robot().jointIndexByName("right_drive");
+
+    const sva::PTransformd start = controller->robot().posW();
+    // The closed-form differential odometry of sec:rolling-implementation,
+    // integrated in the chassis' own start frame.
+    Eigen::Vector2d odometry = Eigen::Vector2d::Zero();
+    double heading = 0.0;
+    double pathLength = 0.0;
+    for(int cycle = 0; cycle < cycles; ++cycle)
+    {
+      BOOST_REQUIRE_MESSAGE(controller->run(), "SMK-11: the QP failed at cycle " << cycle);
+      const double leftSpeed = radius * controller->robot().mbc().alpha[leftDrive][0];
+      const double rightSpeed = radius * controller->robot().mbc().alpha[rightDrive][0];
+      const double forward = 0.5 * (leftSpeed + rightSpeed);
+      const double yawRate = (rightSpeed - leftSpeed) / track;
+      odometry += dt * forward * Eigen::Vector2d{std::cos(heading), std::sin(heading)};
+      heading += dt * yawRate;
+      pathLength += dt * std::abs(forward);
+    }
+    const sva::PTransformd end = controller->robot().posW();
+    const Eigen::Vector3d travelled = chassisMotion(start, end);
+    const double agreement = (odometry - travelled.head<2>()).norm();
+    BOOST_TEST_MESSAGE("SMK-11 slope " << slopeDegrees << " deg: path length " << pathLength
+                                       << " m, in-plane odometry disagreement " << agreement << " m ("
+                                       << agreement / pathLength << " of the path)");
+    BOOST_REQUIRE_GT(pathLength, 1.0);
+    // In the contact plane the closed form and the integrated QP state agree to
+    // 1e-3 of the path length, on flat ground AND on the ramp: the wheel
+    // odometry is a statement about the plane the wheels roll on.
+    BOOST_CHECK_LT(agreement, 1e-3 * pathLength);
+
+    // Now the model that assumes a world-horizontal plane. It integrates the
+    // same wheel speeds but never leaves z = 0, so on a ramp it must disagree.
+    const Eigen::Vector3d horizontal{odometry.x(), odometry.y(), 0.0};
+    const Eigen::Vector3d worldTravel = end.translation() - start.translation();
+    const double disagreement = (horizontal - worldTravel).norm();
+    // The card states the ramp bound as sin(theta) times the path length, which
+    // is the height lost by a straight run down the fall line. This run is not
+    // straight: a differential chassis pointed down a 15 deg slope curves away
+    // from the commanded heading (0.89 m of lateral travel in 10 s), because
+    // the moment it yaws at all gravity gains a body-lateral component while
+    // the hard lateral row still forbids lateral velocity at the carrier. The
+    // height actually lost is therefore sin(theta) times the displacement along
+    // the FALL LINE, which is what the bound is stated against - and it is
+    // taken from the odometry's own estimate, so the prediction does not read
+    // the answer it is checking.
+    const double fallLineTravel = std::abs(odometry.x());
+    BOOST_TEST_MESSAGE("SMK-11 slope " << slopeDegrees << " deg: world-horizontal odometry disagreement "
+                                       << disagreement << " m (" << disagreement / pathLength
+                                       << " of the path) against sin(theta) * fall-line travel = "
+                                       << std::sin(slope) * fallLineTravel << " m");
+    if(slope > 0.0)
+    {
+      // At least the height the chassis lost, which the horizontal model never
+      // accounts for at all...
+      BOOST_CHECK_GT(disagreement, 0.99 * std::sin(slope) * fallLineTravel);
+      // ...and, stated against the same denominator as the flat branch, more
+      // than two orders of magnitude worse than the agreement it shows there.
+      BOOST_CHECK_GT(disagreement, 0.1 * pathLength);
+    }
+    else
+    {
+      // The same model is exact on flat ground - which is precisely how it gets
+      // "validated" and then used on a slope.
+      BOOST_CHECK_LT(disagreement, 1e-3 * pathLength);
+    }
+  }
+}
+
+/** SMK-13. Sixty seconds of varied commands on both chassis and both terrains.
+ *
+ * Disabled by default and registered with CTest only under
+ * -DROLLING_CONTACT_LONG_HORIZON_SMOKE=ON (label rolling-contact-slow): four
+ * 12000-cycle rollouts are ~35x the rest of this binary, and the default suite
+ * has to stay fast. Boost re-enables a disabled unit when it is named
+ * explicitly, which is how the CTest entry runs it:
+ *   ./testRollingContactControllerLifecycle --run_test=LongHorizonClosedLoopSMK13
+ */
+BOOST_AUTO_TEST_CASE(LongHorizonClosedLoopSMK13, *boost::unit_test::disabled())
+{
+  constexpr double dt = 0.005;
+  constexpr int cycles = 12000; // 60 s
+  constexpr int windowCycles = 1000; // 5 s
+  const double pi = 3.14159265358979323846;
+
+  struct Case
+  {
+    const char * name;
+    const char * robot;
+    const char * scenario;
+    bool commanded;
+    double slopeDegrees;
+    double envelope; // largest admissible residual, m/s or rad/s^2
+  };
+  // The two envelopes are deliberately different, which is the card's point.
+  // T1's lateral rows are hard equalities, so its lateral residual is driven to
+  // the solver's own floor; T2's are softened at lateralSlackWeight, so its
+  // residual is bounded only by the objective and legitimately sits decades
+  // higher. Applying T1's envelope to T2 is the false-failure trap the card
+  // warns about. Both values are ~3x the worst measured.
+  const std::array<Case, 4> cases = {
+      Case{"T1 flat", "RollingContactDifferential", "sinusoid", false, 0.0, 1e-6},
+      Case{"T1 ramp", "RollingContactDifferential", "sinusoid", false, 10.0, 1e-6},
+      Case{"T2 flat", "RollingContactRangerMiniV3", "hold", true, 0.0, 0.15},
+      Case{"T2 ramp", "RollingContactRangerMiniV3", "hold", true, 10.0, 0.15}};
+  // Six commands, four seconds each, cycling for the whole minute.
+  const std::array<Eigen::Vector3d, 6> schedule = {
+      Eigen::Vector3d{0.3, 0.0, 0.0},  Eigen::Vector3d{0.0, 0.3, 0.0},  Eigen::Vector3d{0.0, 0.0, 0.5},
+      Eigen::Vector3d{0.3, 0.0, 0.4},  Eigen::Vector3d{-0.3, 0.0, 0.0}, Eigen::Vector3d{0.2, -0.2, -0.3}};
+
+  for(const auto & test : cases)
+  {
+    const double slope = test.slopeDegrees * pi / 180.0;
+    const Eigen::Matrix3d bodyToWorld(Eigen::AngleAxisd(slope, Eigen::Vector3d::UnitY()));
+    const Eigen::Vector3d normal = bodyToWorld * Eigen::Vector3d::UnitZ();
+    auto controller = makeController(test.robot, test.scenario,
+                                     [&](mc_rtc::Configuration & settings)
+                                     { settings.add("terrainNormal", normal); });
+    if(slope > 0.0)
+    {
+      controller->robot().posW(sva::PTransformd(bodyToWorld.transpose(), controller->robot().posW().translation()));
+      controller->robot().forwardKinematics();
+      controller->reset({controller->robot().mbc().q});
+    }
+
+    std::vector<double> windowPeak;
+    double worst = 0.0;
+    double runningPeak = 0.0;
+    const sva::PTransformd start = controller->robot().posW();
+    for(int cycle = 0; cycle < cycles; ++cycle)
+    {
+      if(test.commanded) { controller->setCommandedTwist(schedule[static_cast<size_t>((cycle / 800) % 6)]); }
+      BOOST_REQUIRE_MESSAGE(controller->run(), test.name << ": the QP failed at cycle " << cycle);
+      const double residual = controller->maxLateralResidual();
+      BOOST_REQUIRE_MESSAGE(std::isfinite(residual), test.name << ": non-finite residual at cycle " << cycle);
+      runningPeak = std::max(runningPeak, residual);
+      worst = std::max(worst, residual);
+      if((cycle + 1) % windowCycles == 0)
+      {
+        windowPeak.push_back(runningPeak);
+        runningPeak = 0.0;
+      }
+    }
+    BOOST_REQUIRE_EQUAL(windowPeak.size(), static_cast<size_t>(cycles / windowCycles));
+    const Eigen::Vector3d worldTravel = controller->robot().posW().translation() - start.translation();
+    std::ostringstream trace;
+    for(const double peak : windowPeak) { trace << " " << peak; }
+    BOOST_TEST_MESSAGE("SMK-13 " << test.name << ": worst lateral residual " << worst << " m/s against the "
+                                 << test.envelope << " envelope; world travel [" << worldTravel.transpose()
+                                 << "]; per-5s peaks:" << trace.str());
+
+    // Bounded by the stated envelope...
+    BOOST_CHECK_LT(worst, test.envelope);
+    // ...and with no monotone growth over the last 30 s. The strict-monotonicity
+    // half of that is only asserted above a noise floor of a thousandth of the
+    // envelope: T1's residual settles at 5e-10 m/s, where a 22% rise over 30 s
+    // is solver arithmetic and not a trend, and asserting non-monotonicity there
+    // would be asserting noise. The growth factor is asserted in both regimes.
+    const size_t half = windowPeak.size() / 2;
+    if(windowPeak[half] > 1e-3 * test.envelope)
+    {
+      bool monotone = true;
+      for(size_t i = half + 1; i < windowPeak.size(); ++i)
+      {
+        monotone = monotone && windowPeak[i] > windowPeak[i - 1];
+      }
+      BOOST_CHECK_MESSAGE(!monotone, test.name << ": the residual grows monotonically over the last 30 s");
+    }
+    BOOST_CHECK_LT(windowPeak.back(), 2.0 * windowPeak[half] + 1e-12);
+
+    // The lateral residual is a kinematic quantity in the contact plane, and
+    // tilting the chassis and the terrain together is a rigid rotation of the
+    // whole kinematic problem (see RampGeometryIsRotationEquivariant), so it is
+    // legitimately identical on both terrains to eight digits. The ramp branch
+    // is therefore pinned on the one quantity that is NOT rotation-equivariant:
+    // gravity. The chassis must actually travel up or down the slope - which
+    // way depends on the command schedule, so the magnitude is what is checked.
+    if(slope > 0.0) { BOOST_CHECK_GT(std::abs(worldTravel.z()), 0.1); }
+    else { BOOST_CHECK_SMALL(worldTravel.z(), 1e-3); }
+  }
 }
