@@ -599,7 +599,8 @@ std::string formatSingularValues(const Eigen::MatrixXd & matrix)
  * c . (cos d_i, sin d_i) = rho_i . (cos d_i, sin d_i); a common ICR at infinity
  * is the all-parallel case, which admits a pure translation instead.
  */
-bool hasCommonICR(const std::array<double, 4> & steeringAngles)
+bool hasCommonICR(const std::array<double, 4> & steeringAngles,
+                  const std::array<Eigen::Vector2d, 4> & carriers = fourSteeringOffsets())
 {
   Eigen::Matrix<double, 4, 2> lines;
   Eigen::Vector4d offsets;
@@ -607,7 +608,7 @@ bool hasCommonICR(const std::array<double, 4> & steeringAngles)
   {
     const Eigen::Vector2d heading{std::cos(steeringAngles[i]), std::sin(steeringAngles[i])};
     lines.row(static_cast<Eigen::Index>(i)) = heading.transpose();
-    offsets(static_cast<Eigen::Index>(i)) = fourSteeringOffsets()[i].dot(heading);
+    offsets(static_cast<Eigen::Index>(i)) = carriers[i].dot(heading);
   }
   const Eigen::Vector2d centre = lines.colPivHouseholderQr().solve(offsets);
   if((lines * centre - offsets).lpNorm<Eigen::Infinity>() < 1e-9) { return true; }
@@ -3714,6 +3715,71 @@ BOOST_AUTO_TEST_CASE(YawMomentumEqualsTheContactMomentDYN04)
 // Layer G. Independent oracles.
 // ===========================================================================
 
+namespace
+{
+
+/** The reduced planar QP of eq:four-steering-wheel-qp, built independently.
+ *
+ * Rows and bias come from mc_rbdyn::steeringRollingMatrix() and the reduction
+ * P; the gain, the weights and the target come from the caller. Nothing here
+ * reads a row, a right-hand side, a Hessian or a gradient out of
+ * RollingContactConstraint or out of the solver. That is what makes it usable
+ * as an oracle by ORC-02, which compares its solution against the whole-body
+ * one, and by QP-07, which evaluates the KKT conditions of *this* problem on
+ * the solution the shipped solver returned.
+ */
+struct ReducedPlanarProblem
+{
+  Eigen::MatrixXd rolling;
+  Eigen::VectorXd rollingRhs;
+  Eigen::MatrixXd lateral;
+  Eigen::VectorXd lateralRhs;
+  Eigen::VectorXd bias;
+  Eigen::MatrixXd hessian;
+  Eigen::VectorXd gradient;
+};
+
+ReducedPlanarProblem reducedPlanarProblem(const mc_rbdyn::Robot & robot,
+                                          const std::vector<mc_rbdyn::RollingContactDescription> & wheels,
+                                          const PlanarReduction & reduction,
+                                          const Eigen::VectorXd & reducedTarget,
+                                          double gain,
+                                          double slackWeight)
+{
+  const auto size = reduction.lift.cols();
+  const auto nrWheels = static_cast<Eigen::Index>(wheels.size());
+  Eigen::VectorXd velocity(robot.mb().nrDof());
+  rbd::paramToVector(robot.mbc().alpha, velocity);
+  const Eigen::VectorXd measured = reduction.reduce(velocity);
+  const auto planar = measuredPlanarWheels(robot, wheels, reduction);
+  const auto rows = mc_rbdyn::steeringRollingMatrix(planar, measured.head<3>());
+
+  ReducedPlanarProblem problem;
+  problem.bias = rows.accelerationBias;
+  problem.rolling = Eigen::MatrixXd::Zero(nrWheels, size);
+  problem.lateral = Eigen::MatrixXd::Zero(nrWheels, size);
+  problem.rollingRhs.setZero(nrWheels);
+  problem.lateralRhs.setZero(nrWheels);
+  const Eigen::Index shared = 3 + nrWheels;
+  for(Eigen::Index i = 0; i < nrWheels; ++i)
+  {
+    problem.rolling.row(i).head(shared) = rows.matrix.row(2 * i);
+    problem.lateral.row(i).head(shared) = rows.matrix.row(2 * i + 1);
+    // G alphaD = -Gdot alpha - Kp G alpha, assembled from the planar rows
+    // rather than read from the shipped assembler.
+    problem.rollingRhs(i) =
+        -rows.accelerationBias(2 * i) - gain * rows.matrix.row(2 * i).dot(measured.head(shared));
+    problem.lateralRhs(i) =
+        -rows.accelerationBias(2 * i + 1) - gain * rows.matrix.row(2 * i + 1).dot(measured.head(shared));
+  }
+  problem.hessian = Eigen::MatrixXd::Identity(size, size)
+                    + slackWeight * problem.lateral.transpose() * problem.lateral;
+  problem.gradient = -reducedTarget - slackWeight * problem.lateral.transpose() * problem.lateralRhs;
+  return problem;
+}
+
+} // namespace
+
 BOOST_AUTO_TEST_CASE(ReducedPlanarQPMatchesItsWholeBodyPreimageORC02)
 {
   // ORC-02, the card the suite calls the single most valuable oracle. mc_rtc
@@ -3796,25 +3862,14 @@ BOOST_AUTO_TEST_CASE(ReducedPlanarQPMatchesItsWholeBodyPreimageORC02)
   BOOST_CHECK_EQUAL(normalRank, 3);
 
   // ---- The reduced problem, built independently ---------------------------
+  const auto problem = reducedPlanarProblem(robot, wheels, reduction, reducedTarget, gain, slackWeight);
   const auto planar = measuredPlanarWheels(robot, wheels, reduction);
   const Eigen::Vector3d planarTwist = reduction.reduce(velocity).head<3>();
-  const auto planarRows = mc_rbdyn::steeringRollingMatrix(planar, planarTwist);
-  const Eigen::VectorXd measuredReduced = reduction.reduce(velocity);
-  Eigen::MatrixXd reducedRolling = Eigen::MatrixXd::Zero(4, reducedSize);
-  Eigen::MatrixXd reducedLateral = Eigen::MatrixXd::Zero(4, reducedSize);
-  Eigen::VectorXd reducedRollingRhs(4);
-  Eigen::VectorXd reducedLateralRhs(4);
-  for(Eigen::Index i = 0; i < 4; ++i)
-  {
-    reducedRolling.row(i).head<7>() = planarRows.matrix.row(2 * i);
-    reducedLateral.row(i).head<7>() = planarRows.matrix.row(2 * i + 1);
-    // G alphaD = -Gdot alpha - Kp G alpha, exactly as the shipped assembler
-    // writes it, but assembled from the planar rows rather than read from them.
-    reducedRollingRhs(i) =
-        -planarRows.accelerationBias(2 * i) - gain * planarRows.matrix.row(2 * i).dot(measuredReduced.head<7>());
-    reducedLateralRhs(i) =
-        -planarRows.accelerationBias(2 * i + 1) - gain * planarRows.matrix.row(2 * i + 1).dot(measuredReduced.head<7>());
-  }
+  const auto & planarRows = problem;
+  const Eigen::MatrixXd & reducedRolling = problem.rolling;
+  const Eigen::MatrixXd & reducedLateral = problem.lateral;
+  const Eigen::VectorXd & reducedRollingRhs = problem.rollingRhs;
+  const Eigen::VectorXd & reducedLateralRhs = problem.lateralRhs;
 
   // The rows the whole-body assembler prints, composed with P, must BE the
   // planar rows. This is the reduction itself, and it is where a mismatch
@@ -3839,11 +3894,11 @@ BOOST_AUTO_TEST_CASE(ReducedPlanarQPMatchesItsWholeBodyPreimageORC02)
   BOOST_CHECK_GT((reducedLateral * reducedTarget - reducedLateralRhs).lpNorm<Eigen::Infinity>(), 1e-3);
   // Both halves of each row's bias are non-negligible in this fixture, so
   // neither can be dropped without the right-hand-side comparison noticing.
-  BOOST_TEST_MESSAGE("ORC-02 planar bias [" << planarRows.accelerationBias.transpose() << "]");
+  BOOST_TEST_MESSAGE("ORC-02 planar bias [" << planarRows.bias.transpose() << "]");
   for(Eigen::Index i = 0; i < 4; ++i)
   {
-    BOOST_CHECK_GT(std::abs(planarRows.accelerationBias(2 * i)), 1e-2);
-    BOOST_CHECK_GT(std::abs(planarRows.accelerationBias(2 * i + 1)), 1e-2);
+    BOOST_CHECK_GT(std::abs(planarRows.bias(2 * i)), 1e-2);
+    BOOST_CHECK_GT(std::abs(planarRows.bias(2 * i + 1)), 1e-2);
   }
   // The degeneracy this fixture exists to avoid, recorded so it is not
   // reintroduced. On an ICR-coordinated state every carrier velocity is along
@@ -3864,7 +3919,7 @@ BOOST_AUTO_TEST_CASE(ReducedPlanarQPMatchesItsWholeBodyPreimageORC02)
     for(Eigen::Index i = 0; i < 4; ++i)
     {
       coordinatedRolling = std::max(coordinatedRolling, std::abs(coordinatedRows.accelerationBias(2 * i)));
-      uncoordinatedRolling = std::max(uncoordinatedRolling, std::abs(planarRows.accelerationBias(2 * i)));
+      uncoordinatedRolling = std::max(uncoordinatedRolling, std::abs(planarRows.bias(2 * i)));
     }
     BOOST_TEST_MESSAGE("ORC-02 largest rolling-row bias: this fixture " << uncoordinatedRolling
                                                                        << ", ICR-coordinated " << coordinatedRolling);
@@ -4227,4 +4282,653 @@ BOOST_AUTO_TEST_CASE(PrimalSolutionIsUniqueAcrossWarmStartsAndSolversQP03)
   BOOST_TEST_MESSAGE("QP-03 Tasks/TVM endpoint-force gap " << forceGap << " on a scale of " << forceScale);
   BOOST_CHECK_GT(forceScale, 1.0);
   BOOST_CHECK_LT(forceGap, lambdaTolerance * forceScale);
+}
+
+BOOST_AUTO_TEST_CASE(DifferentialDriveClosedFormHoldsOnTheSolvedPredictionORC03)
+{
+  // ORC-03. The closed forms eq:differential-linear-velocity and
+  // eq:differential-angular-velocity are checked on the *solved* one-cycle
+  // prediction. Taking the wheel rates from the command instead would make this
+  // a tautology, so the target is deliberately inconsistent with the rows and
+  // the distance the QP had to move is reported.
+  auto robots = loadDifferentialRobot();
+  constexpr double dt = 0.005;
+  mc_solver::TasksQPSolver solver(robots, dt);
+  auto & robot = solver.robot(0);
+  const auto wheels = differentialWheels();
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = 20.0;
+  options.differentialPlanar = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  TargetAccelerationTask targetTask(robot.mb(), 0);
+  solver.addTask(&targetTask);
+  solver.addConstraintSet(rolling);
+
+  // Track width and the left/right assignment straight from the model.
+  const sva::PTransformd & X_0_fb = robot.mbc().bodyPosW[0];
+  std::array<double, 2> lateralOffset{};
+  std::array<Eigen::Index, 2> driveDof{};
+  for(size_t i = 0; i < wheels.size(); ++i)
+  {
+    lateralOffset[i] =
+        (X_0_fb.rotation() * (robot.frame(wheels[i].carrierFrame).position().translation() - X_0_fb.translation()))
+            .y();
+    driveDof[i] = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName(wheels[i].driveJoint)));
+  }
+  const double track = lateralOffset[0] - lateralOffset[1];
+  BOOST_TEST_MESSAGE("ORC-03 carrier offsets y = " << lateralOffset[0] << ", " << lateralOffset[1]
+                                                   << ", track " << track);
+  BOOST_REQUIRE_GT(track, 0.1);
+
+  Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+  target(3) = 0.6;  // a forward base acceleration the wheels are not asked for
+  target(2) = -0.4; // and a yaw acceleration inconsistent with them
+  target(driveDof[0]) = 2.0;
+  target(driveDof[1]) = 5.0;
+  targetTask.target(target);
+
+  double worstLinear = 0.0;
+  double worstAngular = 0.0;
+  double smallestTargetGap = std::numeric_limits<double>::infinity();
+  for(int cycle = 0; cycle < 20; ++cycle)
+  {
+    BOOST_REQUIRE(solver.run());
+    const Eigen::VectorXd acceleration = solver.solver().alphaDVec(0);
+    smallestTargetGap = std::min(smallestTargetGap, (acceleration - target).lpNorm<Eigen::Infinity>());
+    Eigen::VectorXd velocity(robot.mb().nrDof());
+    rbd::paramToVector(robot.mbc().alpha, velocity);
+    // solver.run() has already integrated, so the state velocity IS the
+    // one-cycle prediction; the rates below are the solved ones by construction.
+    const double predictedForward = velocity(3);
+    const double predictedYaw = velocity(2);
+    std::array<double, 2> rimSpeed{};
+    for(size_t i = 0; i < wheels.size(); ++i)
+    {
+      rimSpeed[i] = wheels[i].radius * wheels[i].spinSign * velocity(driveDof[i]);
+    }
+    worstLinear = std::max(worstLinear, std::abs(predictedForward - 0.5 * (rimSpeed[0] + rimSpeed[1])));
+    worstAngular = std::max(worstAngular, std::abs(predictedYaw - (rimSpeed[1] - rimSpeed[0]) / track));
+  }
+  BOOST_TEST_MESSAGE("ORC-03 worst |v_x - (r_L thL + r_R thR)/2| " << worstLinear << ", worst |omega - (r_R thR - r_L "
+                                                                     "thL)/b| "
+                                                                  << worstAngular
+                                                                  << ", smallest |solved - target| "
+                                                                  << smallestTargetGap);
+  BOOST_CHECK_LT(worstLinear, 1e-3);
+  BOOST_CHECK_LT(worstAngular, 1e-3 / track);
+  // The QP genuinely moved away from the command, so the closed forms are not
+  // restating the target.
+  BOOST_CHECK_GT(smallestTargetGap, 0.1);
+
+  solver.removeConstraintSet(rolling);
+  solver.removeTask(&targetTask);
+}
+
+BOOST_AUTO_TEST_CASE(KnownIcrAnalyticOracleForFourSteeringORC04)
+{
+  // ORC-04, fixture F-ICR: the steering angles are solved for a prescribed
+  // instantaneous centre of rotation, so the admissible planar direction is
+  // known analytically and the soft-lateral minimum is known to be zero.
+  const Eigen::Vector2d centre(1.10, 0.80);
+  const Eigen::Vector3d admissible = Eigen::Vector3d(centre.y(), -centre.x(), 1.0).normalized();
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto & robot = solver.robot(0);
+  const auto wheels = fourSteeringWheels();
+  setSteeringAngles(robot, icrSteeringAngles(centre.y(), -centre.x(), 1.0));
+
+  constexpr double slackWeight = 1e7;
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = 0.0;
+  options.softLateralRows = true;
+  options.lateralSlackWeight = slackWeight;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  const auto reduction = planarReduction(robot, wheels, options.terrainNormal);
+  const auto planarRows =
+      mc_rbdyn::steeringRollingMatrix(measuredPlanarWheels(robot, wheels, reduction), Eigen::Vector3d::Zero());
+
+  // The target asks for the admissible twist plus an inadmissible perturbation
+  // orthogonal to it, with wheel accelerations consistent with the admissible
+  // part only. The QP therefore has to reject the perturbation and keep the
+  // rest, instead of collapsing to nothing because moving is expensive.
+  Eigen::Vector3d perturbation(0.9, 0.7, -0.5);
+  perturbation -= admissible * admissible.dot(perturbation);
+  const Eigen::Vector3d planarTargetTwist = admissible + perturbation;
+  TargetAccelerationTask targetTask(robot.mb(), 0);
+  Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+  target(3) = planarTargetTwist.x();
+  target(4) = planarTargetTwist.y();
+  target(2) = planarTargetTwist.z();
+  for(size_t i = 0; i < wheels.size(); ++i)
+  {
+    const auto row = static_cast<Eigen::Index>(2 * i);
+    target(reduction.driveDof[i]) = planarRows.matrix.block<1, 3>(row, 0).dot(admissible)
+                                    / (wheels[i].radius * wheels[i].spinSign);
+  }
+  targetTask.target(target);
+  solver.addTask(&targetTask);
+  solver.addConstraintSet(rolling);
+  rolling.update(solver);
+
+  // The concurrency the fixture claims: rank 2, so the admissible twist is a line.
+  const Eigen::MatrixXd lateral = unscaledLateralRows(rolling, robot.mb().nrDof()).first * reduction.lift;
+  const Eigen::MatrixXd planarLateral = lateral.leftCols<3>();
+  BOOST_REQUIRE_EQUAL(rankAt(planarLateral, 1e-8), 2);
+  BOOST_CHECK_SMALL((planarLateral * admissible).lpNorm<Eigen::Infinity>(), 1e-9);
+  // Non-vacuity: the target is not already on the admissible line.
+  BOOST_CHECK_GT(perturbation.norm(), 0.5);
+
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+  const Eigen::VectorXd solution = solver.solver().alphaDVec(0);
+  const Eigen::Vector3d planarSolution(solution(3), solution(4), solution(2));
+  const Eigen::Vector3d direction = planarSolution.normalized();
+  const double alignment = std::abs(direction.dot(admissible));
+  const Eigen::VectorXd slack = rolling.lateralSlack(solution);
+  BOOST_TEST_MESSAGE("ORC-04 solved planar direction [" << direction.transpose() << "], analytic ["
+                                                        << admissible.transpose() << "], |cos| " << alignment
+                                                        << ", ||sigma|| " << slack.norm());
+  BOOST_CHECK_GT(planarSolution.norm(), 0.5);
+  BOOST_CHECK_LT(1.0 - alignment, 1e-6);
+  // The soft-lateral minimum here is exactly zero, because the measured state is
+  // at rest and the ICR construction puts the right-hand side in range(A). The
+  // realised slack must sit at that minimum, not at an arbitrary value.
+  BOOST_CHECK_LT(slack.lpNorm<Eigen::Infinity>(), 1e-4);
+
+  solver.removeConstraintSet(rolling);
+  solver.removeTask(&targetTask);
+}
+
+BOOST_AUTO_TEST_CASE(WholeBodySolutionIsChassisHeadingInvariantORC05)
+{
+  // ORC-05, the third metamorphic relation: rotating the whole scene about the
+  // plane normal leaves the chassis-frame solution unchanged. This is the
+  // relation that is a statement about the solved whole-body QP rather than
+  // about the planar rows, and it is the one that fails for a world-fixed
+  // tangent basis.
+  const auto wheels = fourSteeringWheels();
+  std::vector<Eigen::VectorXd> solutions;
+  std::vector<double> carrierSpread;
+  const std::array<double, 6> headings = {0.0, 0.7, -1.3, 2.4, 3.14159265358979323846, -2.9};
+  for(const double heading : headings)
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, 0.005);
+    auto & robot = solver.robot(0);
+    robot.posW(sva::PTransformd(sva::RotZ(heading), robot.posW().translation()));
+    setSteeringAngles(robot, uncoordinatedSteeringAngles());
+    setIncompatibleFourWheelState(robot);
+    mc_solver::RollingContactConstraintOptions options;
+    options.velocityGain = 20.0;
+    options.softLateralRows = true;
+    options.lateralSlackWeight = 1e7;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+    TargetAccelerationTask targetTask(robot.mb(), 0);
+    Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+    target(2) = 0.3;
+    target(3) = 0.6;
+    target(4) = -0.2;
+    targetTask.target(target);
+    solver.addTask(&targetTask);
+    solver.addConstraintSet(rolling);
+    rolling.update(solver);
+    BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+    solutions.push_back(solver.solver().alphaDVec(0));
+    carrierSpread.push_back(robot.frame(wheels[0].carrierFrame).position().translation().y());
+    solver.removeConstraintSet(rolling);
+    solver.removeTask(&targetTask);
+  }
+  // Non-vacuity: the scene really did rotate, so a world-resolved quantity moved.
+  const double spread = *std::max_element(carrierSpread.begin(), carrierSpread.end())
+                        - *std::min_element(carrierSpread.begin(), carrierSpread.end());
+  BOOST_TEST_MESSAGE("ORC-05 world carrier y spread across headings: " << spread);
+  BOOST_CHECK_GT(spread, 0.5);
+  for(size_t i = 1; i < solutions.size(); ++i)
+  {
+    const double gap = (solutions[i] - solutions[0]).lpNorm<Eigen::Infinity>()
+                       / (1.0 + solutions[0].lpNorm<Eigen::Infinity>());
+    BOOST_CHECK_MESSAGE(gap < 1e-6, "ORC-05 heading " << headings[i] << " moved the chassis-frame solution by " << gap);
+  }
+}
+
+namespace
+{
+
+/** Minimiser of 0.5 x' H x + g' x subject to A x = b, by the nullspace method.
+ *
+ * A particular solution first, then an unconstrained solve in the nullspace of
+ * A. The obvious KKT-matrix route is not usable here: the whole-body rolling
+ * rows are rank deficient by construction -- the four normal rows of a rigid
+ * four-wheel chassis on a plane carry rank three -- which makes the KKT matrix
+ * singular, and a least-squares solve of it silently returns a point that
+ * violates the equalities. The nullspace method is exact for a consistent
+ * rank-deficient A.
+ *
+ * The equality-only form is deliberate: the fixtures that use it carry no
+ * inequality, so complementary slackness is vacuous there and is asserted as
+ * such rather than silently assumed.
+ */
+Eigen::VectorXd solveEqualityQP(const Eigen::MatrixXd & hessian,
+                                const Eigen::VectorXd & gradient,
+                                const Eigen::MatrixXd & equalityA,
+                                const Eigen::VectorXd & equalityB)
+{
+  const Eigen::Index n = hessian.rows();
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(equalityA, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  const double threshold = 1e-10 * (svd.singularValues().size() > 0 ? svd.singularValues()(0) : 1.0);
+  svd.setThreshold(threshold / (svd.singularValues().size() > 0 ? svd.singularValues()(0) : 1.0));
+  const Eigen::VectorXd particular = svd.solve(equalityB);
+  const Eigen::Index rank = svd.rank();
+  if(rank >= n) { return particular; }
+  const Eigen::MatrixXd nullspace = svd.matrixV().rightCols(n - rank);
+  const Eigen::MatrixXd reduced = nullspace.transpose() * hessian * nullspace;
+  const Eigen::VectorXd reducedGradient = nullspace.transpose() * (hessian * particular + gradient);
+  return particular - nullspace * reduced.ldlt().solve(reducedGradient);
+}
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(RatePredictionIsAnExactAffineSubstitutionROW07)
+{
+  // ROW-07. mc_rtc ships the *substituted* form: a rate row acts directly on
+  // alphaD with coefficients dt * S. The card asks whether that substitution is
+  // exact, so the un-substituted problem is written out here with the eight
+  // predicted rotating velocities as explicit decision variables and their
+  // defining equalities, solved independently, and compared. Only the problem
+  // dimension may differ.
+  auto robots = loadFourSteeringRobot();
+  constexpr double dt = 0.005;
+  constexpr double rollingRateWeight = 4.0e7;
+  constexpr double steeringRateWeight = 4.0e7;
+  constexpr double slackWeight = 1e7;
+  mc_solver::TasksQPSolver solver(robots, dt);
+  auto & robot = solver.robot(0);
+  const auto wheels = fourSteeringWheels();
+  setSteeringAngles(robot, uncoordinatedSteeringAngles());
+  setIncompatibleFourWheelState(robot);
+
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = 20.0;
+  options.softLateralRows = true;
+  options.lateralSlackWeight = slackWeight;
+  options.trackRotatingRates = true;
+  options.rollingRateWeight = rollingRateWeight;
+  options.steeringRateWeight = steeringRateWeight;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  const std::array<double, 4> rollingReference = {2.5, -1.4, 3.1, 0.6};
+  const std::array<double, 4> steeringReference = {0.4, -0.7, 0.2, 0.9};
+  for(size_t i = 0; i < wheels.size(); ++i)
+  {
+    rolling.rotatingRateReference(wheels[i].name, rollingReference[i], steeringReference[i]);
+  }
+  TargetAccelerationTask targetTask(robot.mb(), 0);
+  Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+  target(2) = 0.3;
+  target(3) = 0.6;
+  target(4) = -0.2;
+  targetTask.target(target);
+  solver.addTask(&targetTask);
+  solver.addConstraintSet(rolling);
+  rolling.update(solver);
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+  const Eigen::VectorXd shipped = solver.solver().alphaDVec(0);
+
+  // The rate rows really are present, otherwise there is no substitution to test.
+  BOOST_REQUIRE_EQUAL(labelledRows(rolling.softMatrix(), rolling.softRowLabels(), "rolling-rate").rows(), 4);
+  BOOST_REQUIRE_EQUAL(labelledRows(rolling.softMatrix(), rolling.softRowLabels(), "steering-rate").rows(), 4);
+
+  // The expanded problem: [alphaD ; nu^+], with nu^+ = nu + dt * S alphaD as an
+  // explicit equality and the rate objective written on nu^+ directly. The
+  // weights come from the documented semantics of rollingRateWeight and
+  // steeringRateWeight, not from the shipped soft block.
+  const auto nrDof = static_cast<Eigen::Index>(robot.mb().nrDof());
+  const auto reduction = planarReduction(robot, wheels, options.terrainNormal);
+  Eigen::VectorXd velocity(nrDof);
+  rbd::paramToVector(robot.mbc().alpha, velocity);
+  const Eigen::Index expanded = nrDof + 8;
+
+  const Eigen::MatrixXd hard = rolling.hardMatrix();
+  const Eigen::VectorXd hardRhs = rolling.hardRhs();
+  const auto unscaled = unscaledLateralRows(rolling, nrDof);
+  Eigen::MatrixXd equalityA = Eigen::MatrixXd::Zero(hard.rows() + 8, expanded);
+  Eigen::VectorXd equalityB = Eigen::VectorXd::Zero(hard.rows() + 8);
+  equalityA.topLeftCorner(hard.rows(), nrDof) = hard;
+  equalityB.head(hard.rows()) = hardRhs;
+  Eigen::VectorXd rateReference(8);
+  Eigen::VectorXd rateWeight(8);
+  for(Eigen::Index i = 0; i < 4; ++i)
+  {
+    const auto wheel = static_cast<size_t>(i);
+    const Eigen::Index driveRow = hard.rows() + i;
+    equalityA(driveRow, reduction.driveDof[wheel]) = -dt;
+    equalityA(driveRow, nrDof + i) = 1.0;
+    equalityB(driveRow) = velocity(reduction.driveDof[wheel]);
+    rateReference(i) = rollingReference[wheel];
+    rateWeight(i) = rollingRateWeight;
+    const Eigen::Index steerRow = hard.rows() + 4 + i;
+    equalityA(steerRow, reduction.steerDof[wheel]) = -dt;
+    equalityA(steerRow, nrDof + 4 + i) = 1.0;
+    equalityB(steerRow) = velocity(reduction.steerDof[wheel]);
+    rateReference(4 + i) = steeringReference[wheel];
+    rateWeight(4 + i) = steeringRateWeight;
+  }
+
+  Eigen::MatrixXd hessian = Eigen::MatrixXd::Zero(expanded, expanded);
+  Eigen::VectorXd gradient = Eigen::VectorXd::Zero(expanded);
+  hessian.topLeftCorner(nrDof, nrDof) =
+      Eigen::MatrixXd::Identity(nrDof, nrDof) + slackWeight * unscaled.first.transpose() * unscaled.first;
+  gradient.head(nrDof) = -target - slackWeight * unscaled.first.transpose() * unscaled.second;
+  for(Eigen::Index i = 0; i < 8; ++i)
+  {
+    hessian(nrDof + i, nrDof + i) = rateWeight(i);
+    gradient(nrDof + i) = -rateWeight(i) * rateReference(i);
+  }
+  const Eigen::VectorXd expandedSolution = solveEqualityQP(hessian, gradient, equalityA, equalityB).head(expanded);
+
+  const auto objective = [&](const Eigen::VectorXd & x)
+  {
+    double value = 0.5 * (x - target).squaredNorm()
+                   + 0.5 * slackWeight * (unscaled.first * x - unscaled.second).squaredNorm();
+    for(Eigen::Index i = 0; i < 4; ++i)
+    {
+      const auto wheel = static_cast<size_t>(i);
+      const double drive = dt * x(reduction.driveDof[wheel]) - (rollingReference[wheel] - velocity(reduction.driveDof[wheel]));
+      const double steer = dt * x(reduction.steerDof[wheel]) - (steeringReference[wheel] - velocity(reduction.steerDof[wheel]));
+      value += 0.5 * rollingRateWeight * drive * drive + 0.5 * steeringRateWeight * steer * steer;
+    }
+    return value;
+  };
+  // The substituted objective, evaluated on both solutions. Equal values with a
+  // feasible expanded point is the "leaves the solution unchanged" clause; the
+  // hard residuals are printed next to them because a rank-deficient equality
+  // set silently produces an infeasible point if it is solved carelessly.
+  BOOST_TEST_MESSAGE("ROW-07 objective shipped " << objective(shipped) << ", expanded "
+                                                 << objective(expandedSolution.head(nrDof)) << ", hard residual shipped "
+                                                 << (hard * shipped - hardRhs).lpNorm<Eigen::Infinity>()
+                                                 << ", expanded "
+                                                 << (hard * expandedSolution.head(nrDof) - hardRhs).lpNorm<Eigen::Infinity>());
+  BOOST_CHECK_SMALL((hard * expandedSolution.head(nrDof) - hardRhs).lpNorm<Eigen::Infinity>(), 1e-9);
+  BOOST_CHECK_LT(std::abs(objective(expandedSolution.head(nrDof)) - objective(shipped)),
+                 1e-9 * (1.0 + std::abs(objective(shipped))));
+  const double gap = (expandedSolution.head(nrDof) - shipped).lpNorm<Eigen::Infinity>()
+                     / (1.0 + shipped.lpNorm<Eigen::Infinity>());
+  BOOST_TEST_MESSAGE("ROW-07 substituted vs expanded relative gap " << gap << ", problem dimensions " << nrDof
+                                                                    << " and " << expanded);
+  BOOST_CHECK_LT(gap, 1e-9);
+  BOOST_CHECK_EQUAL(expanded - nrDof, 8);
+  // The predicted rates the expanded problem carries explicitly are the
+  // substitution's own: nu^+ = nu + dt S alphaD on the shipped solution.
+  for(Eigen::Index i = 0; i < 4; ++i)
+  {
+    const auto wheel = static_cast<size_t>(i);
+    BOOST_CHECK_SMALL(expandedSolution(nrDof + i)
+                          - (velocity(reduction.driveDof[wheel]) + dt * shipped(reduction.driveDof[wheel])),
+                      1e-9);
+    BOOST_CHECK_SMALL(expandedSolution(nrDof + 4 + i)
+                          - (velocity(reduction.steerDof[wheel]) + dt * shipped(reduction.steerDof[wheel])),
+                      1e-9);
+  }
+  // Non-vacuity: the rate rows actually bind, so a wrong dt or a reference read
+  // from the measured rather than the optimised rate would move the solution.
+  BOOST_CHECK_GT((shipped - target).lpNorm<Eigen::Infinity>(), 1.0);
+
+  solver.removeConstraintSet(rolling);
+  solver.removeTask(&targetTask);
+}
+
+BOOST_AUTO_TEST_CASE(ContactPowerVanishesUnderIdealRollingDYN06)
+{
+  // DYN-06. A strong independent oracle: it reads no constraint row, only the
+  // solved contact forces and the measured generalized velocity, so it does not
+  // share a convention with the row-level tests.
+  //
+  // mc_rtc models each wheel as a two-point contact *line* of width `width`,
+  // not as the single point of eq:ideal-rolling-velocity. A yawing chassis
+  // therefore gives the two line endpoints a material velocity +-(w/2) omega t
+  // which the point model does not have, so the exact vanishing is asserted on
+  // a straight-line rollout and the finite-width term is reported separately.
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto & robot = solver.robot(0);
+  auto wheels = fourSteeringWheels();
+  mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = 0.0;
+  options.softLateralRows = true;
+  options.lateralSlackWeight = 1e7;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  TargetAccelerationTask targetTask(robot.mb(), 0);
+  targetTask.target(ackermannTarget(robot, 0.4, 0.0));
+  solver.addTask(&targetTask);
+  solver.addConstraintSet(dynamics);
+  solver.addConstraintSet(rolling);
+
+  const auto reduction = planarReduction(robot, wheels, options.terrainNormal);
+  const auto power = [&](double forward, double yaw, double lateralSlip)
+  {
+    Eigen::VectorXd velocity = Eigen::VectorXd::Zero(robot.mb().nrDof());
+    velocity(2) = yaw;
+    velocity(3) = forward;
+    velocity(4) = lateralSlip;
+    for(size_t i = 0; i < wheels.size(); ++i)
+    {
+      const Eigen::Vector2d carrier(forward - yaw * reduction.offsets[i].y(), yaw * reduction.offsets[i].x());
+      velocity(reduction.driveDof[i]) = carrier.norm() / wheels[i].radius;
+    }
+    setVelocity(robot, velocity);
+    rolling.update(solver);
+    BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+    const Eigen::VectorXd lambda = solver.solver().lambdaVec();
+    double contact = 0.0;
+    for(size_t i = 0; i < wheels.size(); ++i)
+    {
+      contact += velocity.dot(dynamics.generalizedForceMatrix(wheels[i].name)
+                              * lambda.segment<8>(static_cast<Eigen::Index>(8 * i)));
+    }
+    dynamics.motionConstr().computeTorque(solver.solver().alphaDVec(), lambda);
+    const Eigen::VectorXd torque = dynamics.motionConstr().torque();
+    const double actuator = torque.tail(robot.mb().nrDof() - 6).dot(velocity.tail(robot.mb().nrDof() - 6));
+    return std::pair<double, double>{contact, actuator};
+  };
+
+  // Ideal rolling in a straight line: every material contact point is at rest,
+  // so no contact force does work.
+  const auto straight = power(0.6, 0.0, 0.0);
+  BOOST_TEST_MESSAGE("DYN-06 straight line: contact power " << straight.first << ", actuator power "
+                                                            << straight.second);
+  BOOST_REQUIRE_GT(std::abs(straight.second), 1e-3);
+  BOOST_CHECK_LT(std::abs(straight.first), 1e-6 * std::abs(straight.second));
+
+  // Non-vacuity. A yawing chassis moves the two endpoints of mc_rtc's contact
+  // *line* at +-(w/2) omega along the rolling direction -- a motion the single
+  // material point of eq:ideal-rolling-velocity does not have -- and the same
+  // oracle, unchanged, immediately reports work being done at the contact. That
+  // the straight-line figure above is zero is therefore a measurement, not an
+  // absence of signal. The finite-width term is reported, not asserted away: it
+  // is a property of mc_rtc's line-contact refinement over the report's point
+  // contact, and it is why the exact vanishing is asserted in a straight line.
+  const auto turning = power(0.6, 0.5, 0.0);
+  BOOST_TEST_MESSAGE("DYN-06 turning at 0.5 rad/s: contact power " << turning.first << ", actuator power "
+                                                                   << turning.second << " (line width "
+                                                                   << wheels[0].width << " m)");
+  BOOST_CHECK_GT(std::abs(turning.first), 1e-2 * std::abs(turning.second));
+  // Lateral slip at zero stabilization gain is *not* a probe: the lateral rows
+  // then carry no restoring term, the solved contact force keeps no lateral
+  // component, and the contact power stays at zero for a correct reason.
+  // Recorded so the weaker probe is not mistaken for a stronger one.
+  const auto slipping = power(0.6, 0.0, 0.25);
+  BOOST_TEST_MESSAGE("DYN-06 with 0.25 m/s lateral slip at Kp = 0: contact power " << slipping.first);
+  BOOST_CHECK_LT(std::abs(slipping.first), 1e-6 * std::abs(slipping.second));
+
+  solver.removeConstraintSet(rolling);
+  solver.removeConstraintSet(dynamics);
+  solver.removeTask(&targetTask);
+}
+
+BOOST_AUTO_TEST_CASE(KKTResidualIsAnIndependentOptimalityOracleQP07)
+{
+  // QP-07. The optimality certificate is evaluated against an independently
+  // re-derived H, g and constraint set -- reducedPlanarProblem() builds them
+  // from mc_rbdyn::steeringRollingMatrix() and the reduction -- rather than
+  // against the solver's own internal matrices. That independence is what makes
+  // this an oracle instead of a self-consistency check.
+  auto robots = loadFourSteeringRobot();
+  constexpr double dt = 0.005;
+  constexpr double gain = 20.0;
+  constexpr double slackWeight = 1e7;
+  mc_solver::TasksQPSolver solver(robots, dt);
+  auto & robot = solver.robot(0);
+  const auto wheels = fourSteeringWheels();
+  setSteeringAngles(robot, uncoordinatedSteeringAngles());
+  setIncompatibleFourWheelState(robot);
+  const auto reduction = planarReduction(robot, wheels, Eigen::Vector3d::UnitZ());
+
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = gain;
+  options.softLateralRows = true;
+  options.lateralSlackWeight = slackWeight;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+  TargetAccelerationTask targetTask(robot.mb(), 0);
+  Eigen::VectorXd reducedTarget(reduction.lift.cols());
+  reducedTarget << 0.4, -0.2, 0.3, 1.5, -2.2, 0.9, 3.3, 0.6, -0.4, 0.2, -0.7;
+  targetTask.target(reduction.expand(reducedTarget));
+  solver.addTask(&targetTask);
+  solver.addConstraintSet(rolling);
+  rolling.update(solver);
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+  const Eigen::VectorXd solution = reduction.reduce(solver.solver().alphaDVec(0));
+
+  // The fixture carries no inequality at all: no dynamics constraint means no
+  // contact multipliers and no cone, and no KinematicsConstraint means no
+  // bounds. Complementary slackness and dual feasibility are therefore vacuous
+  // here, and that is asserted rather than assumed.
+  BOOST_CHECK_EQUAL(solver.data().totalLambda(), 0);
+
+  const auto problem = reducedPlanarProblem(robot, wheels, reduction, reducedTarget, gain, slackWeight);
+  const auto size = problem.hessian.rows();
+  const auto rows = problem.rolling.rows();
+
+  const auto residuals = [&](const Eigen::VectorXd & point)
+  {
+    const Eigen::VectorXd cost = problem.hessian * point + problem.gradient;
+    const Eigen::MatrixXd constraintTranspose = problem.rolling.transpose();
+    const Eigen::VectorXd multipliers = constraintTranspose.colPivHouseholderQr().solve(-cost);
+    Eigen::VectorXd stationarity = cost + constraintTranspose * multipliers;
+    Eigen::MatrixXd scale(size, size + rows);
+    scale.leftCols(size) = problem.hessian;
+    scale.rightCols(rows) = constraintTranspose;
+    for(Eigen::Index i = 0; i < size; ++i) { stationarity(i) /= std::max(1e-12, scale.row(i).norm()); }
+    Eigen::VectorXd primal = problem.rolling * point - problem.rollingRhs;
+    for(Eigen::Index i = 0; i < rows; ++i) { primal(i) /= std::max(1e-12, problem.rolling.row(i).norm()); }
+    return std::pair<double, double>{stationarity.lpNorm<Eigen::Infinity>(), primal.lpNorm<Eigen::Infinity>()};
+  };
+
+  const auto optimal = residuals(solution);
+  BOOST_TEST_MESSAGE("QP-07 normalized residuals: stationarity " << optimal.first << ", primal feasibility "
+                                                                 << optimal.second);
+  BOOST_CHECK_LT(optimal.first, 1e-8);
+  BOOST_CHECK_LT(optimal.second, 1e-8);
+
+  // Non-vacuity: a point one millimetre per second squared off the optimum,
+  // still feasible, already fails the stationarity residual by orders of
+  // magnitude. The oracle is not merely reporting that the solver solved
+  // something.
+  Eigen::VectorXd perturbation = Eigen::VectorXd::Zero(size);
+  perturbation(7) = 1e-3; // a steering acceleration, absent from every hard row
+  const auto perturbed = residuals(solution + perturbation);
+  BOOST_TEST_MESSAGE("QP-07 perturbed residuals: stationarity " << perturbed.first << ", primal feasibility "
+                                                                << perturbed.second);
+  BOOST_CHECK_LT(perturbed.second, 1e-8); // still feasible
+  BOOST_CHECK_GT(perturbed.first, 1e-6);  // but no longer stationary
+
+  solver.removeConstraintSet(rolling);
+  solver.removeTask(&targetTask);
+}
+
+BOOST_AUTO_TEST_CASE(SeededRandomizedPropertySweepORC06)
+{
+  // ORC-06. One recorded seed drives every draw, and each failure message
+  // carries the seed and the draw index, so any failure replays exactly. The
+  // properties swept are the ones marked `property` that are statements about
+  // the planar lateral block: GEO-09's concurrency equivalence and ROW-09's
+  // range-space defect. F-RANDOM: random offsets, angles, radii and references.
+  constexpr unsigned int seed = 20260907u;
+  constexpr size_t draws = 500;
+  std::mt19937 generator(seed);
+  std::uniform_real_distribution<double> offsetDraw(-0.8, 0.8);
+  std::uniform_real_distribution<double> angleDraw(-1.2, 1.2);
+  std::uniform_real_distribution<double> radiusDraw(0.08, 0.35);
+  std::uniform_real_distribution<double> rateDraw(-8.0, 8.0);
+  std::uniform_real_distribution<double> centreDraw(-2.5, 2.5);
+
+  for(size_t draw = 0; draw < draws; ++draw)
+  {
+    const std::string where = "ORC-06 seed " + std::to_string(seed) + " draw " + std::to_string(draw);
+    const bool concurrent = draw % 2 == 0;
+    std::vector<mc_rbdyn::PlanarWheel> wheels(4);
+    const Eigen::Vector2d centre(centreDraw(generator), centreDraw(generator));
+    double lengthScale = 0.0;
+    for(auto & wheel : wheels)
+    {
+      wheel.offset = Eigen::Vector2d(offsetDraw(generator), offsetDraw(generator));
+      wheel.radius = radiusDraw(generator);
+      lengthScale = std::max(lengthScale, wheel.offset.norm());
+    }
+    for(auto & wheel : wheels)
+    {
+      // A concurrent draw puts every wheel tangent to a circle about the same
+      // centre; an independent one draws the angles freely.
+      const Eigen::Vector2d arm = wheel.offset - centre;
+      wheel.steeringAngle = concurrent ? std::atan2(arm.x(), -arm.y()) : angleDraw(generator);
+    }
+    BOOST_REQUIRE_GT(lengthScale, 1e-6);
+
+    const auto rows = mc_rbdyn::steeringRollingMatrix(wheels, Eigen::Vector3d::Zero());
+    Eigen::MatrixXd lateral(4, 3);
+    for(Eigen::Index i = 0; i < 4; ++i) { lateral.row(i) = rows.matrix.block<1, 3>(2 * i + 1, 0); }
+    // GEO-09 asks for the ratio after nondimensionalization: the third column
+    // carries a length while the first two are dimensionless, so thresholding
+    // the raw singular value would make the verdict depend on the unit.
+    Eigen::MatrixXd scaled = lateral;
+    scaled.col(2) /= lengthScale;
+    const Eigen::VectorXd values = singularValues(scaled);
+    const double ratio = values(2) / values(0);
+    const std::array<double, 4> angles = {wheels[0].steeringAngle, wheels[1].steeringAngle,
+                                         wheels[2].steeringAngle, wheels[3].steeringAngle};
+    const std::array<Eigen::Vector2d, 4> carriers = {wheels[0].offset, wheels[1].offset, wheels[2].offset,
+                                                     wheels[3].offset};
+    BOOST_CHECK_MESSAGE(hasCommonICR(angles, carriers) == concurrent,
+                        where << ": the concurrency oracle disagrees with the construction");
+    if(concurrent)
+    {
+      BOOST_CHECK_MESSAGE(ratio < 1e-10, where << ": a concurrent draw has sigma_3/sigma_1 = " << ratio);
+    }
+    else
+    {
+      BOOST_CHECK_MESSAGE(ratio > 1e-3, where << ": an independent draw has sigma_3/sigma_1 = " << ratio);
+    }
+
+    // ROW-09 over the same draw: the soft-lateral slack tends to the
+    // range-space defect of the measured right-hand side.
+    Eigen::Vector4d rightHandSide;
+    for(Eigen::Index i = 0; i < 4; ++i) { rightHandSide(i) = rateDraw(generator); }
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(lateral, Eigen::ComputeFullU);
+    const Eigen::Index rank = (svd.singularValues().array() > 1e-9 * svd.singularValues()(0)).count();
+    const Eigen::MatrixXd leftNull = svd.matrixU().rightCols(4 - rank);
+    const double defect = (leftNull.transpose() * rightHandSide).norm();
+    double previous = std::numeric_limits<double>::infinity();
+    double realised = 0.0;
+    for(const double weight : {1e2, 1e4, 1e6, 1e8})
+    {
+      const Eigen::Matrix3d hessian =
+          Eigen::Matrix3d::Identity() + weight * lateral.transpose() * lateral;
+      const Eigen::Vector3d twist =
+          hessian.ldlt().solve(weight * lateral.transpose() * rightHandSide);
+      realised = (lateral * twist - rightHandSide).norm();
+      BOOST_CHECK_MESSAGE(realised <= previous + 1e-9,
+                          where << ": ||sigma|| is not monotone in the slack weight");
+      previous = realised;
+    }
+    BOOST_CHECK_MESSAGE(std::abs(realised - defect) <= 1e-2 * (1.0 + defect),
+                        where << ": ||sigma|| = " << realised << " against the range-space defect " << defect);
+  }
 }
