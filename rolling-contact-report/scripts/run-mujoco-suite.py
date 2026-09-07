@@ -35,6 +35,64 @@ class Case:
     separation_cycle: int = -1
     separation: float = 0.0
     recovery_required: bool = False
+    # Per-case override of the global --cycles, for cases that need to run long
+    # enough to reach a regime the default 1000 cycles (5 s) cannot.
+    cycles: int = 0
+    # Per-case override of the global --warmup-cycles. The cases that preset the
+    # steering start already in their steady manoeuvre and 100 cycles (0.5 s) is
+    # ample; a case that has to slew the hinges from zero has a real startup
+    # transient and its statistics must not be taken during it. Measured on
+    # four-crab-acceptance: the worst rolling slip is 0.024 m/s up to cycle 225
+    # and 1.2e-4 m/s from cycle 225 on, and the minimum MuJoCo normal force goes
+    # from 0 N to >= 150 N over the same boundary. This raises the *window*, not
+    # any bound: the nominal limits in check-mujoco-report.py are unchanged.
+    warmup_cycles: int = 0
+    # A case that reproduces a defect this branch has characterised but not
+    # fixed. The replay still runs and its report is still written; the checker
+    # is expected to reject it, and the suite fails if it ever *stops* rejecting
+    # it, so the day the defect is fixed the case has to be promoted rather than
+    # quietly keeping a stale expectation. The string is the reason and must be
+    # non-empty.
+    # The three ways this runner can make a case easier than the acceptance
+    # command `mc_mujoco -f rolling-contact-report/config/mc_rtc-ranger-mini-v3-keyboard.yaml`.
+    # They default to True here because that is what every case below has always
+    # done - the point of naming them is that the divergence is now visible in
+    # the case table, in the runner's command line and in each replay's JSON,
+    # instead of being hard-coded inside the runner.
+    #
+    #   torque_control    mc_mujoco's own default is FALSE. With it true the QP's
+    #                     joint torques drive the motors directly; with it false
+    #                     mc_mujoco PD-tracks the controller's q/alpha output,
+    #                     which is the path the acceptance command uses and which
+    #                     this suite never exercised.
+    #   measured_contacts feeds MuJoCo's true contact forces and slips into
+    #                     RollingContact::SetMeasuredContact every substep.
+    #                     mc_mujoco does not, so the contact-mode estimator
+    #                     normally runs with no contact sensor at all. This is
+    #                     what hid the front_right detachment: with ground truth
+    #                     the estimator never reads the QP's own multiplier.
+    #   preset_steering   resets the four-steering scenarios with the hinges
+    #                     already at the manoeuvre's steady-state angle, skipping
+    #                     the steering transient the real failures occur in.
+    #
+    # The *-acceptance cases at the end of CASES set all three to False.
+    expected_failure: str = ""
+    torque_control: bool = True
+    measured_contacts: bool = True
+    preset_steering: bool = True
+
+    @property
+    def regime(self):
+        assisted = [
+            name
+            for name, value in (
+                ("torque", self.torque_control),
+                ("measured-contacts", self.measured_contacts),
+                ("preset-steering", self.preset_steering),
+            )
+            if value
+        ]
+        return "+".join(assisted) if assisted else "acceptance"
 
 
 CASES = (
@@ -191,6 +249,71 @@ CASES = (
         linear_speed=0.0,
         yaw_rate=0.0,
         longitudinal="soft",
+    ),
+    # Acceptance-regime coverage: the actuation path, the (absent) contact
+    # sensing and the initial hinge state of
+    # `mc_mujoco -f rolling-contact-report/config/mc_rtc-ranger-mini-v3-keyboard.yaml`,
+    # at the speeds that configuration commands rather than at the 0.05 rad/s
+    # the cases above use. Every one of these reproduced a real-mc_mujoco
+    # failure before the fixes in this branch:
+    #   four-crab-acceptance          front_right detached at t = 0.025 s and
+    #                                 never recovered; the load collapsed onto
+    #                                 the front_left/rear_right diagonal
+    #                                 (183/0/205/341 N against a 736 N vehicle).
+    #   four-ackermann-acceptance     same detachment at t = 0.02 s, 4991 of
+    #                                 4995 cycles.
+    #   four-pure-yaw-acceptance      QP failure at t = 9.72 s from an unbounded
+    #                                 heading target reaching sva::rotationError's
+    #                                 singularity; needs > 1944 cycles to reach it,
+    #                                 hence the explicit cycle count.
+    Case(
+        "four-crab-acceptance",
+        "four-steering",
+        "crab",
+        linear_speed=0.2,
+        steering_angle=0.3,
+        warmup_cycles=300,
+        torque_control=False,
+        measured_contacts=False,
+        preset_steering=False,
+    ),
+    Case(
+        "four-ackermann-acceptance",
+        "four-steering",
+        "ackermann_left",
+        linear_speed=0.2,
+        yaw_rate=0.35,
+        warmup_cycles=300,
+        expected_failure=(
+            "four-steering yaw tracking is not fixed: the wheel contact patch resists"
+            " re-steering with ~7 N.m of scrub that the QP's rolling constraint (imposed"
+            " at the single centre contact point) does not model, so the hinges park short"
+            " of a correct reference. Measured 0.031 m/s rolling slip, 32% of samples with"
+            " a wheel off the ground and 0.60 rad of yaw tracking error"
+        ),
+        torque_control=False,
+        measured_contacts=False,
+        preset_steering=False,
+    ),
+    Case(
+        "four-pure-yaw-acceptance",
+        "four-steering",
+        "pure_yaw",
+        linear_speed=0.0,
+        yaw_rate=0.35,
+        cycles=2600,
+        warmup_cycles=300,
+        expected_failure=(
+            "same unfixed four-steering yaw tracking as four-ackermann-acceptance."
+            " Everything else is healthy over the 13 s: the QP never fails (it used to"
+            " fail at t = 9.72 s), min normal force 161.5 N, no contact loss, rolling slip"
+            " 1.5e-4 m/s and all four wheels rolling at the end. The single violated bound"
+            " is the yaw tracking, which sits at exactly the pi/2 maxYawTargetError the"
+            " heading governor now holds it to: 0.272 rad turned against 4.55 commanded"
+        ),
+        torque_control=False,
+        measured_contacts=False,
+        preset_steering=False,
     ),
 )
 
@@ -476,9 +599,9 @@ def main():
                     "--scenario",
                     case.scenario,
                     "--cycles",
-                    str(args.cycles),
+                    str(case.cycles or args.cycles),
                     "--warmup-cycles",
-                    str(args.warmup_cycles),
+                    str(case.warmup_cycles or args.warmup_cycles),
                     "--ramp-deg",
                     str(case.ramp_degrees),
                     "--friction",
@@ -501,6 +624,12 @@ def main():
                     str(case.separation_cycle),
                     "--separation",
                     str(case.separation),
+                    "--torque-control",
+                    "true" if case.torque_control else "false",
+                    "--measured-contacts",
+                    "true" if case.measured_contacts else "false",
+                    "--preset-steering",
+                    "true" if case.preset_steering else "false",
                     "--csv",
                     str(csv_path),
                     "--report",
@@ -520,7 +649,7 @@ def main():
                         f"{case.name}/{backend}/replay-{repetition} failed; see {stdout_path}"
                     )
                 checker_kind = case.kind if case.kind != "disturbance" else "disturbance"
-                subprocess.run(
+                checked = subprocess.run(
                     [
                         sys.executable,
                         str(checker),
@@ -532,9 +661,15 @@ def main():
                         "--robot",
                         case.robot,
                     ],
-                    check=True,
+                    check=not case.expected_failure,
                     stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
                 )
+                if case.expected_failure and checked.returncode == 0:
+                    raise RuntimeError(
+                        f"{case.name}/{backend}: expected_failure case now passes the checker "
+                        f"({case.expected_failure}); promote it instead of leaving a stale expectation"
+                    )
                 with report_path.open(encoding="utf-8") as stream:
                     reports.append(json.load(stream))
                 csv_paths.append(csv_path)
@@ -549,6 +684,11 @@ def main():
                     "robot": case.robot,
                     "scenario": case.scenario,
                     "kind": case.kind,
+                    "regime": case.regime,
+                    "expected_failure": case.expected_failure,
+                    "torque_control": case.torque_control,
+                    "measured_contacts": case.measured_contacts,
+                    "preset_steering": case.preset_steering,
                     "config_sha256": sha256(config),
                     "reports": [str(path) for path in case_dir.glob("replay-*.json")],
                     "deterministic_variation": variations,
@@ -566,7 +706,11 @@ def main():
                     ),
                 }
             )
-            print(f"PASS {backend:5s} {case.name}", flush=True)
+            verdict = "XFAIL" if case.expected_failure else "PASS "
+            line = f"{verdict} {backend:5s} {case.name:28s} [{case.regime}]"
+            if case.expected_failure:
+                line += f"  {case.expected_failure}"
+            print(line, flush=True)
     aggregate["wall_time_s"] = time.monotonic() - started
     aggregate["status"] = "pass"
     output = artifact / "suite-report.json"

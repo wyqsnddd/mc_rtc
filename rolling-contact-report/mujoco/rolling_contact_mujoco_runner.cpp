@@ -62,6 +62,26 @@ struct Options
   std::string impulseDirection = "lateral";
   long separationCycle = -1;
   double separation = 0.0;
+  // Three deliberate departures from what `mc_mujoco -f <config>` does, each
+  // now an explicit switch instead of a hard-coded behaviour of this runner.
+  // They all DEFAULT TO THE mc_mujoco BEHAVIOUR, so a case that wants the
+  // easier regime has to say so in the case table and is visible there.
+  //
+  // torqueControl: mc_mujoco's MjConfiguration::torque_control defaults to
+  //   false and the acceptance command does not pass --torque-control, so the
+  //   Ranger's <motor> actuators are driven by mc_mujoco's joint PD on the
+  //   controller's q/alpha output, not by the QP's joint torques. Running the
+  //   suite exclusively with torque_control = true hid the whole PD path.
+  // measuredContacts: calls RollingContact::SetMeasuredContact with MuJoCo's
+  //   true contact forces and slips every substep. mc_mujoco does not, so the
+  //   contact-mode estimator normally has no contact sensor at all. Feeding it
+  //   ground truth structurally hides every defect in the sensorless path.
+  // presetSteering: resets the four-steering scenarios with the hinges already
+  //   at the manoeuvre's steady-state angle, which skips the steering transient
+  //   entirely - and that transient is where the real failures happen.
+  bool torqueControl = false;
+  bool measuredContacts = false;
+  bool presetSteering = false;
 };
 
 struct Wheel
@@ -175,6 +195,14 @@ double parseDouble(const std::string & value, const std::string & option)
   return out;
 }
 
+bool parseBool(const std::string & value, const std::string & option)
+{
+  if(value == "true" || value == "1") { return true; }
+  if(value == "false" || value == "0") { return false; }
+  usage("invalid boolean for " + option + ": " + value);
+  return false;
+}
+
 long parseLong(const std::string & value, const std::string & option)
 {
   size_t consumed = 0;
@@ -220,6 +248,9 @@ Options parseOptions(int argc, char ** argv)
     else if(option == "--impulse-direction") { out.impulseDirection = value; }
     else if(option == "--separation-cycle") { out.separationCycle = parseLong(value, option); }
     else if(option == "--separation") { out.separation = parseDouble(value, option); }
+    else if(option == "--torque-control") { out.torqueControl = parseBool(value, option); }
+    else if(option == "--measured-contacts") { out.measuredContacts = parseBool(value, option); }
+    else if(option == "--preset-steering") { out.presetSteering = parseBool(value, option); }
     else { usage("unknown option: " + option); }
   }
   if(out.mcConfig.empty() || out.robot.empty() || out.scenario.empty() || out.backend.empty() || out.cycles == 0
@@ -483,7 +514,7 @@ void configureTerrain(mc_mujoco::MjSim & simulation,
   const Eigen::Vector3d position = (chassisHeight - contactPreload) * normal;
   const sva::PTransformd pose(orientation.toRotationMatrix().transpose(), position);
   std::map<std::string, std::vector<double>> initialJoints;
-  if(options.robot == "four-steering"
+  if(options.presetSteering && options.robot == "four-steering"
      && (options.scenario == "crab" || options.scenario == "ackermann_left"
          || options.scenario == "ackermann_right" || options.scenario == "pure_yaw"))
   {
@@ -949,6 +980,11 @@ void writeReport(const Options & options,
          << "  \"robot\": \"" << options.robot << "\",\n"
          << "  \"scenario\": \"" << options.scenario << "\",\n"
          << "  \"backend\": \"" << options.backend << "\",\n"
+         // Which regime this replay actually ran in. Without these a
+         // report cannot be compared against a `mc_mujoco -f <config>` run.
+         << "  \"torque_control\": " << (options.torqueControl ? "true" : "false") << ",\n"
+         << "  \"measured_contacts\": " << (options.measuredContacts ? "true" : "false") << ",\n"
+         << "  \"preset_steering\": " << (options.presetSteering ? "true" : "false") << ",\n"
          << "  \"cycles_requested\": " << options.cycles << ",\n"
          << "  \"cycles_completed\": " << completedCycles << ",\n"
          << "  \"warmup_cycles\": " << options.warmupCycles << ",\n"
@@ -1049,7 +1085,7 @@ int main(int argc, char ** argv)
     configuration.with_controller = true;
     configuration.sync_real_time = false;
     configuration.step_by_step = false;
-    configuration.torque_control = true;
+    configuration.torque_control = options.torqueControl;
 
     mc_mujoco::MjSim simulation(configuration);
     auto & model = simulation.model();
@@ -1175,9 +1211,12 @@ int main(int argc, char ** argv)
       for(size_t step = 0; step < frameskip; ++step)
       {
         controllerFailed = simulation.stepSimulation();
-        auto substepSamples = sampleWheels(model, data, wheels, groundGeom, options.friction, normal, jacobianPosition,
-                                           jacobianRotation);
-        sendMeasurements(simulation, wheels, substepSamples);
+        if(options.measuredContacts)
+        {
+          const auto substepSamples = sampleWheels(model, data, wheels, groundGeom, options.friction, normal,
+                                                   jacobianPosition, jacobianRotation);
+          sendMeasurements(simulation, wheels, substepSamples);
+        }
         allFinite = allFinite && finiteState(model, data);
         if(controllerFailed || !allFinite) { break; }
       }
