@@ -68,6 +68,20 @@
             { "type": "number", "deprecated": true }
           ],
           "default": [1.0, 1.0, 1.0]
+        },
+        "maxYawTargetError":
+        {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Largest heading error, in radians, that the accumulated yaw target may hold against the measured chassis heading. Every branch that integrates the commanded yaw rate open loop is saturated to this bound; closed-loop keyboard already copies the measured heading and is unaffected. It exists because mc_tasks::OrientationTask's error is sva::rotationError(), whose near-pi branch (taken once |error| > pi - 1.105e-2 rad) square-roots a quantity that is non-negative only in exact arithmetic; for a near-planar rotation it returns NaN, the NaN reaches the QP's linear term and the solve fails outright. Must be at most 0.9 * pi. The default pi/2 keeps the rotation-error Jacobian well conditioned (sinc_inv(pi/2) = 1.57 against 285 at the singular branch) and is two orders of magnitude above any error a healthy run produces.",
+          "default": 1.5707963267948966
+        },
+        "generatorRegularization":
+        {
+          "type": "number",
+          "minimum": 0,
+          "description": "Tikhonov weight on each wheel's eight contact-force generators, forwarded to RollingContactDynamicsConstraint (which keeps its own default of 0.0). A non-zero value resolves the four-contact normal-force null space - the diagonal mode (+1, -1, -1, +1), which carries no net wrench and which nothing else in the objective penalises. Swept against mc_mujoco on the Ranger in four-steering crab at 0.2 m/s, the steady load split is [171, 0, 200, 365] N at 0.0 and [177, 181, 187, 190] N from 0.2 upwards, with the achieved body speed unchanged at 0.1976 m/s; the knee is between 0.05 and 0.2 and the metrics are flat above it.",
+          "default": 0.0
         }
       }
     }

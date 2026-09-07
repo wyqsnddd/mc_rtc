@@ -63,6 +63,14 @@ private:
   };
 
   void updateReference();
+  /** Bound the accumulated heading target against the measured chassis heading.
+   *
+   * Applies to every branch that integrates the commanded yaw rate open loop;
+   * closed-loop keyboard already copies the measured heading. See the
+   * definition for why an unbounded heading target is a hard failure and not
+   * merely a large error.
+   */
+  void saturateYawTargetAgainstMeasuredHeading();
   void updateModes();
   void updateDiagnostics(bool solverSuccess);
   void syncControlRobotFromSensors();
@@ -100,6 +108,12 @@ private:
   double steeringTimeConstant_ = 0.15;
   double maxSteeringRate_ = 8.0;
   double keyboardYawFeedbackGain_ = 0.5;
+  /** Largest heading error the accumulated yaw target may hold, in rad.
+   *
+   * Must stay strictly below pi: sva::rotationError() is singular there and
+   * returns NaN a hundredth of a radian short of it, which fails the QP.
+   */
+  double maxYawTargetError_ = 0.5 * 3.14159265358979323846;
   double driveAcceleration_ = 20.0;
   double positionFeedbackGain_ = 5.0;
   double guiForwardCommand_ = 0.0;

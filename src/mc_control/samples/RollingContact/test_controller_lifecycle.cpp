@@ -591,8 +591,26 @@ BOOST_AUTO_TEST_CASE(TwistWeightAxesAreUnitNormalizedNotInterchangeable)
                                                          << " dyaw=" << baseline.second);
     BOOST_TEST_MESSAGE("[twistWeight] omegaStarved dx=" << omegaStarved.first.x() << " dy="
                                                          << omegaStarved.first.y() << " dyaw=" << omegaStarved.second);
-    // Starving omega alone must move yaw well away from baseline...
-    BOOST_CHECK_GT(std::abs(baseline.second - omegaStarved.second), 0.2);
+    // Starving omega alone must move yaw measurably away from baseline...
+    //
+    // The bound was 0.2 rad while updateModes() still let the QP's own contact
+    // multiplier demote a wheel. Under this adversarial command that happened
+    // constantly: instrumenting the two runs showed 2854 of 3200 wheel-samples
+    // (89%) estimated sliding or detached, on flat ground, with no disturbance
+    // and with the first detachment reported at a healthy 183.9 N and 147 N of
+    // friction margin. The chassis was free to swing because its contacts kept
+    // being switched off, and both runs' net yaw was an order of magnitude
+    // larger for it (baseline -0.157 rad, omegaStarved +0.144 rad).
+    //
+    // With that spurious detachment removed all four wheels stay rolling, the
+    // chassis is properly held by four rolling contacts, and the whole yaw
+    // excursion is correspondingly smaller: baseline -0.00748 rad,
+    // omegaStarved -0.03225 rad, difference 0.02476 rad. The weight still has
+    // a genuine, isolated closed-loop consequence - it is 3.3x the residual
+    // x-axis crosstalk below, and the run is deterministic to the bit, so the
+    // 0.01 rad bound keeps a 2.5x margin. It is deliberately not tuned back up
+    // by re-enabling the mode chatter it used to ride on.
+    BOOST_CHECK_GT(std::abs(baseline.second - omegaStarved.second), 0.01);
     // ...while leaving x comparatively close to baseline: the effect stays
     // on the axis whose weight actually changed.
     BOOST_CHECK_LT(std::abs(baseline.first.x() - omegaStarved.first.x()), 0.1);
@@ -781,4 +799,130 @@ BOOST_AUTO_TEST_CASE(RollingContactControllerRejectsInvalidConfiguration)
   BOOST_CHECK_THROW(mc_control::MCRollingContactController(
                         robotModule("RollingContactDifferential"), 0.005, invalidPeriod),
                     std::invalid_argument);
+}
+
+BOOST_AUTO_TEST_CASE(HeadingTargetCannotWindUpToTheRotationErrorSingularity)
+{
+  // Regression for a hard QP failure measured against real mc_mujoco: the
+  // accumulated heading target integrates the commanded yaw rate with no
+  // feedback, so whenever the chassis cannot deliver that rate the orientation
+  // task's error grows without bound. It does not just get large.
+  // mc_tasks::OrientationTask's error is sva::rotationError(), whose near-pi
+  // branch (taken once |error| > pi - 1.105e-2 rad) evaluates
+  // s = (2*diag(E) + (1-trace)) / (3-trace) and then s.cwiseSqrt(). For a
+  // near-planar rotation the first two entries of s are zero only in exact
+  // arithmetic; on the Ranger the instrumented values at the failing cycle were
+  //   1+trace = 8.7057077548191586e-05  (threshold 1.220703125e-04)
+  //   s       = [-1.1102471883440498e-16, -1.1102471883440498e-16, 1.0000000000000002]
+  // so cwiseSqrt() returned NaN, the NaN reached the QP's linear term and the
+  // solve failed - with all four contacts at 183.9 N, 119 N of friction margin
+  // and the chassis level to 1e-5 rad. Against mc_mujoco this killed
+  // scenario: pure_yaw at 0.35 rad/s at t = 9.72 s (PD actuation) and t = 12.87
+  // s (--torque-control), and mc_mujoco then spun forever because its
+  // simulate() loop discards stepSimulation()'s return value.
+  //
+  // This reproduces the same windup deterministically and without a simulator:
+  // closedLoopFeedback pins the chassis to a FloatingBase sensor that never
+  // rotates, so the measured heading stays at zero while a 0.35 rad/s yaw is
+  // commanded. Unbounded, the error would pass pi - 1.105e-2 rad at
+  // t = 8.95 s = cycle 1791; this runs to cycle 2400 (12 s).
+  auto controller = makeClosedLoopController("hold");
+  auto & sensor = controller->robot().data()->bodySensors[
+      controller->robot().data()->bodySensorsIndex.at("FloatingBase")];
+  sensor.position(Eigen::Vector3d{0.0, 0.0, 0.16});
+  sensor.orientation(Eigen::Quaterniond::Identity());
+  sensor.linearVelocity(Eigen::Vector3d::Zero());
+  sensor.angularVelocity(Eigen::Vector3d::Zero());
+  controller->resetObserverPipelines();
+
+  // M_PI is not guaranteed by the C++ standard.
+  constexpr double pi = 3.14159265358979323846;
+  constexpr double bound = 0.5 * pi;
+  double worstYawTarget = 0.0;
+  double worstOrientationEval = 0.0;
+  for(int cycle = 0; cycle < 2400; ++cycle)
+  {
+    controller->setCommandedTwist({0.0, 0.0, 0.35});
+    BOOST_REQUIRE_MESSAGE(stepClosedLoop(*controller), "QP failed at cycle " << cycle);
+    const double yawTarget = controller->datastore().call<double>("RollingContact::GetBaseYawTarget");
+    const double orientationEval =
+        controller->datastore().call<double>("RollingContact::GetOrientationEvalNorm");
+    BOOST_REQUIRE_MESSAGE(std::isfinite(yawTarget), "non-finite yaw target at cycle " << cycle);
+    BOOST_REQUIRE_MESSAGE(std::isfinite(orientationEval), "non-finite orientation error at cycle " << cycle);
+    worstYawTarget = std::max(worstYawTarget, std::abs(yawTarget));
+    worstOrientationEval = std::max(worstOrientationEval, orientationEval);
+  }
+  BOOST_TEST_MESSAGE("[heading-windup] worst |yaw target|=" << worstYawTarget
+                                                            << " worst |orientation eval|=" << worstOrientationEval);
+  // The measured heading never leaves zero, so the target itself is the error.
+  BOOST_CHECK_LE(worstYawTarget, bound + 1e-9);
+  // ...and so is the task's rotation error, which is the quantity that goes
+  // singular. Well clear of the pi - 1.105e-2 rad branch that produces the NaN.
+  BOOST_CHECK_LE(worstOrientationEval, bound + 1e-6);
+}
+
+BOOST_AUTO_TEST_CASE(MaxYawTargetErrorMustStayClearOfTheRotationErrorSingularity)
+{
+  constexpr double pi = 3.14159265358979323846;
+  for(const double invalid : {0.0, -0.1, 0.95 * pi, pi, 2.0 * pi})
+  {
+    auto config = controllerConfiguration("hold");
+    config("RollingContact").add("maxYawTargetError", invalid);
+    BOOST_CHECK_THROW(
+        mc_control::MCRollingContactController(robotModule("RollingContactRangerMiniV3"), 0.005, config),
+        std::invalid_argument);
+  }
+  auto valid = controllerConfiguration("hold");
+  valid("RollingContact").add("maxYawTargetError", 0.5);
+  BOOST_CHECK_NO_THROW(
+      mc_control::MCRollingContactController(robotModule("RollingContactRangerMiniV3"), 0.005, valid));
+}
+
+BOOST_AUTO_TEST_CASE(QpContactMultiplierAloneNeverDetachesAWheel)
+{
+  // Regression for the front_right detachment measured against real mc_mujoco
+  // on four-steering crab and ackermann_left. Four coplanar wheel contacts
+  // leave the normal-force distribution with a one-dimensional null space - the
+  // diagonal mode (+1, -1, -1, +1), which produces no net force and no net
+  // moment - and nothing in this QP's objective penalises it, so the solver may
+  // return zero on one wheel while every wheel is loaded. updateModes() used to
+  // read that zero as a detachment; desiredMode() makes that transition
+  // immediate (no dwell), and it is self-confirming because a detached wheel's
+  // multipliers are identically zero, so front_right stayed detached for 4990
+  // of 4995 cycles with the chassis level to 1e-5 rad throughout.
+  //
+  // The stimulus below is the same adversarial command the twistWeight
+  // closed-loop check uses. Instrumented at the previous behaviour it estimated
+  // 1395 detached and 1459 sliding wheel-samples out of 3200 - on flat ground,
+  // with no disturbance, and with the first "sliding" verdict reported at a
+  // perfectly healthy 183.9 N and 147.0 N of friction margin.
+  //
+  // No external measurement is fed here, which is exactly the mc_mujoco default
+  // and the headless-ticker case. An adapter that calls
+  // RollingContact::SetMeasuredContact keeps full detection; that path is
+  // checked by the CPU MuJoCo suite's disturbance cases.
+  auto controller = makeRangerController(
+      [](mc_rtc::Configuration & settings)
+      {
+        settings.add("longitudinal", "soft");
+        settings.add("rollingRateWeight", 0.0);
+        settings.add("steeringRateWeight", 0.0);
+      });
+  const std::array<std::string, 4> wheels = {"front_left", "front_right", "rear_left", "rear_right"};
+  int detachedSamples = 0;
+  for(int cycle = 0; cycle < 400; ++cycle)
+  {
+    controller->setCommandedTwist({0.3, 0.0, ((cycle / 15) % 2 == 0) ? 0.8 : -0.8});
+    BOOST_REQUIRE(controller->run());
+    for(const auto & wheel : wheels)
+    {
+      if(controller->datastore().call<std::string, const std::string &>("RollingContact::GetEstimatedMode", wheel)
+         == "detached")
+      {
+        ++detachedSamples;
+      }
+    }
+  }
+  BOOST_TEST_MESSAGE("[qp-multiplier-detach] detached wheel-samples=" << detachedSamples);
+  BOOST_CHECK_EQUAL(detachedSamples, 0);
 }

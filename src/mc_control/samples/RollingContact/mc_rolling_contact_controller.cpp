@@ -223,6 +223,18 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   scenario_ = settings("scenario", std::string{"hold"});
   closedLoopFeedback_ = settings("closedLoopFeedback", false);
   positionFeedbackGain_ = settings("positionFeedbackGain", 5.0);
+  maxYawTargetError_ = settings("maxYawTargetError", 0.5 * 3.14159265358979323846);
+  // Strictly below pi, and with room to spare: sva::rotationError() switches to
+  // its near-pi branch at |error| = pi - 1.105e-2 rad and returns NaN there,
+  // which fails the QP outright. Reject a value that would let the reference
+  // reach that configuration rather than discovering it at run time.
+  if(!std::isfinite(maxYawTargetError_) || maxYawTargetError_ <= 0.0
+     || maxYawTargetError_ > 0.9 * 3.14159265358979323846)
+  {
+    mc_rtc::log::error_and_throw<std::invalid_argument>(
+        "RollingContact maxYawTargetError must be finite, positive and at most 0.9 * pi; sva::rotationError is "
+        "singular at pi and a heading target allowed to reach it makes the QP fail");
+  }
   linearSpeed_ = settings("linearSpeed", 0.2);
   yawRate_ = settings("yawRate", 0.35);
   steeringAngle_ = settings("steeringAngle", 0.3);
@@ -479,7 +491,33 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     options.rollingRateWeight = settings("rollingRateWeight", 1000.0 * rateWeightScale);
     options.steeringRateWeight = settings("steeringRateWeight", 1000.0 * rateWeightScale);
   }
-  dynamics_ = std::make_unique<mc_solver::RollingContactDynamicsConstraint>(robots(), 0, dt, wheels_);
+  // Tikhonov weight on the contact-force generators, forwarded to
+  // RollingContactDynamicsConstraint (which keeps its own default of 0.0; see
+  // that class for why the Tasks backend does not need it for conditioning).
+  //
+  // It is exposed here because it is the one knob that removes the *other*
+  // consequence of the four-contact normal-force null space documented in
+  // updateModes(): the QP is free to choose any point in it, and the point it
+  // lands on is a physically wrong load split. Swept against real mc_mujoco on
+  // the Ranger, four-steering crab at 0.2 m/s, measuring the steady normal
+  // forces and the achieved body speed over t >= 9 s:
+  //
+  //   eps  = 0.00  ->  N = [171, 0, 200, 365] N
+  //   eps  = 0.05  ->  N = [203, 0, 147, 385] N,  speed 0.131 / 0.200
+  //   eps  = 0.20  ->  N = [177, 181, 187, 190] N, speed 0.1976 / 0.200
+  //   eps  = 0.50  ->  N = [177, 181, 187, 190] N, speed 0.1976 / 0.200
+  //   eps  = 1.00  ->  N = [177, 181, 187, 190] N, speed 0.1976 / 0.200
+  //
+  // The knee is between 0.05 and 0.2 and the metrics are flat above it: the
+  // penalised subspace produces no net wrench, so picking the minimum-norm
+  // point inside it costs the tracking tasks nothing measurable. It is not the
+  // default because it does not by itself keep every manoeuvre attached -
+  // four-steering ackermann_left still drives one wheel's multiplier onto its
+  // lambda >= 0 bound at eps = 0.5 - and because a non-zero value has a
+  // measured bias on the solved contact force (see commit 1f136644ad).
+  const double generatorRegularization = settings("generatorRegularization", 0.0);
+  dynamics_ = std::make_unique<mc_solver::RollingContactDynamicsConstraint>(robots(), 0, dt, wheels_, false,
+                                                                            generatorRegularization);
   dynamics_->terrainNormal(options.terrainNormal);
   rolling_ = std::make_unique<mc_solver::RollingContactConstraint>(robots(), 0, wheels_, options);
 
@@ -818,6 +856,15 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   logger().addLogEntry("RollingContact_commandedTwist", [this]() -> const Eigen::Vector3d & { return commandedTwist_; });
   logger().addLogEntry("RollingContact_keyboard_yaw_error", [this]() { return keyboardYawError_; });
   logger().addLogEntry("RollingContact_keyboard_yaw_correction", [this]() { return keyboardYawCorrection_; });
+  // The two chassis tasks' raw errors. The orientation one in particular is a
+  // rotation vector: it is what saturates at pi when a target drifts to the
+  // antipode of the measured pose, and neither task publishes its own eval to
+  // the log, so a post-mortem cannot otherwise tell a healthy run from one that
+  // is a few cycles away from that singularity.
+  logger().addLogEntry("RollingContact_base_orientation_eval",
+                       [this]() -> Eigen::Vector3d { return baseOrientationTask_->eval(); });
+  logger().addLogEntry("RollingContact_base_position_eval",
+                       [this]() -> Eigen::Vector3d { return basePositionTask_->eval(); });
   logger().addLogEntry("RollingContact_base_position_target", [this]() { return basePositionTarget_; });
   logger().addLogEntry("RollingContact_base_yaw_target", [this]() { return baseYawTarget_; });
   logger().addLogEntry("RollingContact_base_position_reference_velocity", [this]()
@@ -1140,6 +1187,50 @@ void MCRollingContactController::setCommandedTwist(const Eigen::Vector3d & twist
   commandedTwist_ = twist;
 }
 
+void MCRollingContactController::saturateYawTargetAgainstMeasuredHeading()
+{
+  // Reference governor on the accumulated heading target.
+  //
+  // Every branch that reaches here integrates the *commanded* yaw rate, with no
+  // feedback from the chassis. Whenever the chassis cannot deliver that rate -
+  // and a four-steering chassis routinely cannot, because the hinges need
+  // finite time and finite torque to reach the commanded instantaneous centre -
+  // the orientation task's error grows at (commanded - measured) rad/s and is
+  // unbounded. It does not merely become large: mc_tasks::OrientationTask's
+  // error is sva::rotationError(), whose near-pi branch square-roots a quantity
+  // that is only non-negative in exact arithmetic. Measured on the Ranger in
+  // mc_mujoco, at |error| = pi - 0.0093 rad the intermediate is
+  // s = [-1.11e-16, -1.11e-16, 1.0] and s.cwiseSqrt() returns NaN, the NaN
+  // reaches the QP's linear term and the solve fails outright - with every
+  // contact healthy, the chassis level, and 119 N of friction margin. That is
+  // the failure this bound removes, and it removes it at the source: the QP is
+  // never handed a reference whose error can reach the singular configuration.
+  //
+  // pi/2 is where an absolute heading reference stops carrying tracking
+  // information (beyond a quarter turn the shortest-path error no longer says
+  // which way the operator asked to go) and it keeps the rotation-error
+  // Jacobian well conditioned: sinc_inv(pi/2) = 1.57 against 285 at the
+  // pi - 0.011 rad where the NaN appears. A healthy run stays two orders of
+  // magnitude below it - the worst heading error in a clean MuJoCo forward or
+  // crab run is under 0.02 rad - so this is inert whenever tracking works, and
+  // it deliberately does not hide the tracking loss: baseYawTarget_ resumes
+  // integrating the instant the chassis catches up, and the shortfall stays
+  // visible in RollingContact_base_orientation_eval.
+  const Eigen::Vector3d measuredHeading = robot().posW().rotation().col(0);
+  const double measuredYaw =
+      std::atan2(measuredHeading.dot(terrainTangentY_), measuredHeading.dot(terrainTangentX_));
+  if(!std::isfinite(measuredYaw) || !std::isfinite(baseYawTarget_)) { return; }
+  constexpr double twoPi = 2.0 * 3.14159265358979323846;
+  // measuredYaw is read off posW().rotation().col(0), which is E_0_b's first
+  // column and therefore carries -psi for a chassis yawed by psi (see the long
+  // comment on trajectoryHeadingYaw below). baseYawTarget_ is the world
+  // heading in every branch that calls this, so the heading error is
+  // baseYawTarget_ - psi = baseYawTarget_ + measuredYaw.
+  const double headingError = std::remainder(baseYawTarget_ + measuredYaw, twoPi);
+  if(std::abs(headingError) <= maxYawTargetError_) { return; }
+  baseYawTarget_ -= headingError - std::copysign(maxYawTargetError_, headingError);
+}
+
 void MCRollingContactController::updateReference()
 {
   const double phase = 2.0 * 3.14159265358979323846 * elapsed_ / commandPeriod_;
@@ -1269,11 +1360,13 @@ void MCRollingContactController::updateReference()
       // below is periodic, but retaining the accumulated value avoids a
       // discontinuous scalar target at +/-pi.
       baseYawTarget_ += yaw * solver().dt();
+      saturateYawTargetAgainstMeasuredHeading();
     }
   }
   else
   {
     baseYawTarget_ = std::remainder(baseYawTarget_ + yaw * solver().dt(), 2.0 * 3.14159265358979323846);
+    saturateYawTargetAgainstMeasuredHeading();
   }
   // The two branches above leave baseYawTarget_ in two different conventions,
   // so the heading below has to undo the difference.
@@ -1535,17 +1628,55 @@ void MCRollingContactController::updateModes()
         observation.frictionMargin = wheels_[i].friction * measured.normalForce - measured.tangentialForce;
       }
       const bool hasFreshExternalMeasurement = measured.valid && measured.age <= 2.0 * solver().dt();
-      if(modeManagers_[i].state().estimated == mc_rbdyn::RollingContactMode::Detached
-         && requested != mc_rbdyn::RollingContactMode::Detached && !hasFreshExternalMeasurement)
+      if(requested != mc_rbdyn::RollingContactMode::Detached && !hasFreshExternalMeasurement)
       {
-        // The headless ticker has no terrain contact sensor. A scheduled
-        // re-attachment therefore uses the still-valid terrain geometry as a
-        // deterministic contact-presence probe; physics adapters should feed
-        // their measured normal force instead.
+        // Neither the headless ticker nor mc_mujoco's default adapter has a
+        // terrain contact sensor, so without a fresh external measurement the
+        // only "normal force" available is normalForces_[i] - the QP's own
+        // contact multiplier. That is a decision, not an observation, and it
+        // must not be fed back as one:
+        //
+        // four coplanar wheel contacts leave the normal-force distribution with
+        // a one-dimensional null space, the diagonal mode (+1, -1, -1, +1),
+        // which produces no net force and no net moment and which nothing in
+        // this QP's objective penalises (the lambda block carries only the
+        // Tasks library's unconditional 1e-4 Hessian floor, eleven orders below
+        // the rate rows at 4e7). The solver may therefore return zero on one
+        // wheel while the chassis is perfectly level and every wheel is loaded.
+        // Measured on the Ranger in mc_mujoco, a crab command drives the split
+        // from 160/160/215/215 N to 183/0/205/341 N within four cycles - the
+        // sum stays at the 736 N vehicle weight throughout, and the chassis
+        // roll and pitch never leave 1e-5 rad.
+        //
+        // Reading that zero as a detachment closes a loop with no physical
+        // content, and it is self-confirming: a Detached wheel's multiplier is
+        // identically zero, so it can never re-enter, and the recovery probe
+        // below is vetoed for as long as the rim turns faster than
+        // recoverySpeed_. front_right then stays detached for the whole run.
+        //
+        // Use the same deterministic terrain-geometry probe the Detached ->
+        // Rolling direction already used, in both directions. Only the normal
+        // force is substituted: it is the one observation whose value the null
+        // space moves freely and the only one that can force the irreversible
+        // Detached verdict (desiredMode() returns Detached the instant
+        // normalForce drops below normalForceExit, with no dwell). The friction
+        // and torque margins are left alone for an attached wheel, so
+        // Rolling -> Sliding still reacts to a QP solution that reaches its own
+        // friction cone or its actuator bound, and so does the slip speed, which
+        // is computed from the measured state and not from lambda at all. A
+        // physics adapter or a force sensor that calls
+        // RollingContact::SetMeasuredContact keeps full detection of all four.
         const auto & thresholds = modeManagers_[i].thresholds();
         observation.normalForce = thresholds.normalForceEnter + 1.0;
-        observation.frictionMargin = thresholds.frictionMarginEnter + 1.0;
-        observation.torqueMargin = thresholds.torqueMarginEnter + 1.0;
+        if(modeManagers_[i].state().estimated == mc_rbdyn::RollingContactMode::Detached)
+        {
+          // Re-attachment additionally needs the two margins: desiredMode()'s
+          // "recovered" test requires all of them at once, so leaving either at
+          // its lambda value would deadlock a wheel whose contact rows are
+          // switched off and whose multipliers are therefore identically zero.
+          observation.frictionMargin = thresholds.frictionMarginEnter + 1.0;
+          observation.torqueMargin = thresholds.torqueMarginEnter + 1.0;
+        }
       }
       if(modeManagers_[i].state().estimated == mc_rbdyn::RollingContactMode::Detached
          && requested != mc_rbdyn::RollingContactMode::Detached && !keyboardCaptureActive)
