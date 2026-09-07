@@ -43,6 +43,28 @@ mc_solver::RollingContactLongitudinal longitudinalMode(const mc_rtc::Configurati
                                                       value);
 }
 
+/** twistWeight may be an explicit [w_vx, w_vy, w_omega] or a single scalar,
+ * broadcast to all three axes. The scalar form is accepted for convenience
+ * but deprecated: it reintroduces exactly the unit mismatch
+ * eq:planar-twist-weight exists to remove, since one number cannot
+ * simultaneously be correct in (m/s)^-2 and (rad/s)^-2 units.
+ */
+Eigen::Vector3d readTwistWeight(const mc_rtc::Configuration & config)
+{
+  if(!config.has("twistWeight")) { return Eigen::Vector3d::Ones(); }
+  if(config("twistWeight").isNumeric())
+  {
+    const double scalar = config("twistWeight", 1.0);
+    mc_rtc::log::warning(
+        "RollingContact twistWeight given as a scalar ({}); this applies the same weight to vx, vy and omega "
+        "even though they carry different units - (m/s)^-2 for vx/vy, (rad/s)^-2 for omega - and is deprecated. "
+        "Prefer the explicit [w_vx, w_vy, w_omega] form.",
+        scalar);
+    return Eigen::Vector3d::Constant(scalar);
+  }
+  return config("twistWeight", Eigen::Vector3d{1.0, 1.0, 1.0});
+}
+
 } // namespace
 
 struct MCRollingContactController::KeyboardInput
@@ -512,13 +534,25 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     postureTask->jointWeights(steeringWeights);
   }
   solver().addTask(postureTask);
+  // eq:planar-twist-weight: the planar twist error [vx, vy, omega] is
+  // weighted by a diagonal matrix, not a scalar, because vx/vy (m/s) and
+  // omega (rad/s) are not otherwise comparable. See twistWeight_'s
+  // declaration for the unit convention; the rows outside the planar twist
+  // (basePositionTask_'s z, baseOrientationTask_'s x/y) are not part of
+  // eq:planar-twist-weight and always keep weight 1.
+  twistWeight_ = readTwistWeight(settings);
+  if(!twistWeight_.allFinite() || (twistWeight_.array() <= 0.0).any())
+  {
+    mc_rtc::log::error_and_throw<std::invalid_argument>("RollingContact twistWeight must be finite and positive");
+  }
   baseOrientationTask_ = std::make_shared<mc_tasks::OrientationTask>(
       "chassis", robots(), 0, settings("baseOrientationStiffness", 10.0),
       settings("baseOrientationWeight", 500.0));
-  baseOrientationTask_->dimWeight(Eigen::Vector3d::Ones());
+  baseOrientationTask_->dimWeight(Eigen::Vector3d{1.0, 1.0, twistWeight_.z()});
   solver().addTask(baseOrientationTask_);
   basePositionTask_ = std::make_shared<mc_tasks::PositionTask>(
       "chassis", robots(), 0, settings("basePositionStiffness", 5.0), settings("basePositionWeight", 500.0));
+  basePositionTask_->dimWeight(Eigen::Vector3d{twistWeight_.x(), twistWeight_.y(), 1.0});
   solver().addTask(basePositionTask_);
   solver().setContacts({});
   driveTargets_.resize(wheels_.size(), 0.0);
@@ -739,6 +773,17 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   datastore().make_call("RollingContact::GetPositionEvalNorm", [this]() { return basePositionTask_->eval().norm(); });
   datastore().make_call("RollingContact::GetOrientationEvalNorm",
                         [this]() { return baseOrientationTask_->eval().norm(); });
+  // Direct introspection of the per-axis twist weight (eq:planar-twist-weight,
+  // R4/QP-06): basePositionTask_'s [x, y, z] and baseOrientationTask_'s
+  // [roll, pitch, yaw] dimWeight, exactly as fed to the QP by
+  // SetPointTaskCommon::computeQC (Tasks/src/QPTasks.cpp:67-70). Reading this
+  // back is a direct, deterministic check that twistWeight_ reached the two
+  // tasks' rows as documented, independent of whatever the closed-loop
+  // trajectory happens to do with it.
+  datastore().make_call("RollingContact::GetBasePositionDimWeight",
+                        [this]() -> Eigen::Vector3d { return basePositionTask_->dimWeight(); });
+  datastore().make_call("RollingContact::GetBaseOrientationDimWeight",
+                        [this]() -> Eigen::Vector3d { return baseOrientationTask_->dimWeight(); });
   datastore().make_call("RollingContact::GetHardRhsNorm", [this]() { return rolling_->hardRhs().norm(); });
   datastore().make_call("RollingContact::GetSlidingGenerator",
                         [this](const std::string & name) { return dynamics_->slidingGenerator(name); });

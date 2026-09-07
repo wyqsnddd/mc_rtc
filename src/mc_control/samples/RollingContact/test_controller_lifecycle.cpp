@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -152,6 +153,23 @@ void exercise(mc_control::MCController::Backend backend, const std::string & rob
 std::unique_ptr<mc_control::MCRollingContactController> makeRangerController()
 {
   const auto config = controllerConfiguration("hold");
+  auto controller = std::make_unique<mc_control::MCRollingContactController>(
+      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
+  controller->reset({controller->robot().mbc().q});
+  return controller;
+}
+
+/** Same as makeRangerController(), but lets the caller add or override keys
+ * under the "RollingContact" settings block before construction (e.g.
+ * twistWeight, baseOrientationWeight) - mirrors the config().add(...) pattern
+ * makeClosedLoopController() uses for closedLoopFeedback.
+ */
+std::unique_ptr<mc_control::MCRollingContactController> makeRangerController(
+    const std::function<void(mc_rtc::Configuration &)> & configure)
+{
+  auto config = controllerConfiguration("hold");
+  auto settings = config("RollingContact");
+  configure(settings);
   auto controller = std::make_unique<mc_control::MCRollingContactController>(
       robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
   controller->reset({controller->robot().mbc().q});
@@ -430,6 +448,155 @@ BOOST_AUTO_TEST_CASE(FourSteeringCommandChangeKeepsResidualsBounded)
     BOOST_TEST_MESSAGE("[phase-end] " << twist.transpose() << " res=" << controller->maxLateralResidual());
   }
   BOOST_TEST_MESSAGE("[residual] worst lateral slip over the sequence: " << worst);
+}
+
+BOOST_AUTO_TEST_CASE(TwistWeightAxesAreUnitNormalizedNotInterchangeable)
+{
+  // eq:planar-twist-weight weights the planar twist error with a diagonal
+  // matrix W_xi = diag(w_vx, w_vy, w_omega), not a scalar, because vx/vy
+  // (m/s) and omega (rad/s) are not comparable: a weight of "1" in
+  // (m/s)^-2 units and a weight of "1" in (rad/s)^-2 units penalize
+  // physically different things that only look alike because both numbers
+  // happen to be 1. This test proves twistWeight's three entries reach the
+  // QP as independent, genuine per-axis multipliers: not silently ignored,
+  // not merged into one effective scalar, and not interchangeable with each
+  // other.
+  //
+  // The primary checks below read back basePositionTask_'s and
+  // baseOrientationTask_'s dimWeight() directly through the
+  // RollingContact::GetBase{Position,Orientation}DimWeight datastore calls -
+  // exactly the vector SetPointTaskCommon::computeQC
+  // (Tasks/src/QPTasks.cpp:67-70) multiplies elementwise into that task's QP
+  // Hessian - instead of inferring the weight's effect from a closed-loop
+  // trajectory.
+  //
+  // A physical-trajectory design was tried first and abandoned. By default,
+  // baseOrientationTask_/basePositionTask_ have no real authority to lose in
+  // the first place: fourSteering_ (Ranger) unconditionally sets
+  // trackRotatingRates = true with rollingRateWeight/steeringRateWeight
+  // defaulting to 1000/dt^2 = 4e7, and the no-slip "longitudinal" row
+  // defaults to Hard (a genuine equality constraint, not a weighted task -
+  // see RollingContactConstraint.h). Both pin every wheel's spin to the
+  // kinematic feed-forward regardless of task weight, at a coefficient
+  // respectively ~80000x and effectively infinite times
+  // baseOrientationWeight/basePositionWeight's ~500 default, so starving
+  // twistWeight.z() moved the tracked yaw by only ~1e-6 rad regardless of
+  // the starving factor. Softening the rolling constraint
+  // (longitudinal: soft, rate weights zeroed) restored real leverage for
+  // omega, but the matching x-axis scenario turned out to be confounded by a
+  // genuine vx/yaw coupling in the QP - boosting twistWeight.x() moved yaw by
+  // 0.3-0.7 rad at every magnitude tried, so the trajectory-divergence
+  // metric could not isolate the x-axis effect the way it could for omega.
+  // Direct dimWeight() introspection sidesteps all of this: it is exact,
+  // deterministic, and (unlike a closed-loop metric) exercises exactly the
+  // code this task changed - the config-to-dimWeight() wiring - without
+  // also depending on the rolling-contact QP's unrelated internal balance.
+  //
+  // Non-vacuousness (would fail if twistWeight's entries were forced equal,
+  // ignored, swapped between tasks, or collapsed into one scalar): w_vx=2,
+  // w_vy=3, w_omega=5 are three distinct values, so any such bug changes at
+  // least one component of the two expected vectors below.
+  {
+    auto controller = makeRangerController(
+        [](mc_rtc::Configuration & settings) { settings.add("twistWeight", Eigen::Vector3d{2.0, 3.0, 5.0}); });
+    const Eigen::Vector3d positionDimWeight =
+        controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionDimWeight");
+    const Eigen::Vector3d orientationDimWeight =
+        controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBaseOrientationDimWeight");
+    BOOST_TEST_MESSAGE("[twistWeight] position dimWeight=" << positionDimWeight.transpose());
+    BOOST_TEST_MESSAGE("[twistWeight] orientation dimWeight=" << orientationDimWeight.transpose());
+    // basePositionTask_: [w_vx, w_vy, *] - z (chassis height) is not part of
+    // the planar twist and always keeps weight 1.
+    BOOST_CHECK_SMALL((positionDimWeight - Eigen::Vector3d{2.0, 3.0, 1.0}).norm(), 1e-9);
+    // baseOrientationTask_: [*, *, w_omega] - roll/pitch are not part of the
+    // planar twist and always keep weight 1.
+    BOOST_CHECK_SMALL((orientationDimWeight - Eigen::Vector3d{1.0, 1.0, 5.0}).norm(), 1e-9);
+  }
+
+  // Default (no twistWeight key at all) must reproduce today's behaviour
+  // exactly: both dimWeight vectors stay at Ones(), same as before
+  // twistWeight_ existed.
+  {
+    auto controller = makeRangerController([](mc_rtc::Configuration &) {});
+    const Eigen::Vector3d positionDimWeight =
+        controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionDimWeight");
+    const Eigen::Vector3d orientationDimWeight =
+        controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBaseOrientationDimWeight");
+    BOOST_CHECK_SMALL((positionDimWeight - Eigen::Vector3d::Ones()).norm(), 1e-9);
+    BOOST_CHECK_SMALL((orientationDimWeight - Eigen::Vector3d::Ones()).norm(), 1e-9);
+  }
+
+  // The deprecated bare-scalar form broadcasts to all three axes, then
+  // follows the same per-task split as the vector form.
+  {
+    auto controller = makeRangerController([](mc_rtc::Configuration & settings) { settings.add("twistWeight", 4.0); });
+    const Eigen::Vector3d positionDimWeight =
+        controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBasePositionDimWeight");
+    const Eigen::Vector3d orientationDimWeight =
+        controller->datastore().call<Eigen::Vector3d>("RollingContact::GetBaseOrientationDimWeight");
+    BOOST_CHECK_SMALL((positionDimWeight - Eigen::Vector3d{4.0, 4.0, 1.0}).norm(), 1e-9);
+    BOOST_CHECK_SMALL((orientationDimWeight - Eigen::Vector3d{1.0, 1.0, 4.0}).norm(), 1e-9);
+  }
+
+  // Closed-loop confirmation, on the one axis (omega) that produces an
+  // isolated, unconfounded signal (see the block comment above): starving
+  // twistWeight.z() alone must move the closed-loop yaw well away from
+  // baseline while leaving x comparatively close to it. This is a
+  // supplementary sanity check that the dimWeight() wiring has genuine
+  // closed-loop consequence, on top of the exact checks above.
+  {
+    // M_PI is not guaranteed by the C++ standard.
+    constexpr double pi = 3.14159265358979323846;
+    const double k = (pi / 180.0) * (pi / 180.0);
+
+    auto run = [](const Eigen::Vector3d & twistWeight)
+    {
+      auto controller = makeRangerController(
+          [&](mc_rtc::Configuration & settings)
+          {
+            settings.add("twistWeight", twistWeight);
+            // Move the no-slip row into the weighted objective (still at its
+            // default rollingWeight_ = 1000) instead of a hard equality
+            // constraint, and silence the separately-dominant rate rows so
+            // the base tasks' weight is contending against something of
+            // comparable magnitude. See the block comment above.
+            settings.add("longitudinal", "soft");
+            settings.add("rollingRateWeight", 0.0);
+            settings.add("steeringRateWeight", 0.0);
+          });
+      const sva::PTransformd start = controller->robot().posW();
+      for(int cycle = 0; cycle < 400; ++cycle)
+      {
+        // A *steady* commanded twist gives the base tasks nothing to
+        // arbitrate: the wheel-kinematic reference and the base tasks target
+        // the same twist, so in steady state they agree and the weight is
+        // moot. They genuinely disagree only while the steering hinges are
+        // still slewing towards steeringWheelReference()'s answer
+        // (first-order convergence, time constant
+        // steeringTimeConstant_ = 0.15 s = 30 cycles at dt = 5 ms). Flipping
+        // the commanded yaw every 15 cycles - half the convergence time -
+        // keeps the hinges perpetually mid-slew, so this disagreement
+        // persists for the whole run instead of decaying after 0.15 s.
+        const double yaw = ((cycle / 15) % 2 == 0) ? 0.8 : -0.8;
+        controller->setCommandedTwist({0.3, 0.0, yaw});
+        BOOST_REQUIRE(controller->run());
+      }
+      const sva::PTransformd end = controller->robot().posW();
+      return std::make_pair(chassisMotion(start, end), chassisYaw(start, end));
+    };
+
+    const auto baseline = run({1.0, 1.0, 1.0});
+    const auto omegaStarved = run({1.0, 1.0, k});
+    BOOST_TEST_MESSAGE("[twistWeight] baseline     dx=" << baseline.first.x() << " dy=" << baseline.first.y()
+                                                         << " dyaw=" << baseline.second);
+    BOOST_TEST_MESSAGE("[twistWeight] omegaStarved dx=" << omegaStarved.first.x() << " dy="
+                                                         << omegaStarved.first.y() << " dyaw=" << omegaStarved.second);
+    // Starving omega alone must move yaw well away from baseline...
+    BOOST_CHECK_GT(std::abs(baseline.second - omegaStarved.second), 0.2);
+    // ...while leaving x comparatively close to baseline: the effect stays
+    // on the axis whose weight actually changed.
+    BOOST_CHECK_LT(std::abs(baseline.first.x() - omegaStarved.first.x()), 0.1);
+  }
 }
 
 BOOST_AUTO_TEST_CASE(FourSteeringMirrorsForwardPlusNegativeYaw)

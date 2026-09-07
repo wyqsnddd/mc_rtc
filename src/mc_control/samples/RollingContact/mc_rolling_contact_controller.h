@@ -84,6 +84,15 @@ private:
   // Commanded planar chassis twist [vx, vy, omega] in the chassis frame. Every
   // four-steering wheel reference is generated from this single command.
   Eigen::Vector3d commandedTwist_ = Eigen::Vector3d::Zero();
+  // Per-axis weight [w_vx, w_vy, w_omega] on the planar twist error
+  // (eq:planar-twist-weight), applied via dimWeight() to basePositionTask_'s
+  // x/y rows and baseOrientationTask_'s z row respectively. This - not the
+  // task-level weight() - is where unit normalisation belongs: w_vx and
+  // w_vy carry (m/s)^-2, w_omega carries (rad/s)^-2, and a reader must not
+  // assume the three are comparable in magnitude just because they are all
+  // called "weight". Defaults to Ones(), which reproduces the previous
+  // uniform/scalar behaviour exactly.
+  Eigen::Vector3d twistWeight_ = Eigen::Vector3d::Ones();
   // First-order convergence time of a steering hinge towards its reference
   // heading, saturated by maxSteeringRate_. Both are configurable and
   // maxSteeringRate_ defaults to the steering joints' model velocity limit;
