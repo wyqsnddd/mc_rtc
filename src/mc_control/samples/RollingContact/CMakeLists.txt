@@ -214,6 +214,73 @@ if(BUILD_TESTING)
       TIMEOUT 30
   )
 
+  # ORC-08: closed-loop cross-check against an independent simulator. The
+  # simulator is the real mc_mujoco binary, not the CPU-headless runner of
+  # run-mujoco-suite.py -- that runner injects MuJoCo's true contact forces into
+  # the estimator, which is exactly the ground truth that once hid a wheel
+  # detachment from it. Opt-in because it needs mc_mujoco installed, writes
+  # hundreds of megabytes of log per run and takes about a minute; the default
+  # suite must stay fast. Enable with
+  #   cmake -S . -B build -DROLLING_CONTACT_MC_MUJOCO_CROSS_CHECK=ON
+  # then run ctest -L rolling-contact-mujoco.
+  option(ROLLING_CONTACT_MC_MUJOCO_CROSS_CHECK
+         "Register the ORC-08 mc_mujoco closed-loop cross-check with CTest" OFF
+  )
+  if(ROLLING_CONTACT_MC_MUJOCO_CROSS_CHECK)
+    find_program(MC_MUJOCO_EXECUTABLE mc_mujoco REQUIRED)
+    add_test(
+      NAME RollingContactMuJoCoCrossCheckORC08
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/rolling-contact-report/scripts/cross-check-mc-mujoco.py"
+        --mc-mujoco "${MC_MUJOCO_EXECUTABLE}" --utils "$<TARGET_FILE_DIR:mc_bin_to_log>"
+        --config
+        "${PROJECT_SOURCE_DIR}/rolling-contact-report/config/mc_rtc-four-steering.yaml"
+        --timesteps 0.005 --window 5.0 --wall-timeout 8.0 --torque-control --output
+        "${PROJECT_BINARY_DIR}/rolling-contact-orc08.json"
+    )
+    set_tests_properties(
+      RollingContactMuJoCoCrossCheckORC08
+      PROPERTIES
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        TIMEOUT 600
+        LABELS "rolling-contact-mujoco"
+        SKIP_RETURN_CODE 77
+        ENVIRONMENT "CUDA_VISIBLE_DEVICES=-1;MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON"
+    )
+    # The same cross-check in mc_mujoco's own default actuation regime, which is
+    # what the acceptance command `mc_mujoco -f ...` uses. Registering both is
+    # the point: the two regimes disagree by a factor of twelve on the
+    # controller/simulator discrepancy (0.0234 m under joint PD against
+    # 0.2953 m under torque control), and running only one of them is how a
+    # regime divergence goes unnoticed. The bounds here are the tight ones the
+    # PD regime actually achieves.
+    add_test(
+      NAME RollingContactMuJoCoCrossCheckPDORC08
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/rolling-contact-report/scripts/cross-check-mc-mujoco.py"
+        --mc-mujoco "${MC_MUJOCO_EXECUTABLE}" --utils "$<TARGET_FILE_DIR:mc_bin_to_log>"
+        --config
+        "${PROJECT_SOURCE_DIR}/rolling-contact-report/config/mc_rtc-four-steering.yaml"
+        --timesteps 0.005 --window 5.0 --wall-timeout 8.0 --position-discrepancy 0.06
+        --minimum-tracked-fraction 0.9 --output
+        "${PROJECT_BINARY_DIR}/rolling-contact-orc08-pd.json"
+    )
+    set_tests_properties(
+      RollingContactMuJoCoCrossCheckPDORC08
+      PROPERTIES
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        TIMEOUT 600
+        LABELS "rolling-contact-mujoco"
+        SKIP_RETURN_CODE 77
+        ENVIRONMENT "CUDA_VISIBLE_DEVICES=-1;MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON"
+    )
+    mc_rtc_isolate_test_home(
+      RollingContactMuJoCoCrossCheckORC08 RollingContactMuJoCoCrossCheckPDORC08
+    )
+  endif()
+
   # The ticker fixtures below construct a full MCGlobalController, which merges
   # ~/.config/mc_rtc/mc_rtc.yaml *before* the -f file. A developer profile can
   # therefore override MainRobot, the enabled controllers and every RollingContact

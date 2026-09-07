@@ -155,6 +155,40 @@ with the controller reverted to `1f136644ad`:
 
 Both regressed somewhere in the four-steering rate-row rewrite and are open.
 
+### ORC-08: the independent cross-check against the real `mc_mujoco`
+
+Because the CPU suite cannot observe the divergences tabulated above,
+`scripts/cross-check-mc-mujoco.py` drives the installed `mc_mujoco` binary headless
+(`--without-visualization --without-mc-rtc-gui`), asserts that
+`<wheel>_simulator_measurement_valid` is false for the whole run - so the contact-mode estimator is
+genuinely reading the QP's own multiplier and no ground truth is being injected - and only then checks
+the trajectory. It is opt-in because it needs `mc_mujoco` installed and writes hundreds of megabytes of
+log per run:
+
+```sh
+cmake -S . -B build -DROLLING_CONTACT_MC_MUJOCO_CROSS_CHECK=ON
+cmake --build build -j
+CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON \
+  ctest --test-dir build -j1 -L rolling-contact-mujoco --output-on-failure
+```
+
+Two tests are registered, one per actuation regime, because the two disagree by a factor of twelve.
+On `mc_rtc-four-steering.yaml` (crab at 0.15 m/s) over a 5 s window:
+
+| regime | commanded | control robot | `mc_mujoco` | tracked | controller/simulator discrepancy |
+| --- | --- | --- | --- | --- | --- |
+| joint PD (mc_mujoco default, the acceptance command) | 0.7500 m | 0.7439 m | 0.7398 m | 98.6% | 0.0234 m |
+| `--torque-control` (the CPU suite's regime) | 0.7500 m | 0.7439 m | 0.5094 m | 67.9% | 0.2953 m |
+
+The control robot tracks its own command to within 1% in both, so the QP is doing what it was asked.
+**Open:** under `--torque-control` the simulator delivers about two thirds of it, and the gap does not
+converge as the timestep shrinks - 0.2953 m, 0.2151 m, 0.2914 m at `Timestep` 5 ms, 2.5 ms and 1 ms.
+The testcard's own criterion is that convergence order is what separates a defect from a
+discretization difference, so this is a real controller/simulator disagreement in the torque-control
+path. No wheel detached and drive torque peaked at 6.5 Nm against the 35 Nm limit in either regime, so
+it is neither a contact-loss nor a saturation failure. The historical joint-PD `front_right`
+detachment tabulated above does not reproduce on this config with the current code.
+
 ## Open: four-steering yaw tracking
 
 Commanded pure yaw is tracked at a fraction of the command, in every actuation mode, in real `mc_mujoco`:
