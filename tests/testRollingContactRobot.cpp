@@ -3,12 +3,16 @@
 #include <mc_rbdyn/RobotLoader.h>
 #include <mc_rbdyn/Robots.h>
 
+#include <mc_rtc/constants.h>
+
 #include <RBDyn/MultiBodyConfig.h>
 
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -70,6 +74,37 @@ void setVelocity(mc_rbdyn::Robot & robot, const Eigen::VectorXd & velocity)
 {
   rbd::vectorToParam(velocity, robot.mbc().alpha);
   robot.forwardVelocity();
+}
+
+const std::array<std::string, 4> & rangerCorners()
+{
+  static const std::array<std::string, 4> corners = {"front_left", "front_right", "rear_left", "rear_right"};
+  return corners;
+}
+
+/** Headings used by the chassis-heading-invariance pins. The first one is the
+ * reference every other heading is compared against.
+ */
+const std::array<double, 4> & headingSweep()
+{
+  static const std::array<double, 4> yaws = {0.0, mc_rtc::constants::PI / 4.0, mc_rtc::constants::PI / 2.0,
+                                             -2.0 * mc_rtc::constants::PI / 3.0};
+  return yaws;
+}
+
+/** Place the floating base at a pure yaw about the world vertical. */
+void setChassisYaw(mc_rbdyn::Robot & robot, double yaw)
+{
+  robot.posW(sva::PTransformd(sva::RotZ(yaw), robot.posW().translation()));
+  robot.forwardKinematics();
+  robot.forwardVelocity();
+}
+
+/** Carrier offset from the chassis origin, in the inertial frame. */
+Eigen::Vector3d worldWheelOffset(const mc_rbdyn::Robot & robot, const std::string & corner)
+{
+  return robot.frame(corner + "_carrier").position().translation()
+         - robot.frame("chassis").position().translation();
 }
 
 } // namespace
@@ -245,6 +280,147 @@ BOOST_AUTO_TEST_CASE(RangerWheelOffsetsMatchTheUrdfLayout)
     const Eigen::Vector2d offset = (chassis.rotation() * worldOffset).head<2>();
     BOOST_CHECK_SMALL((offset - expected).norm(), 1e-12);
   }
+}
+
+BOOST_AUTO_TEST_CASE(PlanarWheelOffsetsAreChassisHeadingInvariant)
+{
+  // GEO-01. Assumption A1 (as:planar-basis) asks for the planar quantities to
+  // be resolved in the chassis-aligned basis, so that rho_i is constant. The
+  // controller already builds wheelOffsets_ that way
+  // (mc_rolling_contact_controller.cpp:279-281); this pins the property the
+  // assumption actually needs, rather than the one line that produces it.
+  auto module = loadModule("ranger_mini_v3");
+  BOOST_REQUIRE(module);
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+
+  std::array<std::array<Eigen::Vector2d, 4>, 4> chassisOffsets;
+  std::array<std::array<Eigen::Vector2d, 4>, 4> worldOffsets;
+  for(size_t k = 0; k < headingSweep().size(); ++k)
+  {
+    setChassisYaw(robot, headingSweep()[k]);
+    const auto & chassis = robot.frame("chassis").position();
+    for(size_t i = 0; i < rangerCorners().size(); ++i)
+    {
+      const Eigen::Vector3d offset = worldWheelOffset(robot, rangerCorners()[i]);
+      chassisOffsets[k][i] = (chassis.rotation() * offset).head<2>();
+      worldOffsets[k][i] = offset.head<2>();
+    }
+  }
+
+  double worstChassisDrift = 0.0;
+  double smallestWorldDrift = std::numeric_limits<double>::infinity();
+  for(size_t k = 1; k < headingSweep().size(); ++k)
+  {
+    for(size_t i = 0; i < rangerCorners().size(); ++i)
+    {
+      worstChassisDrift = std::max(worstChassisDrift, (chassisOffsets[k][i] - chassisOffsets[0][i]).norm());
+      smallestWorldDrift = std::min(smallestWorldDrift, (worldOffsets[k][i] - worldOffsets[0][i]).norm());
+    }
+  }
+  BOOST_TEST_MESSAGE("Chassis-frame offset drift across headings: " << worstChassisDrift
+                                                                    << ", world-frame offset drift: "
+                                                                    << smallestWorldDrift);
+  BOOST_CHECK_SMALL(worstChassisDrift, 1e-12);
+  // Non-vacuity: the same quantity resolved in the world-fixed basis moves by
+  // at least 0.2 m over this heading sweep, so the check above is a real
+  // observation about the chassis-aligned basis and not an identity.
+  BOOST_CHECK_GT(smallestWorldDrift, 0.2);
+}
+
+BOOST_AUTO_TEST_CASE(ChassisAlignedPlanarBasisIsOrthonormalRightHandedAndBodyConstant)
+{
+  // GEO-02. The chassis-aligned basis of A1 is the chassis frame's own forward
+  // axis projected onto the contact plane; assert it is a proper right-handed
+  // orthonormal frame and that the planar offsets it resolves are unchanged by
+  // a pure chassis rotation.
+  auto module = loadModule("ranger_mini_v3");
+  BOOST_REQUIRE(module);
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+  const Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();
+  const Eigen::Matrix3d worldBasis = mc_rbdyn::planarContactBasis(normal, Eigen::Vector3d::UnitX());
+
+  std::array<std::array<Eigen::Vector2d, 4>, 4> chassisOffsets;
+  std::array<std::array<Eigen::Vector2d, 4>, 4> worldFixedOffsets;
+  for(size_t k = 0; k < headingSweep().size(); ++k)
+  {
+    setChassisYaw(robot, headingSweep()[k]);
+    // position().rotation() maps world into the chassis, so its transpose holds
+    // the chassis axes expressed in the world.
+    const Eigen::Matrix3d chassisAxes = robot.frame("chassis").position().rotation().transpose();
+    const Eigen::Matrix3d basis = mc_rbdyn::planarContactBasis(normal, chassisAxes.col(0));
+    const Eigen::Vector3d ex = basis.col(0);
+    const Eigen::Vector3d ey = basis.col(1);
+    BOOST_CHECK_CLOSE(ex.norm(), 1.0, 1e-10);
+    BOOST_CHECK_CLOSE(ey.norm(), 1.0, 1e-10);
+    BOOST_CHECK_SMALL(ex.dot(ey), 1e-12);
+    BOOST_CHECK_SMALL((ex.cross(ey) - normal).norm(), 1e-12);
+    BOOST_CHECK_SMALL((basis.col(2) - normal).norm(), 1e-12);
+    // The basis rotates with the chassis, so it is not the world-fixed one.
+    if(k > 0) { BOOST_CHECK_GT((basis - worldBasis).norm(), 0.5); }
+
+    for(size_t i = 0; i < rangerCorners().size(); ++i)
+    {
+      const Eigen::Vector3d offset = worldWheelOffset(robot, rangerCorners()[i]);
+      chassisOffsets[k][i] = Eigen::Vector2d{ex.dot(offset), ey.dot(offset)};
+      worldFixedOffsets[k][i] =
+          Eigen::Vector2d{worldBasis.col(0).dot(offset), worldBasis.col(1).dot(offset)};
+    }
+  }
+
+  double worstChassisDrift = 0.0;
+  double smallestWorldDrift = std::numeric_limits<double>::infinity();
+  for(size_t k = 1; k < headingSweep().size(); ++k)
+  {
+    for(size_t i = 0; i < rangerCorners().size(); ++i)
+    {
+      worstChassisDrift = std::max(worstChassisDrift, (chassisOffsets[k][i] - chassisOffsets[0][i]).norm());
+      smallestWorldDrift = std::min(smallestWorldDrift, (worldFixedOffsets[k][i] - worldFixedOffsets[0][i]).norm());
+    }
+  }
+  BOOST_TEST_MESSAGE("Chassis-aligned basis offset drift: " << worstChassisDrift
+                                                            << ", world-fixed basis offset drift: "
+                                                            << smallestWorldDrift);
+  BOOST_CHECK_SMALL(worstChassisDrift, 1e-12);
+  // Non-vacuity again: the world-fixed basis of the same construction, which is
+  // what the controller uses as its yaw reference, does move.
+  BOOST_CHECK_GT(smallestWorldDrift, 0.2);
+}
+
+BOOST_AUTO_TEST_CASE(DegenerateForwardAxisAbortsThePlanarBasis)
+{
+  // GEO-03. A forward axis parallel to the normal leaves nothing to normalize;
+  // the surviving vector would be pure round-off, so the construction has to
+  // abort rather than hand back a plausible-looking frame.
+  const Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();
+  BOOST_CHECK_THROW(mc_rbdyn::planarContactBasis(normal, normal), std::invalid_argument);
+  BOOST_CHECK_THROW(mc_rbdyn::planarContactBasis(normal, -normal), std::invalid_argument);
+  BOOST_CHECK_THROW(mc_rbdyn::planarContactBasis(normal, Eigen::Vector3d{1e-12, 0.0, 1.0}), std::invalid_argument);
+  BOOST_CHECK_THROW(mc_rbdyn::planarContactBasis(normal, Eigen::Vector3d::Zero()), std::invalid_argument);
+  BOOST_CHECK_THROW(mc_rbdyn::planarContactBasis(Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitX()),
+                    std::invalid_argument);
+  BOOST_CHECK_THROW(
+      mc_rbdyn::planarContactBasis(Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN()),
+                                   Eigen::Vector3d::UnitX()),
+      std::invalid_argument);
+  BOOST_CHECK_THROW(
+      mc_rbdyn::planarContactBasis(normal, Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity())),
+      std::invalid_argument);
+
+  // A forward axis that only just clears the threshold still yields a proper
+  // frame; the guard rejects the unrecoverable case, not merely a steep one.
+  const Eigen::Matrix3d basis = mc_rbdyn::planarContactBasis(normal, Eigen::Vector3d{1e-6, 0.0, 1.0});
+  BOOST_CHECK_SMALL((basis.col(0) - Eigen::Vector3d::UnitX()).norm(), 1e-12);
+  BOOST_CHECK_SMALL((basis.col(1) - Eigen::Vector3d::UnitY()).norm(), 1e-12);
+  BOOST_CHECK_SMALL((basis.transpose() * basis - Eigen::Matrix3d::Identity()).norm(), 1e-12);
+
+  // A non-vertical normal keeps the same contract.
+  const Eigen::Vector3d ramp = Eigen::Vector3d{0.2, -0.1, 1.0}.normalized();
+  const Eigen::Matrix3d rampBasis = mc_rbdyn::planarContactBasis(ramp, Eigen::Vector3d::UnitX());
+  BOOST_CHECK_SMALL((rampBasis.transpose() * rampBasis - Eigen::Matrix3d::Identity()).norm(), 1e-12);
+  BOOST_CHECK_SMALL((rampBasis.col(0).cross(rampBasis.col(1)) - ramp).norm(), 1e-12);
+  BOOST_CHECK_THROW(mc_rbdyn::planarContactBasis(ramp, ramp), std::invalid_argument);
 }
 
 BOOST_AUTO_TEST_CASE(RejectUnknownRollingRobotVariant)

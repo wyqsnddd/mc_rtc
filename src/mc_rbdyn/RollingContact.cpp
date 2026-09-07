@@ -24,6 +24,14 @@ namespace
 {
 
 constexpr double geometryEpsilon = 1e-12;
+/** Smallest in-plane component a forward axis may keep in planarContactBasis().
+ *
+ * Looser than geometryEpsilon on purpose: the projection loses about half the
+ * available digits, so a 1e-12 residue is already indistinguishable from
+ * round-off. It matches the threshold the RollingContact sample controller uses
+ * to fall back from the world UnitX to UnitY.
+ */
+constexpr double planarBasisEpsilon = 1e-8;
 
 bool finite(double value)
 {
@@ -507,6 +515,39 @@ const RollingContactKinematics & RollingContactRobotGeometry::kinematics() const
 const RollingContactGeometryResult & RollingContactRobotGeometry::result() const noexcept
 {
   return impl_->geometry.result();
+}
+
+Eigen::Matrix3d planarContactBasis(const Eigen::Vector3d & normal, const Eigen::Vector3d & forward)
+{
+  requireFinite(normal, "planar basis normal");
+  requireFinite(forward, "planar basis forward axis");
+  const double normalNorm = normal.norm();
+  if(normalNorm <= geometryEpsilon)
+  {
+    throw std::invalid_argument("Rolling contact planar basis normal is degenerate");
+  }
+  const double forwardNorm = forward.norm();
+  if(forwardNorm <= geometryEpsilon)
+  {
+    throw std::invalid_argument("Rolling contact planar basis forward axis is degenerate");
+  }
+  const Eigen::Vector3d unitNormal = normal / normalNorm;
+  const Eigen::Vector3d unitForward = forward / forwardNorm;
+  const Eigen::Vector3d tangent = unitForward - unitNormal * unitNormal.dot(unitForward);
+  // Both inputs are unit vectors here, so this is |sin(angle)| and the threshold
+  // is an absolute one. Below it the surviving vector is round-off, and
+  // normalizing it would hand back a direction the caller never asked for.
+  if(tangent.norm() <= planarBasisEpsilon)
+  {
+    throw std::invalid_argument(
+        "Rolling contact planar basis forward axis is parallel to the normal: no in-plane forward axis survives the "
+        "projection");
+  }
+  Eigen::Matrix3d basis;
+  basis.col(0) = tangent.normalized();
+  basis.col(1) = unitNormal.cross(basis.col(0)).normalized();
+  basis.col(2) = unitNormal;
+  return basis;
 }
 
 void PlanarWheel::validate() const

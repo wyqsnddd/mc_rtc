@@ -913,3 +913,91 @@ change.
 
 Note: this file is untracked in git (as are `README.md` and `plans/`); it is
 part of the local rolling-contact report rather than the upstream project.
+
+## Task 1 — whole-body carry-over of assumption A1 (`as:planar-basis`) (2026-09-07)
+
+`rolling-contact-qp-corrected.tex` (`sec:planar-qp-assumptions`, `as:planar-basis`)
+requires every planar quantity to be resolved in the **chassis-aligned** basis,
+so that the wheel offsets `rho_i` and the planar wheel maps `H_i` are constant
+and `Hdot_i = 0` drops out of the differentiated rows. An earlier reading of
+this assumption flagged `mc_rolling_contact_controller.cpp:391` — the world
+`UnitX` projected off the terrain normal — as the violation. That reading is
+wrong on both counts, and acting on it would have broken the controller.
+
+**Claim (a) — `rho_i` is already chassis-frame and constant.** `wheelOffsets_`
+is built once, in the constructor, at
+`mc_rolling_contact_controller.cpp:279-281`:
+
+    const Eigen::Vector3d worldOffset =
+        robot().frame(wheel.carrierFrame).position().translation() - chassis.translation();
+    wheelOffsets_.push_back((chassis.rotation() * worldOffset).head<2>());
+
+`sva::PTransformd::rotation()` is `E_0_c`, the world-to-chassis map, so
+`chassis.rotation() * worldOffset` is the offset expressed in the chassis
+frame. That is exactly `rho_i` in the chassis-aligned basis A1 asks for, and it
+is what `mc_rbdyn::steeringWheelReference()` consumes. Verified by measurement,
+not only by reading: `PlanarWheelOffsetsAreChassisHeadingInvariant`
+(`tests/testRollingContactRobot.cpp`) places the Ranger at yaw
+`0, pi/4, pi/2, -2pi/3` and finds the chassis-frame offsets drift by
+`2.78e-17` across the sweep, while the same offsets read in the world-fixed
+basis drift by `0.235 m` (smallest pair over the sweep; largest `0.531 m`).
+
+**Claim (b) — the whole-body rows carry no `H_i`, hence no dropped `Hdot_i`.**
+`RollingContactGeometry::update` (`src/mc_rbdyn/RollingContact.cpp:366-369`)
+builds its three rows as `dir^T * carrierJacobian` for the inertial-frame
+rolling/lateral/normal directions, minus `radius * spinSign * wheelSelector` on
+the rolling row. There is no planar `H_i` factor anywhere in that product. The
+time dependence of those rows is carried by `accelerationBias`
+(`:376-381`) as `dir . carrierNormalAcceleration + dirRate . carrierVelocity`,
+where `carrierNormalAcceleration` is RBDyn's `normalAcceleration()`, i.e.
+`Jdot * alpha` at the carrier center. `Gdot * alpha` is therefore exact, not
+approximated, and there is no `Hdot_i` term being dropped.
+`ResolvedRollingBiasMatchesMatrixDirectionalDerivative` already pins this
+against a finite-difference of `G(q) * alpha` to `1e-5`.
+
+**Why `terrainTangentX_` / `terrainTangentY_` must stay world-fixed.** Those
+two vectors are not the planar row basis; they are the **yaw reference frame**.
+They are consumed at `mc_rolling_contact_controller.cpp:1003, 1109, 1166, 1292,
+1545` as
+
+    measuredYaw = std::atan2(measuredHeading.dot(terrainTangentY_), measuredHeading.dot(terrainTangentX_));
+
+and at `:1208-1211` to build the trajectory `heading`/`side` vectors. If that
+basis rotated with the chassis then `measuredHeading . terrainTangentX_` would
+be identically `1` and `measuredHeading . terrainTangentY_` identically `0`, so
+`measuredYaw` would collapse to zero and `baseYawTarget_`, the closed-loop
+keyboard heading and the trajectory frame would all silently break. A
+world-fixed yaw reference is a requirement, not an oversight, and A1 does not
+speak about it.
+
+**Decision.** A1 is already satisfied in substance by the whole-body
+implementation; it requires **no** change of basis. GEO-01
+(`PlanarWheelOffsetsAreChassisHeadingInvariant`) and GEO-02
+(`ChassisAlignedPlanarBasisIsOrthonormalRightHandedAndBodyConstant`) are
+committed as regression **pins** on that existing behaviour. Both are
+non-vacuous by construction: each computes the world-fixed variant of the same
+quantity alongside the chassis-aligned one and asserts the two disagree, so a
+regression to a world-fixed `rho_i` fails them. Confirmed by mutation as well —
+substituting the world-fixed expression for the chassis-frame one makes both
+report a drift of `0.531` against their `1e-12` bound; the mutation was
+reverted.
+
+**GEO-03 and the one behaviour change.** The basis construction moved into
+`mc_rbdyn::planarContactBasis(normal, forward)`
+(`include/mc_rbdyn/RollingContact.h`, `src/mc_rbdyn/RollingContact.cpp`), which
+throws `std::invalid_argument` when `forward` is parallel to `normal` instead of
+normalizing what round-off leaves behind. The controller now selects its
+forward axis (world `UnitX`, falling back to `UnitY`) and hands it to that
+helper, so the fallback keeps its existing behaviour for every reachable input
+and gains the guard. Honest caveat: with the world-axis pair the
+degenerate-against-both branch is **unreachable** for a unit normal, since it
+would need `n_x^2 > 1 - 1e-16` and `n_y^2 > 1 - 1e-16` at once, i.e.
+`n_x^2 + n_y^2 > 1`. For the controller the guard is therefore defensive. It is
+load-bearing — and directly tested by
+`DegenerateForwardAxisAbortsThePlanarBasis` — for callers that pass their own
+forward axis, which is precisely how the chassis-aligned basis of A1 is built
+in GEO-02.
+
+**Regression.** Rolling CTest 14/14, full CTest 104/104, both unchanged from
+the pre-task baseline. This task added tests and one guard; no existing number
+moved.

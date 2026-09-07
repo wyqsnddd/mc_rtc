@@ -266,6 +266,26 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
+/** Right-handed orthonormal basis of the contact plane, as columns [e_x, e_y, n].
+ *
+ * `e_x` is @p forward projected onto the plane orthogonal to @p normal and
+ * renormalized, `e_y` is `n x e_x` and `e_z` is the unit normal. Neither input
+ * has to be normalized.
+ *
+ * Which @p forward the caller passes selects the convention, and the two useful
+ * choices are not interchangeable:
+ * - the world `UnitX` gives a **world-fixed** frame, which is what a yaw
+ *   reference needs: a heading resolved in a frame that rotated with the body
+ *   would read as identically zero;
+ * - the chassis forward axis gives the **chassis-aligned** basis of the planar
+ *   reduction's assumption A1, in which the wheel offsets rho_i are constant.
+ *
+ * @throws std::invalid_argument if either input is non-finite or degenerate, or
+ * if @p forward is parallel to @p normal, so that nothing but round-off would
+ * survive the projection.
+ */
+MC_RBDYN_DLLAPI Eigen::Matrix3d planarContactBasis(const Eigen::Vector3d & normal, const Eigen::Vector3d & forward);
+
 /** One wheel in an explicit planar chassis specialization. */
 struct MC_RBDYN_DLLAPI PlanarWheel
 {

@@ -388,13 +388,23 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     mc_rtc::log::error_and_throw<std::invalid_argument>("RollingContact terrainNormal must be finite and nonzero");
   }
   terrainNormal_ = options.terrainNormal.normalized();
-  terrainTangentX_ = Eigen::Vector3d::UnitX() - terrainNormal_ * terrainNormal_.x();
-  if(terrainTangentX_.norm() < 1e-8)
+  // This basis is the world-fixed yaw reference frame, NOT the chassis-aligned
+  // planar basis of assumption A1. measuredYaw is
+  // atan2(heading . terrainTangentY_, heading . terrainTangentX_), so a basis
+  // that rotated with the chassis would make it identically zero and silently
+  // break every piece of yaw bookkeeping downstream. The chassis-aligned basis
+  // A1 asks for is where rho_i is resolved, and wheelOffsets_ above already
+  // does that; see mc_rbdyn::planarContactBasis().
+  Eigen::Vector3d terrainForward = Eigen::Vector3d::UnitX();
+  if((terrainForward - terrainNormal_ * terrainNormal_.x()).norm() < 1e-8)
   {
-    terrainTangentX_ = Eigen::Vector3d::UnitY() - terrainNormal_ * terrainNormal_.y();
+    terrainForward = Eigen::Vector3d::UnitY();
   }
-  terrainTangentX_.normalize();
-  terrainTangentY_ = terrainNormal_.cross(terrainTangentX_).normalized();
+  // planarContactBasis() throws when even the fallback axis is parallel to the
+  // normal, instead of normalizing what is left of it.
+  const Eigen::Matrix3d terrainBasis = mc_rbdyn::planarContactBasis(terrainNormal_, terrainForward);
+  terrainTangentX_ = terrainBasis.col(0);
+  terrainTangentY_ = terrainBasis.col(1);
   options.longitudinal = longitudinalMode(settings);
   options.velocityGain = settings("velocityGain", 20.0);
   options.rollingWeight = rollingWeight_;
