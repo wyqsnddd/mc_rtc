@@ -38,28 +38,38 @@ namespace mc_solver
  * (1,-1,1,-1) is an exact null direction of the map from one point's four
  * multipliers to its 3D force. Nothing else in this file or in
  * RollingContactConstraint.cpp contributes an objective term over lambda, so
- * without generatorRegularization the assembled Hessian's lambda block would
- * be exactly singular along that direction, were it not for the Tasks
- * library's own unconditional diagonal floor (Tasks/src/GenQPUtils.h's
- * DIAG_CONSTANT = 1e-4, applied library-side to every decision variable
- * regardless of what any task contributes). generatorRegularization adds a
- * Tikhonov term eps * ||lambda||^2 per wheel to remove that redundancy on
- * purpose, with a margin stated by design rather than inherited incidentally
- * from the floor (see generatorRegularizationQC and the
- * RollingContactDynamicsConstraintGeneratorRegularization* tests in
- * tests/testRollingContactSolver.cpp for the measurements this is based on).
+ * in principle that leaves the assembled Hessian's lambda block singular
+ * along that direction -- except that the Tasks library applies its own
+ * unconditional diagonal floor (Tasks/src/GenQPUtils.h's DIAG_CONSTANT =
+ * 1e-4, added to every decision variable's diagonal entry regardless of what
+ * any task contributes, whenever that entry is smaller than 1e-4).
+ * Measured directly (see
+ * RollingContactDynamicsConstraintGeneratorRegularizationQP02ZeroReliesOnlyOnTheLibraryFloor
+ * in tests/testRollingContactSolver.cpp): at generatorRegularization = 0 the
+ * smallest eigenvalue of that block is exactly the floor, 1e-4 -- positive,
+ * not singular. So on the Tasks backend the term this class calls
+ * generatorRegularization (a Tikhonov penalty eps * ||lambda||^2 per wheel,
+ * see generatorRegularizationQC) is not needed for conditioning: the solver
+ * already prevents the singularity the formulation would otherwise have.
  *
- * Measurement (see ...FRI01BiasAtDefaultAndTenX) shows this margin and the
- * bias it puts on the solved contact force both grow with epsilon at roughly
- * the same rate, so there is no epsilon that is simultaneously an
- * unambiguous, order-of-magnitude improvement over the incidental floor and
- * negligible against the physical force: at the point where the margin
- * clears ten times the floor, the solved tangential force already moves by
- * more than 1% under a 10x change of epsilon. defaultGeneratorRegularization
- * is chosen on the side of that trade-off the plan asks for -- "small enough
- * not to bias the physical force" is the binding requirement, conditioning
- * is the secondary benefit -- rather than maximizing the conditioning
- * margin.
+ * The option and its machinery are kept, and are exercised by the
+ * RollingContactDynamicsConstraintGeneratorRegularization* tests in
+ * tests/testRollingContactSolver.cpp, for a backend or solver that does not
+ * apply a diagonal floor of its own; there the term would be needed and this
+ * is where it would be configured. But enabling it is not free: measurement
+ * (RollingContactDynamicsConstraintGeneratorRegularizationFRI01BiasAtEnabledAndTenX)
+ * shows the conditioning margin and the bias it puts on the solved contact
+ * force both grow with epsilon at roughly the same rate, so there is no
+ * epsilon that is simultaneously a real conditioning win and negligible
+ * against the physical force -- at epsilon = 2e-4 (four times the library
+ * floor) the solved tangential force already moved by 0.008936 N on a
+ * solved 2.17860 N (41% of a 1% budget), and the four-steering
+ * target-tracking error degraded from 1.67e-4 (at epsilon = 0) to 6.692e-4
+ * (see RollingTasksFourSteeringAckermannTargetWithDynamics). Because mc_rtc's
+ * Tasks backend already floors the Hessian diagonal unconditionally,
+ * defaultGeneratorRegularization is 0.0: the default configuration should
+ * not pay a measurable physical-force bias for a singularity its solver
+ * already prevents.
  *
  * The TVM backend parameterizes each point's contact force directly as a 3D
  * vector (TVMRollingForceCone / TVMRollingForceMode), which has no
@@ -70,22 +80,28 @@ class MC_SOLVER_DLLAPI RollingContactDynamicsConstraint : public DynamicsConstra
 {
 public:
   /** Default Tikhonov weight on each wheel's eight generator multipliers
-   * (see the class documentation and generatorRegularizationQC). Chosen so
-   * that 2 * defaultGeneratorRegularization clears the Tasks library's own
-   * DIAG_CONSTANT floor (1e-4) by a clean, unambiguous factor of four --
-   * enough that the conditioning margin is entirely attributable to this
-   * term (the floor only ever adds anything when 2*epsilon < DIAG_CONSTANT,
-   * so any factor above 1 already means the floor contributes nothing) --
-   * while keeping the solved contact force's measured bias from a 10x change
-   * in this weight to well under (about 41% of) the 1% budget asserted by
-   * ...FRI01BiasAtDefaultAndTenX. A larger default (e.g. ten times the
-   * floor) was measured and rejected: bias at that point already exceeds the
-   * 1% budget, which is the "must stay small enough not to bias the physical
-   * force" requirement this constant exists to satisfy. See
-   * RollingContactDynamicsConstraintGeneratorRegularizationQP01DefaultClearsTheLibraryFloor
-   * and ...FRI01BiasAtDefaultAndTenX in tests/testRollingContactSolver.cpp.
+   * (see the class documentation and generatorRegularizationQC). Zero: the
+   * Tasks backend floors the Hessian diagonal at 1e-4 unconditionally (see
+   * the class documentation and
+   * ...GeneratorRegularizationQP02ZeroReliesOnlyOnTheLibraryFloor), so the
+   * term is not needed for conditioning there, and it is not free to enable
+   * -- measured at epsilon = 2e-4 (four times that floor), it biased the
+   * solved tangential force by 0.008936 N on a solved 2.17860 N (41% of a 1%
+   * budget) and degraded the four-steering target-tracking error from
+   * 1.67e-4 to 6.692e-4 (RollingTasksFourSteeringAckermannTargetWithDynamics).
+   * Margin and bias both grow with epsilon at roughly the same rate, so no
+   * positive value is simultaneously an unambiguous conditioning win and
+   * negligible against the physical force.
+   *
+   * The option is kept, and is not dead: a solver or backend without an
+   * unconditional diagonal floor of its own would need it for conditioning,
+   * and RollingContactDynamicsConstraintGeneratorRegularizationQP01EnabledClearsTheLibraryFloor
+   * and ...FRI01BiasAtEnabledAndTenX in tests/testRollingContactSolver.cpp
+   * measure exactly that trade-off at an explicit enabled value (2e-4) so a
+   * caller who does need it has a starting point and a measured cost. See
+   * those tests and the class documentation for the numbers.
    */
-  static constexpr double defaultGeneratorRegularization = 2e-4;
+  static constexpr double defaultGeneratorRegularization = 0.0;
 
   RollingContactDynamicsConstraint(const mc_rbdyn::Robots & robots,
                                    unsigned int robotIndex,

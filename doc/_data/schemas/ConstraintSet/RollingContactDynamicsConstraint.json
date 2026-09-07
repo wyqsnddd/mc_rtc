@@ -7,6 +7,13 @@
     "robot": { "$ref": "../common/ConstraintSet_robot.json" },
     "terrainNormal": { "$ref": "../Eigen/Vector3d.json", "default": [0, 0, 1] },
     "infTorque": { "type": "boolean", "default": false },
+    "generatorRegularization":
+    {
+      "type": "number",
+      "description": "Tikhonov weight eps * ||lambda||^2 on each wheel's generator multipliers. The Tasks backend floors the Hessian diagonal at 1e-4 unconditionally, so this is not needed for conditioning there and defaults to 0; enabling it biases the solved contact force roughly linearly with eps, so only raise it for a solver without such a floor.",
+      "minimum": 0,
+      "default": 0
+    },
     "wheels":
     {
       "type": "array",

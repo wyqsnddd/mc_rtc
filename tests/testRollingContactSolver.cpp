@@ -684,15 +684,16 @@ BOOST_AUTO_TEST_CASE(RollingTasksFourSteeringAckermannTargetWithDynamics)
   const Eigen::VectorXd solution = solver.solver().alphaDVec(0);
   BOOST_TEST_MESSAGE("Four-steering target error with dynamics: " << (solution - target).norm());
   BOOST_CHECK_SMALL((rolling.hardMatrix() * solution - rolling.hardRhs()).lpNorm<Eigen::Infinity>(), 1e-8);
-  // dynamics is built with the default generatorRegularization, which by
-  // design (see RollingContactDynamicsConstraint.h and
-  // RollingContactDynamicsConstraintGeneratorRegularizationFRI01BiasAtDefaultAndTenX
-  // in this file) trades a small amount of physical fidelity for Hessian
-  // conditioning. On this four-wheel rig that shows up here as ~6.7e-4
-  // (measured) against the pre-generatorRegularization baseline of ~1.7e-4;
-  // 9e-4 keeps a margin over the measured value while still catching a
-  // regression that meaningfully grows it further.
-  BOOST_CHECK_SMALL((solution - target).norm(), 9e-4);
+  // dynamics is built with the default generatorRegularization, which is
+  // 0.0 (see RollingContactDynamicsConstraint.h): the Tasks backend floors
+  // the Hessian diagonal at 1e-4 unconditionally, so no Tikhonov term is
+  // needed here for conditioning, and this reproduces the
+  // pre-generatorRegularization baseline of ~1.7e-4 rather than the ~6.7e-4
+  // measured with the term enabled at 2e-4 (see
+  // ...GeneratorRegularizationFRI01BiasAtEnabledAndTenX). 5e-4 keeps a
+  // margin over the measured value while still catching a regression that
+  // meaningfully grows it further.
+  BOOST_CHECK_SMALL((solution - target).norm(), 5e-4);
   solver.removeConstraintSet(rolling);
   solver.removeConstraintSet(dynamics);
   solver.removeTask(&targetTask);
@@ -2180,6 +2181,18 @@ namespace
  * eigenvalues that account for it honestly instead of pretending it away. */
 constexpr double tasksLibraryDiagConstant = 1e-4;
 
+/** A representative enabled generatorRegularization value, used by the tests
+ * that measure the term's effect once it is turned on. Not
+ * RollingContactDynamicsConstraint::defaultGeneratorRegularization, which is
+ * 0.0 (see that class's documentation): mc_rtc's Tasks backend already
+ * floors the Hessian diagonal unconditionally, so the term is off by
+ * default there. This is the value used to measure the trade-off for a
+ * caller -- a different backend or solver without such a floor -- who does
+ * enable it: four times the library floor, matching what
+ * defaultGeneratorRegularization used to be before that measurement showed
+ * its physical-force bias was not worth paying by default. */
+constexpr double enabledGeneratorRegularization = 2e-4;
+
 Eigen::MatrixXd withTasksLibraryFloor(Eigen::MatrixXd Q)
 {
   for(Eigen::Index i = 0; i < Q.rows(); ++i)
@@ -2271,6 +2284,12 @@ BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQCFo
 
 BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQP02ZeroReliesOnlyOnTheLibraryFloor)
 {
+  // epsilon = 0 here is not just one point on a sweep: it is
+  // defaultGeneratorRegularization (see RollingContactDynamicsConstraint.h),
+  // so this test is what justifies that default -- it must show the library
+  // floor alone already keeps the Hessian block positive definite.
+  BOOST_CHECK_EQUAL(mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization, 0.0);
+
   // With no regularization, nothing in RollingContactConstraint.cpp or
   // RollingContactDynamicsConstraint.cpp contributes Q/C over lambda: the
   // rolling soft task targets alphaD (Impl::SoftTask in
@@ -2295,41 +2314,51 @@ BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQP02
   BOOST_CHECK_CLOSE(eigen.eigenvalues().minCoeff(), tasksLibraryDiagConstant, 1e-9);
 }
 
-BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQP01DefaultClearsTheLibraryFloor)
+BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationQP01EnabledClearsTheLibraryFloor)
 {
-  const double epsilon = mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization;
+  // defaultGeneratorRegularization is 0.0 (see
+  // RollingContactDynamicsConstraint.h), so this test does not use it -- it
+  // measures the margin a caller gets if they enable the term explicitly,
+  // at the representative value enabledGeneratorRegularization.
+  const double epsilon = enabledGeneratorRegularization;
   const auto formula = mc_solver::RollingContactDynamicsConstraint::generatorRegularizationQC(8, epsilon);
   const Eigen::MatrixXd floored = withTasksLibraryFloor(formula.first);
   Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen(floored);
   BOOST_REQUIRE_EQUAL(eigen.info(), Eigen::Success);
-  BOOST_TEST_MESSAGE("QP-01 smallest eigenvalue with the term at the default generatorRegularization ("
-                     << epsilon << "): " << eigen.eigenvalues().minCoeff());
-  // The default must make a real difference over the library's own floor, not
-  // just restate it: require the achieved margin to be at least double the
-  // bare floor. Above that factor the floor branch in the library's
-  // fillQC() (`if abs(Q(i,i)) < DIAG_CONSTANT: Q(i,i) += DIAG_CONSTANT`)
-  // never fires, so the margin is a clean multiple of the floor and entirely
-  // attributable to this term, not to GenQPUtils.h's incidental safety net.
-  // A larger asserted multiple (e.g. ten times) was tried and rejected: see
-  // defaultGeneratorRegularization's documentation and
-  // ...FRI01BiasAtDefaultAndTenX below for why the default (and this bound)
-  // stop at a factor of four instead.
+  BOOST_TEST_MESSAGE("QP-01 smallest eigenvalue with the term enabled at (" << epsilon
+                     << "): " << eigen.eigenvalues().minCoeff());
+  // Enabling the term must make a real difference over the library's own
+  // floor, not just restate it: require the achieved margin to be at least
+  // double the bare floor. Above that factor the floor branch in the
+  // library's fillQC() (`if abs(Q(i,i)) < DIAG_CONSTANT: Q(i,i) +=
+  // DIAG_CONSTANT`) never fires, so the margin is a clean multiple of the
+  // floor and entirely attributable to this term, not to GenQPUtils.h's
+  // incidental safety net. A larger multiple (e.g. ten times) was tried and
+  // rejected: see defaultGeneratorRegularization's documentation and
+  // ...FRI01BiasAtEnabledAndTenX below for why enabledGeneratorRegularization
+  // (and this bound) stop at a factor of four instead -- and why the class
+  // default is 0.0 rather than this value, since mc_rtc's Tasks backend
+  // already clears the floor without it.
   BOOST_CHECK_GT(eigen.eigenvalues().minCoeff(), 2.0 * tasksLibraryDiagConstant);
   BOOST_CHECK_CLOSE(eigen.eigenvalues().minCoeff(), 2.0 * epsilon, 1e-9);
 }
 
-BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationFRI01BiasAtDefaultAndTenX)
+BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationFRI01BiasAtEnabledAndTenX)
 {
-  const double epsilon = mc_solver::RollingContactDynamicsConstraint::defaultGeneratorRegularization;
-  const auto atDefault = solveWithGeneratorRegularization(epsilon);
+  // As in QP-01 above, this deliberately does not use
+  // defaultGeneratorRegularization (0.0): a bias measurement between 0 and 0
+  // would be vacuous. It measures the bias a caller pays if they enable the
+  // term at the representative value enabledGeneratorRegularization.
+  const double epsilon = enabledGeneratorRegularization;
+  const auto atEnabled = solveWithGeneratorRegularization(epsilon);
   const auto atTenX = solveWithGeneratorRegularization(10.0 * epsilon);
 
-  const double normalForceBias = std::abs(atTenX.normalForce - atDefault.normalForce);
-  const double tangentialForceBias = std::abs(atTenX.tangentialForce - atDefault.tangentialForce);
-  const double accelerationBias = (atTenX.acceleration - atDefault.acceleration).lpNorm<Eigen::Infinity>();
-  BOOST_TEST_MESSAGE("FRI-01 solved values at default generatorRegularization ("
-                     << epsilon << "): normalForce " << atDefault.normalForce << " N, tangentialForce "
-                     << atDefault.tangentialForce << " N");
+  const double normalForceBias = std::abs(atTenX.normalForce - atEnabled.normalForce);
+  const double tangentialForceBias = std::abs(atTenX.tangentialForce - atEnabled.tangentialForce);
+  const double accelerationBias = (atTenX.acceleration - atEnabled.acceleration).lpNorm<Eigen::Infinity>();
+  BOOST_TEST_MESSAGE("FRI-01 solved values at enabled generatorRegularization ("
+                     << epsilon << "): normalForce " << atEnabled.normalForce << " N, tangentialForce "
+                     << atEnabled.tangentialForce << " N");
   BOOST_TEST_MESSAGE("FRI-01 bias from a 10x generatorRegularization change ("
                      << epsilon << " -> " << 10.0 * epsilon << "): normalForce " << normalForceBias
                      << " N, tangentialForce " << tangentialForceBias << " N, acceleration " << accelerationBias
@@ -2339,8 +2368,8 @@ BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationFRI0
   // not move the solved contact force by more than 1% of its own magnitude
   // (floored at 1 N for the tangential force, which is legitimately near zero
   // for a mild, close-to-balanced target).
-  BOOST_CHECK_LT(normalForceBias, 1e-2 * std::abs(atDefault.normalForce));
-  BOOST_CHECK_LT(tangentialForceBias, 1e-2 * std::max(1.0, std::abs(atDefault.tangentialForce)));
+  BOOST_CHECK_LT(normalForceBias, 1e-2 * std::abs(atEnabled.normalForce));
+  BOOST_CHECK_LT(tangentialForceBias, 1e-2 * std::max(1.0, std::abs(atEnabled.tangentialForce)));
 }
 
 BOOST_AUTO_TEST_CASE(RollingContactDynamicsConstraintGeneratorRegularizationPreservesProblemSizeAcrossModes)
