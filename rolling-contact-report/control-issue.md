@@ -1139,3 +1139,39 @@ single-row selection is still correct. A configuration that still sets
 `steeringPlanar` or `steeringPlanarWheels` is now **rejected** rather than
 ignored, since silently falling back to four hard lateral rows is precisely the
 frozen-chassis failure the option was removed to prevent.
+
+## Task 5 carry-over judgement: ROW-11 does not transfer as stated
+
+`rolling-contact-qp-tests.tex:608` (ROW-11, "T2 rows carry no proportional
+stabilization") asserts that setting `Kp != 0` changes T1's right-hand side and
+leaves T2's unchanged. That asymmetry is real **between the report's two
+explicit planar QPs** — `eq:differential-drive-qp` is written with
+`-Kp(...)` on each of its three rows, `eq:four-steering-wheel-qp` has no `Kp`
+term at all — but it is an artifact of T2's QP being stated in its *ideal*
+(zero-residual) form, not a property of the assembler.
+
+It does **not** carry over to mc_rtc's whole-body form, and reproducing it would
+be a defect rather than a fix. The general acceleration-level rows of the same
+report, `eq:homogeneous-rolling-acceleration` and
+`eq:geometric-wheel-acceleration-task` — which are what
+`RollingContactConstraint` actually assembles — carry `-Kp G u` for **both**
+chassis. A four-steering chassis with a nonzero measured lateral residual needs
+exactly the stabilization a differential one does; without it the residual is
+frozen rather than removed, which is ROW-03's whole point.
+
+What was implemented instead
+(`PredictedRateRowsCarryNoProportionalStabilizationROW11` in
+`tests/testRollingContactSolver.cpp`) pins both halves:
+
+- the T2-specific **predicted rotating-rate** rows — the `w_thetaDot` and
+  `w_deltaDot` terms only a four-steering chassis emits — carry no proportional
+  stabilization at all: changing `velocityGain` from 0 to 20 leaves their
+  right-hand side bit-identical, and that is the refactor hazard worth guarding;
+- every **geometric** row of both chassis moves by exactly `-Kp` times its
+  measured residual (worst error 0.0 at `Kp = 20`, largest shift 7.74 on the
+  four-steering chassis and 8.20 on the differential one), which documents the
+  deliberate symmetry so a later reader does not "restore" the planar QPs'
+  asymmetry.
+
+Task 7 should list ROW-11 under **Residual gaps** as *adapted, not implemented
+as written*, with this reasoning.

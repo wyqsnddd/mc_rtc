@@ -4,12 +4,14 @@
 
 #include <Eigen/Geometry>
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
 #include <new>
 #include <random>
+#include <vector>
 
 namespace allocation_probe
 {
@@ -125,6 +127,83 @@ void checkVector(const Eigen::VectorXd & actual, const Eigen::VectorXd & expecte
 {
   BOOST_REQUIRE_EQUAL(actual.size(), expected.size());
   BOOST_CHECK_SMALL((actual - expected).norm(), tol);
+}
+
+/** Right-handed planar rotation by @p angle. */
+Eigen::Matrix2d planarRotation(double angle)
+{
+  Eigen::Matrix2d rotation;
+  rotation << std::cos(angle), -std::sin(angle), std::sin(angle), std::cos(angle);
+  return rotation;
+}
+
+/** One wheel's two scalar rolling/lateral residuals, propagated in the inertial frame.
+ *
+ * This reads no constraint row. The chassis yaw psi, the carrier offset rho, the
+ * wheel heading delta and the drive rate are each propagated from the physical
+ * motion, and the two residuals are the frame-invariant scalars
+ * t . p - r sigma thetaDot and l . p. Central-differencing residual() is
+ * therefore an oracle for the assembled rows rather than a restatement of them.
+ *
+ * The chassis-relative parametrisation is the point: `linear` is the chassis-basis
+ * linear velocity and `linearRate` its chassis-basis derivative, which is exactly
+ * the linear part of the chassis-aligned decision variable. The inertial-frame
+ * derivative of the same motion is linearRate + omega * J * linear, and that
+ * difference is what the two row conventions disagree about.
+ */
+struct PlanarWheelMotion
+{
+  Eigen::Vector2d offset = Eigen::Vector2d::Zero();
+  double radius = 0.2;
+  double spinSign = 1.0;
+  double steeringAngle = 0.0;
+  double steeringRate = 0.0;
+  Eigen::Vector2d linear = Eigen::Vector2d::Zero();
+  double yaw = 0.0;
+  Eigen::Vector2d linearRate = Eigen::Vector2d::Zero();
+  double yawRate = 0.0;
+  double rollingRate = 0.0;
+  double rollingAcceleration = 0.0;
+
+  /** [rolling residual, lateral residual] at @p time. */
+  Eigen::Vector2d residual(double time) const
+  {
+    const double psi = yaw * time + 0.5 * yawRate * time * time;
+    const Eigen::Matrix2d rotation = planarRotation(psi);
+    const Eigen::Vector2d velocity = rotation * (linear + linearRate * time);
+    const Eigen::Vector2d carrier = rotation * offset;
+    const double omega = yaw + yawRate * time;
+    const Eigen::Vector2d point = velocity + omega * Eigen::Vector2d(-carrier.y(), carrier.x());
+    const double heading = psi + steeringAngle + steeringRate * time;
+    const Eigen::Vector2d rolling(std::cos(heading), std::sin(heading));
+    const Eigen::Vector2d lateral(-std::sin(heading), std::cos(heading));
+    return {rolling.dot(point) - radius * spinSign * (rollingRate + rollingAcceleration * time),
+            lateral.dot(point)};
+  }
+
+  Eigen::Vector2d residualRate(double step) const { return (residual(step) - residual(-step)) / (2.0 * step); }
+
+  /** The chassis-basis twist [vx, vy, omega] at t = 0. */
+  Eigen::Vector3d chassisTwist() const { return {linear.x(), linear.y(), yaw}; }
+
+  /** Chassis-aligned decision variable [ax, ay, omegaDot]. */
+  Eigen::Vector3d chassisAlignedRate() const { return {linearRate.x(), linearRate.y(), yawRate}; }
+
+  /** Inertial-convention decision variable: the same motion, resolved in a fixed frame. */
+  Eigen::Vector3d inertialRate() const
+  {
+    const Eigen::Vector2d coriolis(-yaw * linear.y(), yaw * linear.x());
+    return {linearRate.x() + coriolis.x(), linearRate.y() + coriolis.y(), yawRate};
+  }
+};
+
+/** Measured convergence order of the central difference of @p motion's residuals. */
+double centralDifferenceOrder(const PlanarWheelMotion & motion, const Eigen::Vector2d & analytic)
+{
+  const double coarse = (motion.residualRate(4e-3) - analytic).lpNorm<Eigen::Infinity>();
+  const double fine = (motion.residualRate(1e-3) - analytic).lpNorm<Eigen::Infinity>();
+  BOOST_REQUIRE_GT(fine, 0.0);
+  return std::log2(coarse / fine) / 2.0;
 }
 
 mc_rbdyn::RollingContactKinematics nominalInput()
@@ -427,6 +506,139 @@ BOOST_AUTO_TEST_CASE(SteeringRowsIncludeDirectionDerivative)
   const Eigen::Vector2d finiteDifference =
       (plusResult.matrix * fullVelocity - minusResult.matrix * fullVelocity) / (2.0 * dt);
   BOOST_CHECK_SMALL((finiteDifference - result.accelerationBias).norm(), 2e-9);
+}
+
+BOOST_AUTO_TEST_CASE(PlanarRowsPinTheChassisAlignedBasisConventionROW04)
+{
+  // ROW-04, both branches. The shipped planar rows resolve the twist in the
+  // chassis-aligned basis of assumption A1, where H_i is constant and the only
+  // direction derivative is the steering one. An assembler that resolved the
+  // same motion in an inertial basis would produce rows that differ from these
+  // by exactly +omega * (l_i . v) in each rolling row and -omega * (t_i . v) in
+  // each lateral row; for an unsteered wheel those are +omega v_y and
+  // -omega v_x, the two offsets the testcard names.
+  //
+  // The oracle is PlanarWheelMotion: it propagates the physical motion in the
+  // inertial frame and central-differences the frame-invariant residual, so it
+  // shares no algebra with steeringRollingMatrix().
+  const Eigen::Vector2d linear(0.9, -0.35);
+  constexpr double yaw = 0.6;
+  const Eigen::Vector2d linearRate(0.4, 0.7);
+  constexpr double yawRate = -0.25;
+  BOOST_REQUIRE_GT(std::abs(yaw * linear.x()), 0.1); // the regime the card asks for: omega * v_x != 0
+
+  // --- Four-steering rows -------------------------------------------------
+  const std::array<Eigen::Vector2d, 4> offsets = {Eigen::Vector2d{0.45, 0.3}, Eigen::Vector2d{0.45, -0.3},
+                                                  Eigen::Vector2d{-0.45, 0.3}, Eigen::Vector2d{-0.45, -0.3}};
+  const std::array<double, 4> angles = {0.31, -0.22, 0.47, -0.13};
+  const std::array<double, 4> rates = {0.5, -0.3, 0.7, -0.9};
+  const std::array<double, 4> driveRates = {3.1, 2.4, -1.2, 0.8};
+  const std::array<double, 4> driveAccelerations = {1.5, -2.2, 0.9, 3.3};
+
+  std::vector<mc_rbdyn::PlanarWheel> wheels(4);
+  std::vector<PlanarWheelMotion> motions(4);
+  for(size_t i = 0; i < wheels.size(); ++i)
+  {
+    wheels[i].offset = offsets[i];
+    wheels[i].steeringAngle = angles[i];
+    wheels[i].steeringRate = rates[i];
+    wheels[i].radius = 0.2;
+    motions[i].offset = offsets[i];
+    motions[i].radius = wheels[i].radius;
+    motions[i].steeringAngle = angles[i];
+    motions[i].steeringRate = rates[i];
+    motions[i].linear = linear;
+    motions[i].yaw = yaw;
+    motions[i].linearRate = linearRate;
+    motions[i].yawRate = yawRate;
+    motions[i].rollingRate = driveRates[i];
+    motions[i].rollingAcceleration = driveAccelerations[i];
+  }
+  const Eigen::Vector3d twist(linear.x(), linear.y(), yaw);
+  const auto rows = mc_rbdyn::steeringRollingMatrix(wheels, twist);
+
+  Eigen::VectorXd chassisAligned(7);
+  chassisAligned << linearRate.x(), linearRate.y(), yawRate, driveAccelerations[0], driveAccelerations[1],
+      driveAccelerations[2], driveAccelerations[3];
+  Eigen::VectorXd inertial = chassisAligned;
+  inertial.head<3>() = motions[0].inertialRate();
+
+  const Eigen::VectorXd shipped = rows.matrix * chassisAligned + rows.accelerationBias;
+  const Eigen::VectorXd inertialCoefficients = rows.matrix * inertial;
+  for(size_t i = 0; i < motions.size(); ++i)
+  {
+    const auto row = static_cast<Eigen::Index>(2 * i);
+    const Eigen::Vector2d analytic = shipped.segment<2>(row);
+    // Branch one: the shipped chassis-aligned rows ARE the exact derivative.
+    const Eigen::Vector2d measured = motions[i].residualRate(1e-6);
+    const double order = centralDifferenceOrder(motions[i], analytic);
+    BOOST_TEST_MESSAGE("ROW-04 wheel " << i << " chassis-aligned FD error "
+                                       << (measured - analytic).lpNorm<Eigen::Infinity>() << ", order " << order);
+    BOOST_CHECK_SMALL((measured - analytic).lpNorm<Eigen::Infinity>(), 1e-6);
+    BOOST_CHECK_GE(order, 1.8);
+    BOOST_CHECK_LE(order, 2.2);
+
+    // Branch two: the deliberately mutated inertial assembler. Pairing the same
+    // row coefficients with the inertial-frame decision variable leaves a bias
+    // that differs from the shipped one by exactly the stated offsets.
+    const Eigen::Vector2d inertialBias = measured - inertialCoefficients.segment<2>(row);
+    const Eigen::Vector2d shippedBias = rows.accelerationBias.segment<2>(row);
+    const Eigen::Vector2d rolling(std::cos(angles[i]), std::sin(angles[i]));
+    const Eigen::Vector2d lateral(-std::sin(angles[i]), std::cos(angles[i]));
+    const Eigen::Vector2d expectedOffset(yaw * lateral.dot(linear), -yaw * rolling.dot(linear));
+    BOOST_TEST_MESSAGE("ROW-04 wheel " << i << " inertial offset [" << (inertialBias - shippedBias).transpose()
+                                       << "], expected [" << expectedOffset.transpose() << "]");
+    BOOST_CHECK_SMALL((inertialBias - shippedBias - expectedOffset).lpNorm<Eigen::Infinity>(), 1e-6);
+    // Non-vacuity: the offset the two conventions differ by is not small.
+    BOOST_CHECK_GT(expectedOffset.lpNorm<Eigen::Infinity>(), 0.1);
+  }
+
+  // --- Differential-drive rows: the offsets the card states verbatim -------
+  constexpr double track = 0.6;
+  constexpr double leftRadius = 0.2;
+  constexpr double rightRadius = 0.23;
+  const auto differential = mc_rbdyn::differentialDriveRollingMatrix(track, leftRadius, rightRadius);
+  // Rows are [left longitudinal, right longitudinal, lateral]. The lateral row
+  // is the one taken at the chassis origin, so its oracle carries a zero offset.
+  std::array<PlanarWheelMotion, 3> differentialMotions;
+  const std::array<Eigen::Vector2d, 3> differentialOffsets = {
+      Eigen::Vector2d{0.0, 0.5 * track}, Eigen::Vector2d{0.0, -0.5 * track}, Eigen::Vector2d::Zero()};
+  const std::array<double, 3> radii = {leftRadius, rightRadius, 0.2};
+  const std::array<double, 2> wheelRates = {4.25, 4.6};
+  const std::array<double, 2> wheelAccelerations = {2.5, -1.75};
+  for(size_t i = 0; i < differentialMotions.size(); ++i)
+  {
+    differentialMotions[i].offset = differentialOffsets[i];
+    differentialMotions[i].radius = radii[i];
+    differentialMotions[i].linear = linear;
+    differentialMotions[i].yaw = yaw;
+    differentialMotions[i].linearRate = linearRate;
+    differentialMotions[i].yawRate = yawRate;
+    if(i < 2)
+    {
+      differentialMotions[i].rollingRate = wheelRates[i];
+      differentialMotions[i].rollingAcceleration = wheelAccelerations[i];
+    }
+  }
+  Eigen::VectorXd differentialAligned(5);
+  differentialAligned << linearRate.x(), linearRate.y(), yawRate, wheelAccelerations[0], wheelAccelerations[1];
+  Eigen::VectorXd differentialInertial = differentialAligned;
+  differentialInertial.head<3>() = differentialMotions[0].inertialRate();
+  const Eigen::VectorXd differentialShipped = differential.matrix * differentialAligned + differential.accelerationBias;
+  const Eigen::VectorXd differentialInertialRows = differential.matrix * differentialInertial;
+
+  Eigen::Vector3d measured;
+  measured << differentialMotions[0].residualRate(1e-6).x(), differentialMotions[1].residualRate(1e-6).x(),
+      differentialMotions[2].residualRate(1e-6).y();
+  BOOST_CHECK_SMALL((measured - differentialShipped).lpNorm<Eigen::Infinity>(), 1e-6);
+  // The two rolling rows pick up +omega v_y, the lateral row -omega v_x: exactly
+  // the two offsets the testcard names, asserted as signed values.
+  const Eigen::Vector3d offsetsFound = measured - differentialInertialRows - differential.accelerationBias;
+  const Eigen::Vector3d expected(yaw * linear.y(), yaw * linear.y(), -yaw * linear.x());
+  BOOST_TEST_MESSAGE("ROW-04 differential inertial offsets [" << offsetsFound.transpose() << "], expected ["
+                                                              << expected.transpose() << "]");
+  BOOST_CHECK_SMALL((offsetsFound - expected).lpNorm<Eigen::Infinity>(), 1e-6);
+  BOOST_CHECK_GT(std::abs(expected.z()), 0.5);
 }
 
 BOOST_AUTO_TEST_CASE(SteeringReferenceInvertsTheExpandedConstraints)

@@ -819,7 +819,8 @@ void RollingContactDynamicsConstraint::terrainNormal(const Eigen::Vector3d & nor
 {
   if(!normal.allFinite() || normal.norm() < 1e-12)
   {
-    throw std::invalid_argument("Rolling contact terrain normal must be finite and non-zero");
+    // Spelled as the configuration key, so the message names what the caller set.
+    throw std::invalid_argument("RollingContactDynamicsConstraint terrainNormal must be finite and non-zero");
   }
   impl_->terrainNormal = normal.normalized();
 }

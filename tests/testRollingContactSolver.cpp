@@ -3,6 +3,7 @@
 
 #include <mc_solver/EqualityConstraint.h>
 #include <mc_solver/ConstraintSetLoader.h>
+#include <mc_solver/KinematicsConstraint.h>
 #include <mc_solver/RollingContactConstraint.h>
 #include <mc_solver/RollingContactDynamicsConstraint.h>
 #include <mc_solver/TasksQPSolver.h>
@@ -10,6 +11,8 @@
 
 #include <mc_tvm/RollingContactFunction.h>
 #include <mc_tvm/Robot.h>
+
+#include <mc_rtc/constants.h>
 
 #include <mc_tasks/PostureTask.h>
 #include <mc_tasks/OrientationTask.h>
@@ -88,6 +91,114 @@ private:
   Eigen::MatrixXd A_;
   Eigen::VectorXd b_;
 };
+
+/** Hard equality rows pinning a chosen block of the floating base's alphaD. */
+class PinnedBaseAcceleration : public mc_solver::EqualityConstraintRobot
+{
+public:
+  PinnedBaseAcceleration(unsigned int robotIndex, int nrDof, Eigen::Index rows)
+  : mc_solver::EqualityConstraintRobot(robotIndex), A_(Eigen::MatrixXd::Zero(rows, nrDof)),
+    b_(Eigen::VectorXd::Zero(rows))
+  {
+    A_.leftCols(rows).setIdentity();
+  }
+
+  void target(Eigen::Index row, double value) { b_(row) = value; }
+
+  const Eigen::MatrixXd & A() const override { return A_; }
+  void compute() override {}
+  int maxEq() const override { return static_cast<int>(A_.rows()); }
+  std::string nameEq() const override { return "PinnedBaseAcceleration"; }
+  const Eigen::VectorXd & bEq() const override { return b_; }
+
+private:
+  Eigen::MatrixXd A_;
+  Eigen::VectorXd b_;
+};
+
+/** The quasi-static wheel-force bound r_i |t_i . f_i| <= tau_max, one row per wheel.
+ *
+ * Deliberately NOT part of the implementation: the report warns against
+ * imposing eq:quasistatic-wheel-force alongside a complete wheel row, and
+ * DYN-09 exists to show what doing so would cost. It lives in the test so the
+ * comparison can be made without shipping the defect.
+ *
+ * The row is linear in lambda: t_i^T [G_0 | G_1] over the wheel's eight
+ * generator multipliers, scaled by the wheel radius.
+ */
+class QuasiStaticWheelForceBound : public tasks::qp::ConstraintFunction<tasks::qp::GenInequality>
+{
+public:
+  QuasiStaticWheelForceBound(const mc_solver::RollingContactDynamicsConstraint & dynamics,
+                             std::vector<std::string> wheels,
+                             double radius,
+                             double torqueLimit)
+  : dynamics_(dynamics), wheels_(std::move(wheels)), radius_(radius),
+    lower_(Eigen::VectorXd::Constant(static_cast<Eigen::Index>(wheels_.size()), -torqueLimit)),
+    upper_(Eigen::VectorXd::Constant(static_cast<Eigen::Index>(wheels_.size()), torqueLimit))
+  {
+  }
+
+  void updateNrVars(const std::vector<rbd::MultiBody> &, const tasks::qp::SolverData & data) override
+  {
+    A_.setZero(static_cast<Eigen::Index>(wheels_.size()), data.nrVars());
+  }
+
+  void update(const std::vector<rbd::MultiBody> &,
+              const std::vector<rbd::MultiBodyConfig> &,
+              const tasks::qp::SolverData &) override
+  {
+    A_.setZero();
+    for(size_t i = 0; i < wheels_.size(); ++i)
+    {
+      const auto row = static_cast<Eigen::Index>(i);
+      const Eigen::Vector3d rolling = dynamics_.geometryResult(wheels_[i]).rollingDirection;
+      const Eigen::Index begin = dynamics_.lambdaBegin(wheels_[i]);
+      for(unsigned int endpoint = 0; endpoint < 2; ++endpoint)
+      {
+        const auto & generators = dynamics_.forceGenerators(wheels_[i], endpoint);
+        A_.block(row, begin + 4 * endpoint, 1, 4) = radius_ * rolling.transpose() * generators;
+      }
+    }
+  }
+
+  int maxGenInEq() const override { return static_cast<int>(wheels_.size()); }
+  const Eigen::MatrixXd & AGenInEq() const override { return A_; }
+  const Eigen::VectorXd & LowerGenInEq() const override { return lower_; }
+  const Eigen::VectorXd & UpperGenInEq() const override { return upper_; }
+  std::string nameGenInEq() const override { return "QuasiStaticWheelForceBound"; }
+  std::string descGenInEq(const std::vector<rbd::MultiBody> &, int line) override
+  {
+    return nameGenInEq() + "/" + wheels_[static_cast<size_t>(line)];
+  }
+
+private:
+  const mc_solver::RollingContactDynamicsConstraint & dynamics_;
+  std::vector<std::string> wheels_;
+  double radius_;
+  Eigen::MatrixXd A_;
+  Eigen::VectorXd lower_;
+  Eigen::VectorXd upper_;
+};
+
+/** Run @p invalid, require it to be rejected, and require the message to name @p key. */
+template<typename Callable>
+void checkRejectionNames(Callable && invalid, const std::string & key, const std::string & what)
+{
+  bool rejected = false;
+  try
+  {
+    invalid();
+  }
+  catch(const std::exception & error)
+  {
+    rejected = true;
+    const std::string message = error.what();
+    BOOST_CHECK_MESSAGE(message.find(key) != std::string::npos,
+                        what << ": the rejection does not name '" << key << "', so nobody can act on it: " << message);
+  }
+  BOOST_CHECK_MESSAGE(rejected, what << ": an invalid configuration was accepted");
+}
 
 mc_rbdyn::RobotsPtr loadRollingRobots()
 {
@@ -1320,6 +1431,158 @@ BOOST_AUTO_TEST_CASE(RollingDynamicConeFrameAndStableLayout)
                  wheels[0].friction * dynamics.normalForce("front_left", lambda) + 1e-12);
 }
 
+namespace
+{
+
+/** The two endpoints' world-frame generator matrices for one wheel, copied out. */
+std::array<Eigen::Matrix<double, 3, Eigen::Dynamic>, 2> coneSnapshot(
+    const mc_solver::RollingContactDynamicsConstraint & dynamics,
+    const std::string & wheel)
+{
+  return {dynamics.forceGenerators(wheel, 0), dynamics.forceGenerators(wheel, 1)};
+}
+
+/** Worst deviation of n . c_k from its cone-consistent value over all generators.
+ *
+ * Each generator is (n + mu t_k) normalized with t_k orthogonal to n, so
+ * n . c_k = 1 / sqrt(1 + mu^2) exactly in the frame the cone was built in. This
+ * is the FRI-03 invariant, evaluated against whichever normal is passed.
+ */
+double normalProjectionDeviation(const std::array<Eigen::Matrix<double, 3, Eigen::Dynamic>, 2> & generators,
+                                 const Eigen::Vector3d & normal,
+                                 double friction)
+{
+  const double expected = 1.0 / std::sqrt(1.0 + friction * friction);
+  double worst = 0.0;
+  for(const auto & endpoint : generators)
+  {
+    for(Eigen::Index k = 0; k < endpoint.cols(); ++k)
+    {
+      worst = std::max(worst, std::abs(normal.dot(endpoint.col(k)) - expected));
+    }
+  }
+  return worst;
+}
+
+/** Largest tangential-to-normal ratio, i.e. the Coulomb membership test itself. */
+double worstConeRatio(const std::array<Eigen::Matrix<double, 3, Eigen::Dynamic>, 2> & generators,
+                      const Eigen::Vector3d & normal)
+{
+  double worst = 0.0;
+  for(const auto & endpoint : generators)
+  {
+    for(Eigen::Index k = 0; k < endpoint.cols(); ++k)
+    {
+      const Eigen::Vector3d direction = endpoint.col(k);
+      const double normalComponent = normal.dot(direction);
+      worst = std::max(worst, (direction - normalComponent * normal).norm() / normalComponent);
+    }
+  }
+  return worst;
+}
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(FrictionConeIsRebuiltWhenTheWheelSteersFRI02)
+{
+  // FRI-02, a staleness test. The cone *set* is rotationally symmetric about the
+  // surface normal, so a cone cached at delta = 0 still passes every membership
+  // check after the wheel steers. Only the map lambda -> f sees the defect, so
+  // this asserts exact rotational equivariance of the generator matrix and,
+  // separately, that the membership check is blind to the difference.
+  constexpr double steering = 0.6;
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto wheels = fourSteeringWheels();
+  const double friction = wheels[0].friction;
+  mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+  TargetAccelerationTask targetTask(solver.robot(0).mb(), 0);
+  targetTask.target(Eigen::VectorXd::Zero(solver.robot(0).mb().nrDof()));
+  solver.addTask(&targetTask);
+  solver.addConstraintSet(dynamics);
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+
+  const Eigen::Vector3d normal = dynamics.terrainNormal();
+  const auto stale = coneSnapshot(dynamics, "front_left");
+
+  auto & robot = solver.robot(0);
+  robot.mbc().q[robot.jointIndexByName("front_left_steer")][0] = steering;
+  robot.forwardKinematics();
+  robot.forwardVelocity();
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+  const auto fresh = coneSnapshot(dynamics, "front_left");
+
+  // The steering axis is the surface normal (assumption A3), so steering by
+  // delta must rotate the whole generator matrix by delta about that normal.
+  const Eigen::Matrix3d rotation(Eigen::AngleAxisd(steering, normal));
+  double equivarianceError = 0.0;
+  double staleError = 0.0;
+  for(size_t endpoint = 0; endpoint < fresh.size(); ++endpoint)
+  {
+    equivarianceError = std::max(equivarianceError, (fresh[endpoint] - rotation * stale[endpoint]).norm());
+    staleError = std::max(staleError, (fresh[endpoint] - stale[endpoint]).norm());
+  }
+  BOOST_TEST_MESSAGE("FRI-02 equivariance error " << equivarianceError << ", stale-vs-fresh distance " << staleError);
+  BOOST_CHECK_SMALL(equivarianceError, 1e-9);
+  // The staleness assertion: a cone cached at delta = 0 is measurably wrong at
+  // delta = 0.6, so the equivariance check above cannot be passed by a cache.
+  BOOST_CHECK_GT(staleError, 0.5);
+
+  // And the reason a membership test cannot stand in for this one: the stale
+  // cone passes the Coulomb check against the same normal just as well.
+  BOOST_CHECK_CLOSE(worstConeRatio(stale, normal), friction, 1e-8);
+  BOOST_CHECK_CLOSE(worstConeRatio(fresh, normal), friction, 1e-8);
+
+  solver.removeConstraintSet(dynamics);
+  solver.removeTask(&targetTask);
+}
+
+BOOST_AUTO_TEST_CASE(FrictionConeIsRebuiltWhenTheTerrainNormalChangesFRI03)
+{
+  // FRI-03, the other half of the staleness pair. Each generator satisfies
+  // n . c_k = 1 / sqrt(1 + mu^2) in the frame it was built in; a cone left at
+  // the old normal breaks that at first order in the tilt. This is what
+  // distinguishes a normal-update fault from the steering-update fault FRI-02
+  // targets.
+  constexpr double tilt = 20.0 * mc_rtc::constants::PI / 180.0;
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto wheels = fourSteeringWheels();
+  const double friction = wheels[0].friction;
+  mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+  TargetAccelerationTask targetTask(solver.robot(0).mb(), 0);
+  targetTask.target(Eigen::VectorXd::Zero(solver.robot(0).mb().nrDof()));
+  solver.addTask(&targetTask);
+  solver.addConstraintSet(dynamics);
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+
+  const Eigen::Vector3d flat = dynamics.terrainNormal();
+  const auto stale = coneSnapshot(dynamics, "front_left");
+  BOOST_CHECK_SMALL(normalProjectionDeviation(stale, flat, friction), 1e-12);
+
+  // Tilt about the wheel's own lateral axis, so the rolling generators lie in
+  // the tilt plane and the stale error is the full first-order one.
+  const Eigen::Vector3d lateral = dynamics.geometryResult("front_left").lateralDirection;
+  const Eigen::Vector3d ramp = (Eigen::AngleAxisd(tilt, lateral) * flat).normalized();
+  dynamics.terrainNormal(ramp);
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+  const auto fresh = coneSnapshot(dynamics, "front_left");
+
+  const double freshDeviation = normalProjectionDeviation(fresh, ramp, friction);
+  const double staleDeviation = normalProjectionDeviation(stale, ramp, friction);
+  const double firstOrder = (1.0 - std::cos(tilt)) / std::sqrt(1.0 + friction * friction);
+  BOOST_TEST_MESSAGE("FRI-03 fresh deviation " << freshDeviation << ", stale deviation " << staleDeviation
+                                               << ", first-order floor " << firstOrder);
+  BOOST_CHECK_SMALL(freshDeviation, 1e-12);
+  BOOST_CHECK_GE(staleDeviation, firstOrder);
+  // The rebuilt cone is aligned with the new plane, the cached one is not.
+  BOOST_CHECK_SMALL(std::abs(worstConeRatio(fresh, ramp) - friction), 1e-8);
+  BOOST_CHECK_GT(std::abs(worstConeRatio(stale, ramp) - friction), 1e-2);
+
+  solver.removeConstraintSet(dynamics);
+  solver.removeTask(&targetTask);
+}
+
 BOOST_AUTO_TEST_CASE(RollingTasksModesKeepVariablesAndEnforceForcePolicy)
 {
   auto robots = loadDifferentialRobot();
@@ -2169,6 +2432,560 @@ BOOST_AUTO_TEST_CASE(LateralSlackRowsFollowTheBlockWeightAndRejectInvalidWeights
     invalid.lateralSlackWeight = weight;
     BOOST_CHECK_THROW(invalid.validate(4), std::invalid_argument);
   }
+}
+
+namespace
+{
+
+/** What one solve says about the effort available on each row of the dynamics.
+ *
+ * In the Tasks assembly the equation of motion is written as the general
+ * inequality L <= H alphaD - J^T G lambda <= U with L = tauMin - C and
+ * U = tauMax - C, so the width U(k) - L(k) is exactly the actuation the
+ * coordinate of row k may absorb. A floating-base coordinate is unactuated: its
+ * width is zero, and the actuation map has an identically zero row there.
+ */
+struct BaseRowEffort
+{
+  bool baseRowsExactlyEqual = false;
+  double planeNormalWidth = 0.0;
+  double worstBaseWidth = 0.0;
+  double steeringWidth = 0.0;
+  double driveWidth = 0.0;
+  double baseTorque = 0.0;
+  double yawAcceleration = 0.0;
+};
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(SteeringTorqueCannotEnterTheChassisYawRowDYN05)
+{
+  // DYN-05. The actuation map has identically zero rows for the six
+  // floating-base coordinates, so no joint torque -- a steering torque in
+  // particular -- can appear in the plane-normal base row. Asserted as exact
+  // equality of the two bound vectors on those rows, not as a threshold.
+  constexpr Eigen::Index baseDof = 6;
+  // The free-flyer alphaD block is [wx, wy, wz, vx, vy, vz] in the body frame,
+  // and the chassis is level here, so row 2 is the plane-normal base row.
+  constexpr Eigen::Index planeNormalRow = 2;
+
+  auto measure = [](bool infTorque)
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, 0.005);
+    auto & robot = solver.robot(0);
+    BOOST_REQUIRE_SMALL((robot.posW().rotation() - Eigen::Matrix3d::Identity()).norm(), 1e-12);
+    auto wheels = fourSteeringWheels();
+    mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels, infTorque);
+    TargetAccelerationTask targetTask(robot.mb(), 0);
+    Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+    // A chassis yaw acceleration far beyond what the contacts can earn, so a
+    // base row that could absorb effort would visibly do so.
+    target(planeNormalRow) = 50.0;
+    targetTask.target(target);
+    solver.addTask(&targetTask);
+    solver.addConstraintSet(dynamics);
+    BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+
+    const Eigen::VectorXd & lower = dynamics.motionConstr().LowerGenInEq();
+    const Eigen::VectorXd & upper = dynamics.motionConstr().UpperGenInEq();
+    BOOST_REQUIRE_EQUAL(lower.size(), robot.mb().nrDof());
+    BaseRowEffort out;
+    out.baseRowsExactlyEqual = true;
+    for(Eigen::Index k = 0; k < baseDof; ++k)
+    {
+      out.baseRowsExactlyEqual = out.baseRowsExactlyEqual && lower(k) == upper(k);
+      out.worstBaseWidth = std::max(out.worstBaseWidth, upper(k) - lower(k));
+    }
+    out.planeNormalWidth = upper(planeNormalRow) - lower(planeNormalRow);
+    const auto steeringDof = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")));
+    const auto driveDof = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_drive")));
+    out.steeringWidth = upper(steeringDof) - lower(steeringDof);
+    out.driveWidth = upper(driveDof) - lower(driveDof);
+    dynamics.motionConstr().computeTorque(solver.solver().alphaDVec(), solver.solver().lambdaVec());
+    out.baseTorque = dynamics.motionConstr().torque().head(baseDof).lpNorm<Eigen::Infinity>();
+    out.yawAcceleration = solver.solver().alphaDVec(0)(planeNormalRow);
+    solver.removeConstraintSet(dynamics);
+    solver.removeTask(&targetTask);
+    return out;
+  };
+
+  const BaseRowEffort shipped = measure(false);
+  BOOST_TEST_MESSAGE("DYN-05 shipped: base rows equal=" << shipped.baseRowsExactlyEqual << ", plane-normal width "
+                                                        << shipped.planeNormalWidth << ", steering width "
+                                                        << shipped.steeringWidth << ", drive width "
+                                                        << shipped.driveWidth << ", |tau_base| " << shipped.baseTorque
+                                                        << ", yaw alphaD " << shipped.yawAcceleration);
+  // Exact equality, not a threshold: no effort at all is admitted on any of the
+  // six base rows, and in particular none on the plane-normal one.
+  BOOST_CHECK(shipped.baseRowsExactlyEqual);
+  BOOST_CHECK_EQUAL(shipped.planeNormalWidth, 0.0);
+  BOOST_CHECK_EQUAL(shipped.worstBaseWidth, 0.0);
+  // Non-vacuity: the actuated rows of the same vector are wide, at exactly the
+  // URDF effort limits (25 Nm steering, 35 Nm drive, two-sided).
+  BOOST_CHECK_CLOSE(shipped.steeringWidth, 50.0, 1e-9);
+  BOOST_CHECK_CLOSE(shipped.driveWidth, 70.0, 1e-9);
+  // The reconstructed base torque is therefore zero however hard the yaw is
+  // demanded: the yaw acceleration has to be earned through contact forces.
+  BOOST_CHECK_SMALL(shipped.baseTorque, 1e-8);
+
+  // The paired mutant: infTorque hands the same six rows an unbounded effort
+  // interval, which is what a nonzero actuation row on the floating base looks
+  // like here. The base then absorbs the demand directly.
+  const BaseRowEffort unbounded = measure(true);
+  BOOST_TEST_MESSAGE("DYN-05 infTorque mutant: plane-normal width " << unbounded.planeNormalWidth << ", |tau_base| "
+                                                                    << unbounded.baseTorque << ", yaw alphaD "
+                                                                    << unbounded.yawAcceleration);
+  BOOST_CHECK(std::isinf(unbounded.planeNormalWidth));
+  BOOST_CHECK_GT(unbounded.baseTorque, 1.0);
+  BOOST_CHECK_GT(std::abs(unbounded.yawAcceleration), std::abs(shipped.yawAcceleration));
+}
+
+BOOST_AUTO_TEST_CASE(PredictedRateRowsCarryNoProportionalStabilizationROW11)
+{
+  // ROW-11, adapted, and the adaptation is the point.
+  //
+  // The testcard states an asymmetry between the report's two *planar* QPs:
+  // eq:differential-drive-qp is written with -Kp times the measured residual on
+  // each of its three rows, and eq:four-steering-wheel-qp has no Kp at all.
+  // That asymmetry does NOT carry over to mc_rtc's whole-body form, and
+  // reproducing it would be a defect rather than a fix: the general
+  // acceleration-level rows of the same report --
+  // eq:homogeneous-rolling-acceleration and
+  // eq:geometric-wheel-acceleration-task, which are what this implementation
+  // assembles -- carry -Kp G u for BOTH chassis. T2's planar QP omits it only
+  // because it is stated for the ideal, zero-residual case. A four-steering
+  // chassis with a nonzero measured residual needs exactly the stabilization a
+  // differential one does, or the residual is frozen instead of removed
+  // (ROW-03). So the geometric rows are asserted to be symmetric here.
+  //
+  // What is true, and is the refactor hazard worth pinning, is the T2-specific
+  // half: the predicted rotating-rate rows -- the w_thetaDot and w_deltaDot
+  // terms only a four-steering chassis emits -- carry no proportional
+  // stabilization. Their right-hand side is (reference - measured) and Kp
+  // leaves it bit-identical.
+  constexpr double dt = 0.005;
+  constexpr double gain = 20.0;
+
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, dt);
+  auto & robot = solver.robot(0);
+  setIncompatibleFourWheelState(robot); // a state with a nonzero measured residual on every row
+
+  mc_solver::RollingContactConstraintOptions options;
+  options.velocityGain = 0.0;
+  options.trackRotatingRates = true;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+  solver.addConstraintSet(rolling);
+  rolling.rotatingRateReference("front_left", 2.5, -0.4);
+  rolling.update(solver);
+
+  // Default options keep the geometric rows hard, so their right-hand side is
+  // unscaled and Kp can be read straight off it.
+  const Eigen::MatrixXd hardMatrix = rolling.hardMatrix();
+  const Eigen::VectorXd hardAtZeroGain = rolling.hardRhs();
+  const Eigen::MatrixXd softMatrix = rolling.softMatrix();
+  const Eigen::VectorXd softAtZeroGain = rolling.softRhs();
+  const auto hardLabels = rolling.hardRowLabels();
+  const auto softLabels = rolling.softRowLabels();
+  BOOST_REQUIRE_GT(hardAtZeroGain.size(), 0);
+  BOOST_REQUIRE_GT(softAtZeroGain.size(), 0);
+  for(const auto & label : softLabels)
+  {
+    BOOST_REQUIRE_MESSAGE(label.find("-rate") != std::string::npos, "unexpected soft row " << label);
+  }
+
+  rolling.velocityGain(gain);
+  rolling.update(solver);
+  BOOST_REQUIRE(rolling.hardRowLabels() == hardLabels);
+  BOOST_REQUIRE(rolling.softRowLabels() == softLabels);
+  // Kp moves no coefficient, only right-hand sides.
+  BOOST_CHECK_SMALL((rolling.hardMatrix() - hardMatrix).norm(), 1e-15);
+  BOOST_CHECK_SMALL((rolling.softMatrix() - softMatrix).norm(), 1e-15);
+
+  // The predicted-rate rows are bit-identical: no Kp anywhere in them.
+  for(Eigen::Index row = 0; row < softAtZeroGain.size(); ++row)
+  {
+    BOOST_CHECK_EQUAL(rolling.softRhs()(row), softAtZeroGain(row));
+  }
+  // Non-vacuity: those right-hand sides are not trivially zero.
+  BOOST_CHECK_GT(softAtZeroGain.lpNorm<Eigen::Infinity>(), 1e-3);
+
+  // Every geometric row, by contrast, moved by exactly -Kp times its measured
+  // residual -- the symmetric behaviour this implementation deliberately keeps.
+  const std::array<std::string, 4> names = {"front_left", "front_right", "rear_left", "rear_right"};
+  const std::array<std::string, 3> axes = {"longitudinal", "lateral", "normal"};
+  double worstGeometricError = 0.0;
+  // The largest, not the smallest: the normal rows legitimately have a zero
+  // measured residual on flat ground, so Kp moves nothing there.
+  double largestGeometricShift = 0.0;
+  for(Eigen::Index row = 0; row < hardAtZeroGain.size(); ++row)
+  {
+    const auto & label = hardLabels[static_cast<size_t>(row)];
+    const auto wheel = std::distance(names.begin(), std::find(names.begin(), names.end(),
+                                                              label.substr(0, label.find('/'))));
+    const auto axis = std::distance(axes.begin(), std::find(axes.begin(), axes.end(),
+                                                            label.substr(label.find('/') + 1)));
+    BOOST_REQUIRE_LT(wheel, 4);
+    BOOST_REQUIRE_LT(axis, 3);
+    const double residual = rolling.geometryResults()[static_cast<size_t>(wheel)].velocityResidual(axis);
+    const double shift = rolling.hardRhs()(row) - hardAtZeroGain(row);
+    worstGeometricError = std::max(worstGeometricError, std::abs(shift + gain * residual));
+    largestGeometricShift = std::max(largestGeometricShift, std::abs(shift));
+  }
+  BOOST_TEST_MESSAGE("ROW-11 geometric rows: worst |shift + Kp * residual| " << worstGeometricError
+                                                                             << ", largest |shift| "
+                                                                             << largestGeometricShift);
+  BOOST_CHECK_SMALL(worstGeometricError, 1e-12);
+  BOOST_CHECK_GT(largestGeometricShift, 1e-6);
+  solver.removeConstraintSet(rolling);
+
+  // And the same on the differential chassis, so the symmetry is asserted on
+  // both sides rather than inferred from one.
+  auto differentialRobots = loadDifferentialRobot();
+  mc_solver::TasksQPSolver differentialSolver(differentialRobots, dt);
+  Eigen::VectorXd velocity = Eigen::VectorXd::Zero(differentialSolver.robot(0).mb().nrDof());
+  velocity(2) = 0.2;
+  velocity(3) = 0.35;
+  velocity(4) = 0.12;
+  rbd::vectorToParam(velocity, differentialSolver.robot(0).mbc().alpha);
+  differentialSolver.robot(0).forwardVelocity();
+  mc_solver::RollingContactConstraintOptions differentialOptions;
+  differentialOptions.velocityGain = 0.0;
+  differentialOptions.differentialPlanar = true;
+  mc_solver::RollingContactConstraint differential(differentialSolver.robots(), 0, differentialWheels(),
+                                                   differentialOptions);
+  differentialSolver.addConstraintSet(differential);
+  differential.update(differentialSolver);
+  const Eigen::VectorXd differentialAtZeroGain = differential.hardRhs();
+  differential.velocityGain(gain);
+  differential.update(differentialSolver);
+  const double differentialShift =
+      (differential.hardRhs() - differentialAtZeroGain).lpNorm<Eigen::Infinity>();
+  BOOST_TEST_MESSAGE("ROW-11 differential geometric rows shift by " << differentialShift << " at Kp = " << gain);
+  BOOST_CHECK_GT(differentialShift, 1e-6);
+  differentialSolver.removeConstraintSet(differential);
+}
+
+BOOST_AUTO_TEST_CASE(QuasiStaticTorqueBoundDuplicatesTheWheelRowDYN09)
+{
+  // DYN-09. The report warns that eq:quasistatic-wheel-force must not be
+  // imposed alongside a complete wheel row. This shows why, on the shipped
+  // whole-body QP: the quasi-static inequality neglects the wheel's rotational
+  // inertia, so it removes points the full dynamics admits.
+  //
+  // The state is built so the removal is unambiguous. The chassis angular
+  // accelerations and its forward acceleration are pinned hard, which fixes the
+  // total longitudinal contact force at m * a_x through the unactuated base
+  // rows, and a_x is chosen so that total exceeds what four quasi-static bounds
+  // at the drive torque limit can supply. The full row still admits it, because
+  // the wheels are free to spin down.
+  constexpr double radius = 0.2;
+  constexpr double driveTorqueLimit = 35.0; // the URDF effort limit of *_drive
+  const std::array<std::string, 4> names = {"front_left", "front_right", "rear_left", "rear_right"};
+
+  auto robots = loadFourSteeringRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto & robot = solver.robot(0);
+  const double mass = robot.mass();
+  // Twice what the quasi-static bounds could ever supply across four wheels.
+  const double quasiStaticCeiling = 4.0 * driveTorqueLimit / radius;
+  const double forwardAcceleration = 2.0 * quasiStaticCeiling / mass;
+
+  auto wheels = fourSteeringWheels();
+  mc_solver::RollingContactDynamicsConstraint dynamics(solver.robots(), 0, solver.dt(), wheels);
+  // Rows 0..2 are the base angular accelerations, row 3 the forward one; the
+  // vertical and lateral base rows stay free so the normal force can grow.
+  PinnedBaseAcceleration pinned(0, robot.mb().nrDof(), 4);
+  pinned.target(3, forwardAcceleration);
+  mc_tasks::PostureTask posture(solver, 0, 5.0, 1.0);
+  solver.addConstraintSet(dynamics);
+  solver.addConstraint(&pinned);
+  solver.addTask(&posture);
+
+  // The full wheel row alone: feasible. And the shipped assembly carries no
+  // quasi-static duplicate -- the dynamics is the only general inequality in
+  // the problem, and it contributes exactly one complete row per degree of
+  // freedom.
+  BOOST_CHECK_EQUAL(solver.solver().nrGenInequalityConstraints(), 1);
+  BOOST_CHECK_EQUAL(dynamics.motionConstr().maxGenInEq(), robot.mb().nrDof());
+  BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+  const Eigen::VectorXd lambda = solver.solver().lambdaVec();
+  dynamics.motionConstr().computeTorque(solver.solver().alphaDVec(), solver.solver().lambdaVec());
+  const Eigen::VectorXd torque = dynamics.motionConstr().torque();
+
+  double totalLongitudinal = 0.0;
+  double worstExcess = 0.0;
+  for(size_t i = 0; i < names.size(); ++i)
+  {
+    const auto & result = dynamics.geometryResult(names[i]);
+    const auto forces = dynamics.endpointForces(names[i], lambda.segment<8>(static_cast<Eigen::Index>(8 * i)));
+    const double longitudinal = result.rollingDirection.dot(forces[0] + forces[1]);
+    const auto driveDof = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName(names[i] + "_drive")));
+    totalLongitudinal += longitudinal;
+    // The quasi-static inequality |t . f| <= |tau| / r, evaluated at a point the
+    // full dynamics admits.
+    worstExcess = std::max(worstExcess, std::abs(longitudinal) - std::abs(torque(driveDof)) / radius);
+  }
+  BOOST_TEST_MESSAGE("DYN-09 demanded m*a_x = " << mass * forwardAcceleration << " N, realised total longitudinal "
+                                                << totalLongitudinal << " N, quasi-static ceiling "
+                                                << quasiStaticCeiling << " N, worst per-wheel excess of |t.f| over "
+                                                << "|tau|/r: " << worstExcess << " N");
+  // The base rows are unactuated, so the pinned chassis acceleration is paid for
+  // entirely by contact force.
+  BOOST_CHECK_CLOSE(totalLongitudinal, mass * forwardAcceleration, 1e-6);
+  // And the admitted point violates the quasi-static inequality: the gap is the
+  // wheel rotational inertia the inequality drops.
+  BOOST_CHECK_GT(worstExcess, 1.0);
+
+  // Now impose the quasi-static bound alongside the complete row. The generator
+  // matrices are current from the solve above and the state has not moved.
+  QuasiStaticWheelForceBound quasiStatic(dynamics, {names.begin(), names.end()}, radius, driveTorqueLimit);
+  solver.addConstraint(&quasiStatic);
+  BOOST_CHECK_EQUAL(solver.solver().nrGenInequalityConstraints(), 2);
+  BOOST_CHECK(!solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+  solver.removeConstraint(&quasiStatic);
+  // Removing it again restores feasibility, so the failure above is the bound
+  // and not an accumulated solver state.
+  BOOST_CHECK(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+
+  solver.removeTask(&posture);
+  solver.removeConstraint(&pinned);
+  solver.removeConstraintSet(dynamics);
+}
+
+BOOST_AUTO_TEST_CASE(RejectionContractNamesTheOffendingKeyQP10)
+{
+  // QP-10. Invalid model data is rejected at assembly rather than propagated,
+  // and each rejection names the key that caused it -- a rejection nobody can
+  // act on is barely better than silence.
+  auto robots = loadRollingRobots();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+
+  // The configuration path, which is where a user actually meets these.
+  auto configuredAs = [&](const std::string & key, auto value)
+  {
+    return [&solver, key, value]()
+    {
+      auto config = rollingConfiguration("rollingContact", differentialWheels());
+      config.add(key, value);
+      mc_solver::ConstraintSetLoader::load(solver, config);
+    };
+  };
+
+  // Removed options: rejected rather than ignored, since ignoring them would
+  // silently restore four hard lateral rows on a four-wheel chassis.
+  checkRejectionNames(configuredAs("steeringPlanar", true), "steeringPlanar", "steeringPlanar");
+  checkRejectionNames(configuredAs("steeringPlanar", true), "softLateralRows", "steeringPlanar replacement");
+  checkRejectionNames(configuredAs("steeringPlanarWheels", std::vector<std::string>{"left", "right"}),
+                      "steeringPlanarWheels", "steeringPlanarWheels");
+
+  // Non-positive-definite or non-finite weights.
+  for(const double weight : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity()})
+  {
+    checkRejectionNames(configuredAs("lateralSlackWeight", weight), "lateralSlackWeight", "lateralSlackWeight");
+    checkRejectionNames(configuredAs("rollingWeight", weight), "rollingWeight", "rollingWeight");
+  }
+  for(const double weight : {-1.0, std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity()})
+  {
+    checkRejectionNames(configuredAs("rollingRateWeight", weight), "rollingRateWeight", "rollingRateWeight");
+    checkRejectionNames(configuredAs("steeringRateWeight", weight), "steeringRateWeight", "steeringRateWeight");
+  }
+  checkRejectionNames(configuredAs("velocityGain", -1.0), "velocityGain", "velocityGain");
+  checkRejectionNames(configuredAs("velocityGain", std::numeric_limits<double>::infinity()), "velocityGain",
+                      "infinite velocityGain");
+  checkRejectionNames(configuredAs("terrainNormal", Eigen::Vector3d{0.0, 0.0, 0.0}), "terrainNormal",
+                      "terrainNormal");
+  const double notANumber = std::numeric_limits<double>::quiet_NaN();
+  checkRejectionNames(configuredAs("terrainNormal", Eigen::Vector3d{notANumber, notANumber, notANumber}),
+                      "terrainNormal", "non-finite terrainNormal");
+  // differentialPlanar is only meaningful on a two-wheel chassis.
+  checkRejectionNames(
+      [&]()
+      {
+        auto four = loadFourSteeringRobot();
+        mc_solver::RollingContactConstraintOptions differential;
+        differential.differentialPlanar = true;
+        mc_solver::RollingContactConstraint(*four, 0, fourSteeringWheels(), differential);
+      },
+      "differentialPlanar", "differentialPlanar on four wheels");
+  for(const double epsilon : {-1.0, std::numeric_limits<double>::infinity()})
+  {
+    checkRejectionNames(
+        [&]()
+        {
+          auto config = rollingConfiguration("rollingContactDynamics", differentialWheels());
+          config.add("generatorRegularization", epsilon);
+          mc_solver::ConstraintSetLoader::load(solver, config);
+        },
+        "generatorRegularization", "generatorRegularization");
+  }
+  checkRejectionNames(configuredAs("longitudinal", std::string{"medium"}), "longitudinal", "longitudinal");
+
+  // A zero wheel radius, at both constraint sets.
+  for(const std::string type : {"rollingContact", "rollingContactDynamics"})
+  {
+    checkRejectionNames(
+        [&]()
+        {
+          auto config = rollingConfiguration(type, differentialWheels());
+          config("wheels")[0].add("radius", 0.0);
+          mc_solver::ConstraintSetLoader::load(solver, config);
+        },
+        "radius", type + " radius");
+  }
+
+  // A steering joint that is also its own drive joint.
+  checkRejectionNames(
+      [&]()
+      {
+        auto four = loadFourSteeringRobot();
+        auto steeringWheels = fourSteeringWheels();
+        steeringWheels[0].steeringJoint = steeringWheels[0].driveJoint;
+        mc_solver::RollingContactConstraint(*four, 0, steeringWheels);
+      },
+      "steeringJoint", "steeringJoint == driveJoint");
+
+  // Non-finite values that would otherwise reach the QP through a setter.
+  auto four = loadFourSteeringRobot();
+  mc_solver::RollingContactConstraintOptions options;
+  options.softLateralRows = true;
+  options.trackRotatingRates = true;
+  mc_solver::RollingContactConstraint rolling(*four, 0, fourSteeringWheels(), options);
+  checkRejectionNames(
+      [&]() { rolling.rotatingRateReference("front_left", std::numeric_limits<double>::infinity(), 0.0); },
+      "rate reference", "infinite rolling-rate reference");
+  checkRejectionNames(
+      [&]()
+      { rolling.rotatingRateReference("front_left", 0.0, std::numeric_limits<double>::quiet_NaN()); },
+      "rate reference", "non-finite steering-rate reference");
+  checkRejectionNames([&]() { rolling.activation("front_left", std::numeric_limits<double>::quiet_NaN()); },
+                      "activation", "non-finite activation");
+  checkRejectionNames([&]() { rolling.terrainNormal(Eigen::Vector3d::Zero()); }, "terrainNormal",
+                      "degenerate terrainNormal setter");
+  mc_solver::RollingContactDynamicsConstraint dynamics(*four, 0, solver.dt(), fourSteeringWheels());
+  checkRejectionNames([&]() { dynamics.terrainNormal(Eigen::Vector3d::Zero()); }, "terrainNormal",
+                      "degenerate dynamics terrainNormal setter");
+  checkRejectionNames([&]() { dynamics.terrainNormal(Eigen::Vector3d{notANumber, notANumber, notANumber}); },
+                      "terrainNormal", "non-finite dynamics terrainNormal setter");
+
+  // A duplicate wheel name names the duplicate.
+  checkRejectionNames(
+      [&]()
+      {
+        auto duplicated = fourSteeringWheels();
+        duplicated[1].name = duplicated[0].name;
+        mc_solver::RollingContactConstraint(*four, 0, duplicated);
+      },
+      "front_left", "duplicate wheel name");
+
+  // And no command is emitted: every rejection above happened at assembly, so
+  // the reference the last valid call stored is still what the object holds.
+  BOOST_CHECK_EQUAL(rolling.rollingRateReference("front_left"), 0.0);
+  BOOST_CHECK_EQUAL(rolling.steeringRateReference("front_left"), 0.0);
+  BOOST_CHECK_EQUAL(rolling.activation("front_left"), 1.0);
+  BOOST_CHECK_SMALL((rolling.terrainNormal() - Eigen::Vector3d::UnitZ()).norm(), 1e-12);
+}
+
+BOOST_AUTO_TEST_CASE(YawingChassisConsumesNoSteeringRateBudgetBND02)
+{
+  // BND-02. delta_i is chassis relative, so the steering-rate budget is
+  // independent of the chassis yaw rate. Two halves, both discriminating.
+  constexpr double dt = 0.005;
+  const std::array<double, 4> lockedAngles = {0.31, -0.22, 0.47, -0.13};
+
+  // Half one, structural and exact: the assembled predicted-steering-rate row
+  // carries deltaDot + dt * deltaDdot and nothing else. Its coefficient on the
+  // base yaw acceleration is exactly zero, as is every coefficient except the
+  // steering joint's own.
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, dt);
+    auto & robot = solver.robot(0);
+    mc_solver::RollingContactConstraintOptions options;
+    options.softLateralRows = true;
+    options.trackRotatingRates = true;
+    mc_solver::RollingContactConstraint rolling(solver.robots(), 0, fourSteeringWheels(), options);
+    solver.addConstraintSet(rolling);
+    rolling.update(solver);
+
+    const auto steeringDof = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")));
+    const Eigen::RowVectorXd row = rolling.softMatrix().row(softRowIndex(rolling, "front_left/steering-rate"));
+    BOOST_REQUIRE_EQUAL(row.size(), robot.mb().nrDof());
+    // Row 2 of the free-flyer block is the plane-normal (yaw) base acceleration.
+    BOOST_CHECK_EQUAL(row(2), 0.0);
+    BOOST_CHECK_GT(std::abs(row(steeringDof)), 0.0);
+    for(Eigen::Index k = 0; k < row.size(); ++k)
+    {
+      if(k == steeringDof) { continue; }
+      BOOST_CHECK_EQUAL(row(k), 0.0);
+    }
+    solver.removeConstraintSet(rolling);
+  }
+
+  // Half two, behavioural: with the modules locked, the reachable steering
+  // acceleration is the joint-velocity box (vu - deltaDot) / dt, and it does not
+  // move when the chassis yaws. The mutant reads the absolute heading rate
+  // instead, i.e. deltaDot = omega, and loses exactly omega / dt of the box.
+  auto reachableSteeringAcceleration = [&](double baseYawRate, double measuredSteeringRate)
+  {
+    auto robots = loadFourSteeringRobot();
+    mc_solver::TasksQPSolver solver(robots, dt);
+    auto & robot = solver.robot(0);
+    for(size_t i = 0; i < 4; ++i)
+    {
+      const std::array<std::string, 4> names = {"front_left", "front_right", "rear_left", "rear_right"};
+      robot.mbc().q[robot.jointIndexByName(names[i] + "_steer")][0] = lockedAngles[i];
+    }
+    robot.forwardKinematics();
+    Eigen::VectorXd velocity = Eigen::VectorXd::Zero(robot.mb().nrDof());
+    velocity(2) = baseYawRate;
+    const auto steeringDof = robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")));
+    velocity(steeringDof) = measuredSteeringRate;
+    rbd::vectorToParam(velocity, robot.mbc().alpha);
+    robot.forwardVelocity();
+
+    mc_solver::KinematicsConstraint kinematics(solver.robots(), 0, dt, {0.1, 0.01, 0.5}, 0.5);
+    TargetAccelerationTask targetTask(robot.mb(), 0);
+    Eigen::VectorXd target = Eigen::VectorXd::Zero(robot.mb().nrDof());
+    target(steeringDof) = 1e6; // demand far past the box, so the box is what is measured
+    targetTask.target(target);
+    // No contact has been declared, so the Tasks decision layout has not been
+    // sized yet; KinematicsConstraint assumes it has.
+    solver.updateNrVars();
+    solver.addConstraintSet(kinematics);
+    solver.addTask(&targetTask);
+    BOOST_REQUIRE(solver.solver().solveNoMbcUpdate(solver.robots().mbs(), solver.robots().mbcs()));
+    const double reached = solver.solver().alphaDVec(0)(steeringDof);
+    solver.removeTask(&targetTask);
+    solver.removeConstraintSet(kinematics);
+    return reached;
+  };
+
+  // The velocity limit is 8 rad/s in the URDF, halved by the standard
+  // velocityPercent of 0.5, so a still hinge may accelerate to 4 / dt.
+  const double budget = 4.0 / dt;
+  const double atRest = reachableSteeringAcceleration(0.0, 0.0);
+  BOOST_TEST_MESSAGE("BND-02 reachable steering acceleration at rest: " << atRest << " (box " << budget << ")");
+  BOOST_REQUIRE_CLOSE(atRest, budget, 1e-6); // the velocity box, not some other limit, is what binds
+
+  for(const double omega : {1.0, 4.0})
+  {
+    const double yawing = reachableSteeringAcceleration(omega, 0.0);
+    const double absolute = reachableSteeringAcceleration(0.0, omega);
+    BOOST_TEST_MESSAGE("BND-02 omega=" << omega << ": chassis-relative reach " << yawing
+                                       << ", absolute-convention reach " << absolute
+                                       << ", budget consumed by the mutant "
+                                       << (100.0 * (atRest - absolute) / atRest) << "%");
+    // The shipped reading is bit-identical to the omega = 0 case: no budget spent.
+    BOOST_CHECK_EQUAL(yawing, atRest);
+    // The mutant loses exactly omega / dt of the box.
+    BOOST_CHECK_CLOSE(atRest - absolute, omega / dt, 1e-6);
+  }
+  // At omega equal to the limit the absolute convention has nothing left at all.
+  BOOST_CHECK_SMALL(reachableSteeringAcceleration(0.0, 4.0), 1e-9);
 }
 
 namespace

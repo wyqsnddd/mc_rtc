@@ -55,10 +55,15 @@ void RollingContactConstraintOptions::validate(size_t wheelCount) const
     throw std::invalid_argument("RollingContactConstraint lateralSlackWeight must be positive and finite");
   }
   // isfinite first so NaN and +/-inf are both rejected; a bare x < 0.0 would let NaN through.
-  if(!std::isfinite(rollingRateWeight) || rollingRateWeight < 0.0 || !std::isfinite(steeringRateWeight)
-     || steeringRateWeight < 0.0)
+  // Reported one weight at a time: a caller who set the wrong one of the two has
+  // to be told which, otherwise the rejection is not actionable.
+  if(!std::isfinite(rollingRateWeight) || rollingRateWeight < 0.0)
   {
-    throw std::invalid_argument("RollingContactConstraint rate weights must be non-negative and finite");
+    throw std::invalid_argument("RollingContactConstraint rollingRateWeight must be non-negative and finite");
+  }
+  if(!std::isfinite(steeringRateWeight) || steeringRateWeight < 0.0)
+  {
+    throw std::invalid_argument("RollingContactConstraint steeringRateWeight must be non-negative and finite");
   }
 }
 

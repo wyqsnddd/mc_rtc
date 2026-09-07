@@ -107,6 +107,18 @@ Eigen::Vector3d worldWheelOffset(const mc_rbdyn::Robot & robot, const std::strin
          - robot.frame("chassis").position().translation();
 }
 
+/** frontLeftDescription() renamed onto another corner of the four-steering variant. */
+mc_rbdyn::RollingContactDescription cornerDescription(const std::string & corner)
+{
+  auto description = frontLeftDescription();
+  description.name = corner;
+  description.carrierFrame = corner + "_carrier";
+  description.wheelBody = corner + "_wheel";
+  description.driveJoint = corner + "_drive";
+  description.steeringJoint = corner + "_steer";
+  return description;
+}
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(LoadDifferentialRollingRobot)
@@ -585,6 +597,113 @@ BOOST_AUTO_TEST_CASE(RejectsSteeringJointEqualToDriveJoint)
   auto description = frontLeftDescription();
   description.steeringJoint = description.driveJoint;
   BOOST_CHECK_THROW(mc_rbdyn::RollingContactRobotGeometry(robot, description), std::invalid_argument);
+}
+
+BOOST_AUTO_TEST_CASE(SteeringAngleIsChassisRelativeAndItsRateIsTheJointRateGEO07)
+{
+  // GEO-07. The steering angle is the hinge coordinate between the chassis and
+  // the carrier, and the rate the QP reads is that hinge's *joint* rate. With
+  // the modules mechanically locked and the chassis yawing at 1 rad/s, every
+  // deltaDot the QP sees must be zero.
+  //
+  // The absolute-heading convention is not asserted by adding omega by hand: it
+  // is measured from the same state, as the rate of the wheel's inertial
+  // heading, and it comes out at the full yaw rate. That is the mutant the card
+  // requires, and the two numbers -- 0 and omega -- are what distinguishes the
+  // two conventions.
+  auto module = loadModule("rolling_4s");
+  auto robots = mc_rbdyn::loadRobot(*module);
+  auto & robot = robots->robot();
+
+  constexpr double yawRate = 1.0;
+  // Hinges away from zero, so a convention reading an absolute angle cannot
+  // coincide with the relative one by accident.
+  const std::array<double, 4> lockedAngles = {0.31, -0.22, 0.47, -0.13};
+  for(size_t i = 0; i < rangerCorners().size(); ++i)
+  {
+    robot.mbc().q[robot.jointIndexByName(rangerCorners()[i] + "_steer")][0] = lockedAngles[i];
+  }
+  robot.forwardKinematics();
+  Eigen::VectorXd velocity = Eigen::VectorXd::Zero(robot.mb().nrDof());
+  velocity(2) = yawRate; // base yaw; every steering DoF stays at zero: the modules are locked
+  setVelocity(robot, velocity);
+
+  std::vector<mc_rbdyn::RollingContactRobotGeometry> geometries;
+  for(const auto & corner : rangerCorners()) { geometries.emplace_back(robot, cornerDescription(corner)); }
+
+  double worstJointRate = 0.0;
+  double smallestAbsoluteRate = std::numeric_limits<double>::infinity();
+  for(size_t i = 0; i < geometries.size(); ++i)
+  {
+    const auto & result = geometries[i].update(robot, Eigen::Vector3d::UnitZ());
+    worstJointRate = std::max(worstJointRate, std::abs(result.measuredSteeringRate));
+
+    // The absolute heading rate of the same wheel, measured rather than assumed:
+    // finite-difference the inertial heading angle across a small chassis yaw,
+    // with the hinge coordinates held fixed.
+    const sva::PTransformd base = robot.posW();
+    constexpr double step = 1e-6;
+    auto headingAt = [&](double delta)
+    {
+      robot.posW(sva::PTransformd(sva::RotZ(delta), Eigen::Vector3d::Zero()) * base);
+      robot.forwardKinematics();
+      robot.forwardVelocity();
+      const auto & rolled = geometries[i].update(robot, Eigen::Vector3d::UnitZ());
+      return std::atan2(rolled.rollingDirection.y(), rolled.rollingDirection.x());
+    };
+    const double forward = headingAt(yawRate * step);
+    const double backward = headingAt(-yawRate * step);
+    robot.posW(base);
+    robot.forwardKinematics();
+    robot.forwardVelocity();
+    geometries[i].update(robot, Eigen::Vector3d::UnitZ());
+    smallestAbsoluteRate = std::min(smallestAbsoluteRate, std::abs((forward - backward) / (2.0 * step)));
+  }
+  BOOST_TEST_MESSAGE("GEO-07 locked modules at omega=1: worst joint steering rate "
+                     << worstJointRate << ", smallest absolute heading rate " << smallestAbsoluteRate);
+  BOOST_CHECK_LT(worstJointRate, 1e-9);
+  // The mutant: the absolute heading rate is a real, nonzero quantity of this
+  // very state. Reading it as deltaDot would consume the whole steering budget.
+  BOOST_CHECK_GT(smallestAbsoluteRate, 0.9);
+
+  // The rate really is the joint rate, not the joint rate plus anything: turn
+  // one hinge while the chassis still yaws and the reading is the hinge rate.
+  velocity(robot.mb().jointPosInDof(static_cast<int>(robot.jointIndexByName("front_left_steer")))) = 0.4;
+  setVelocity(robot, velocity);
+  const auto & steered = geometries[0].update(robot, Eigen::Vector3d::UnitZ());
+  BOOST_CHECK_CLOSE(steered.measuredSteeringRate, 0.4, 1e-9);
+  BOOST_CHECK_GT(std::abs(steered.measuredSteeringRate - (0.4 + yawRate)), 0.9);
+
+  // And the angle is chassis relative: sweeping the chassis heading with the
+  // hinges untouched leaves the wheel heading fixed in the chassis frame while
+  // it rotates with the chassis in the inertial one.
+  setVelocity(robot, Eigen::VectorXd::Zero(robot.mb().nrDof()));
+  double worstChassisDrift = 0.0;
+  double smallestWorldDrift = std::numeric_limits<double>::infinity();
+  std::array<Eigen::Vector3d, 4> reference;
+  std::array<Eigen::Vector3d, 4> worldReference;
+  for(size_t heading = 0; heading < headingSweep().size(); ++heading)
+  {
+    setChassisYaw(robot, headingSweep()[heading]);
+    const Eigen::Matrix3d chassisRotation = robot.frame("chassis").position().rotation();
+    for(size_t i = 0; i < geometries.size(); ++i)
+    {
+      const auto & result = geometries[i].update(robot, Eigen::Vector3d::UnitZ());
+      const Eigen::Vector3d inChassis = chassisRotation * result.rollingDirection;
+      if(heading == 0)
+      {
+        reference[i] = inChassis;
+        worldReference[i] = result.rollingDirection;
+        continue;
+      }
+      worstChassisDrift = std::max(worstChassisDrift, (inChassis - reference[i]).norm());
+      smallestWorldDrift = std::min(smallestWorldDrift, (result.rollingDirection - worldReference[i]).norm());
+    }
+  }
+  BOOST_TEST_MESSAGE("GEO-07 heading sweep: chassis-frame drift " << worstChassisDrift << ", inertial drift "
+                                                                  << smallestWorldDrift);
+  BOOST_CHECK_SMALL(worstChassisDrift, 1e-12);
+  BOOST_CHECK_GT(smallestWorldDrift, 0.5);
 }
 
 BOOST_AUTO_TEST_CASE(FourSteeringResolvedGeometryAcceptsAckermannTwist)
