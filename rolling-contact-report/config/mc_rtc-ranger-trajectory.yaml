@@ -1,0 +1,29 @@
+MainRobot: RollingContactRangerMiniV3
+Enabled: [RangerTrajectory]
+Default: RangerTrajectory
+Timestep: 0.005
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-ranger-trajectory
+ClearControllerModulePath: true
+# Two entries: the shared library is produced by add_fsm_controller under src/,
+# while the controller configuration is configured into etc/ one level up (see
+# src/mc_control/samples/RangerTrajectory/CMakeLists.txt). MCGlobalController
+# looks for the library in each ControllerModulePaths entry and for
+# <name>.yaml in each entry's etc/ subdirectory, so both are listed.
+ControllerModulePaths:
+- build/src/mc_control/samples/RangerTrajectory/src
+- build/src/mc_control/samples/RangerTrajectory
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+GUIServer:
+  Enable: false
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
+# The FSM description, the rolling-contact constraints and the observer pipeline
+# all live in the controller's own configuration, which is loaded on top of this
+# file: src/mc_control/samples/RangerTrajectory/etc/RangerTrajectory.in.yaml.

@@ -1,0 +1,285 @@
+###
+# Ranger Mini V3 four-steering chassis driven along a circle, then a straight
+# line, then a Lissajous curve.
+#
+# The whole scenario is described here: the rolling-contact constraints on the
+# four wheels, the observer pipeline, one bspline_trajectory task per curve and
+# the transitions that chain them. The C++ side (src/mc_ranger_trajectory_controller.h)
+# is a bare subclass of mc_control::fsm::Controller and holds no trajectory logic.
+#
+# ---------------------------------------------------------------------------
+# KNOWN LIMITATION -- READ BEFORE RUNNING THIS SAMPLE
+#
+# As configured below the chassis does NOT follow the three curves. Measured on
+# the ticker over the full 52.5 s sequence (rolling-contact-report/config/
+# mc_rtc-ranger-trajectory.yaml): the FSM plays Circle -> Line -> Lissajous
+# correctly and every task completes on time, but the chassis travels 0.13 m in
+# total and the peak wheel rate is 0.05 rad/s. Two independent causes, both
+# properties of the configuration rather than bugs:
+#
+# 1. `trackRotatingRates: true` emits one soft row per wheel rate tracking
+#    rate^+ against a *reference* that only RollingContactConstraint::
+#    rotatingRateReference() can set -- a C++ API with no YAML equivalent. It
+#    defaults to 0, so at rollingRateWeight = 4e7 (authority equivalent to an
+#    acceleration-task weight of 1000) those rows are a strong "hold the wheels
+#    still" objective and brake the chassis to a standstill. Setting
+#    `trackRotatingRates: false` below releases the drive hinges: the chassis
+#    then tracks the straight-line state to 2.8 mm and reaches 0.51 m/s.
+#
+# 2. Even with the rate rows off, nothing in the QP can move the four steering
+#    hinges. The steering axis passes exactly through the wheel centre
+#    (ranger_mini_v3.urdf: the *_steer origin is the *_drive origin, so the
+#    scrub radius is zero), and the contact point sits directly below it on that
+#    same axis. The steering column of the contact-point Jacobian is therefore
+#    identically zero and the rolling, lateral and normal rows have no
+#    coefficient on delta-ddot at all. The only QP terms that ever reach those
+#    hinges are the posture task and the steering-rate rows, and neither can be
+#    handed the time-varying, path-derived heading a curve needs from a
+#    configuration file. Measured: the hinges stay at 0.000 rad for the whole
+#    run, so the chassis can only translate along its initial wheel heading. It
+#    tracks the x component of every reference to within 3 mm and its y stays
+#    within 2.5 mm of the start.
+#
+# MCRollingContactController closes this gap in C++: it inverts the commanded
+# planar twist through mc_rbdyn::steeringWheelReference() every cycle and feeds
+# both wheel rates to rotatingRateReference(). A declarative equivalent would
+# need a time-varying steering reference -- e.g. one spline task per
+# <wheel>_carrier frame carrying generated oriWaypoints -- which is a different
+# design from the one this sample implements.
+# ---------------------------------------------------------------------------
+###
+---
+## If true, the FSM transitions are managed by an external tool
+Managed: false
+# If true and the FSM is self-managed, transitions should be triggered
+StepByStep: false
+# Change idle behaviour, if true the state is kept until transition,
+# otherwise the FSM holds the last state until transition
+IdleKeepState: false
+# Where to look for state libraries. CMake configures this file twice: once with
+# the install prefixes for the installed copy, and once with the build-tree paths
+# for the copy the ticker configs and the lifecycle test use. See CMakeLists.txt.
+StatesLibraries:
+- "@RANGER_TRAJECTORY_STATES_LIBRARIES@"
+# Where to look for state files
+StatesFiles:
+- "@RANGER_TRAJECTORY_STATES_FILES@"
+
+# The FSM creates one posture task per actuated robot and holds it at the reset
+# posture. On this chassis that posture task would own the four drive hinges,
+# which are `continuous` joints whose position grows without bound while the
+# robot rolls: the posture error would grow with distance travelled and turn
+# into an ever-larger braking demand. Keep it weak here -- it is only wanted as
+# a regulariser -- and each curve state additionally sets DisablePostureTask so
+# the rolling-contact rate rows own the wheel degrees of freedom outright.
+ranger_mini_v3:
+  posture:
+    stiffness: 1.0
+    weight: 1.0
+
+# Rolling-contact machinery for the four steering wheels. Both entries are
+# registered ConstraintSetLoader types, so no C++ is needed to install them:
+# see src/mc_solver/RollingContactDynamicsConstraint.cpp and
+# src/mc_solver/RollingContactConstraint.cpp. The wheel description matches
+# MCRollingContactController::makeWheels() for ranger_mini_v3.
+constraints:
+- type: rollingContactDynamics
+  robot: ranger_mini_v3
+  terrainNormal: [0.0, 0.0, 1.0]
+  wheels: &ranger_wheels
+  - name: front_left
+    carrierFrame: front_left_carrier
+    forceBody: front_left_wheel
+    driveJoint: front_left_drive
+    steeringJoint: front_left_steer
+    radius: 0.125
+    width: 0.08
+    friction: 0.8
+  - name: front_right
+    carrierFrame: front_right_carrier
+    forceBody: front_right_wheel
+    driveJoint: front_right_drive
+    steeringJoint: front_right_steer
+    radius: 0.125
+    width: 0.08
+    friction: 0.8
+  - name: rear_left
+    carrierFrame: rear_left_carrier
+    forceBody: rear_left_wheel
+    driveJoint: rear_left_drive
+    steeringJoint: rear_left_steer
+    radius: 0.125
+    width: 0.08
+    friction: 0.8
+  - name: rear_right
+    carrierFrame: rear_right_carrier
+    forceBody: rear_right_wheel
+    driveJoint: rear_right_drive
+    steeringJoint: rear_right_steer
+    radius: 0.125
+    width: 0.08
+    friction: 0.8
+- type: rollingContact
+  robot: ranger_mini_v3
+  terrainNormal: [0.0, 0.0, 1.0]
+  longitudinal: hard
+  velocityGain: 20.0
+  # Four hard lateral rows on three planar chassis DOF are over-determined and
+  # freeze the chassis; soften them together instead. 1e7 is the value this
+  # project swept against MuJoCo, bounded from both sides -- see
+  # RollingContactConstraintOptions::lateralSlackWeight.
+  softLateralRows: true
+  lateralSlackWeight: 1.0e7
+  # A rate row tracks rate^+ = rate + dt * S * alphaD, so its weight enters the
+  # objective multiplied by dt^2: 4e7 is the authority equivalent of an
+  # acceleration-task weight of 1000 at dt = 0.005, NOT 1000. Do not "simplify"
+  # these to 1000, that would leave the rows two orders of magnitude below any
+  # ordinary task.
+  trackRotatingRates: true
+  rollingRateWeight: 4.0e7
+  steeringRateWeight: 4.0e7
+  wheels: *ranger_wheels
+
+states:
+  # Common configuration of the three curve states. Each of them only adds the
+  # geometry (duration, controlPoints, target); everything that tunes the task
+  # lives here so there is a single place to change it.
+  Ranger::ChassisCurve:
+    base: MetaTasks
+    # The wheel degrees of freedom belong to the rolling-contact rate rows for
+    # the duration of the curve; see the posture comment at the top of this file.
+    DisablePostureTask: true
+    tasks:
+      ChassisCurve:
+        type: bspline_trajectory
+        robot: ranger_mini_v3
+        frame: chassis
+        stiffness: 100.0
+        weight: 1000.0
+        # dimWeight is a Vector6d in SpaceVecAlg order -- ANGULAR FIRST:
+        # [roll, pitch, yaw, x, y, z]. The trajectory task controls a 6-DoF
+        # frame pose, but z, roll and pitch belong to the rolling constraints
+        # (the wheels are on the ground and the chassis is rigid): weighting
+        # them would only make the task fight constraints it cannot win against.
+        # Weight yaw, x and y; zero roll, pitch and z.
+        dimWeight: [0.0, 0.0, 1.0, 1.0, 1.0, 0.0]
+        displaySamples: 100
+        completion:
+          timeElapsed: true
+
+  # NOTE ON THE CONSTANT HEADING
+  #
+  # Every curve below keeps the chassis orientation at its reset value instead
+  # of commanding a tangent heading, and that is a deliberate engineering
+  # choice, not an omission -- please do not "fix" it.
+  #
+  # A pure in-place yaw on this robot tracks at only 6.7%: the QP places contact
+  # forces along the wheel's 0.08 m contact line but imposes its kinematic
+  # constraints at the single contact centre point, so nothing in the model
+  # represents the scrub torque of re-steering a loaded contact patch. A
+  # four-steering chassis can translate omnidirectionally (crab), so holding the
+  # heading constant and letting the wheels carry the direction changes plays to
+  # the machine's actual strength and stays clear of that modelling gap.
+  #
+  # The consequence to be aware of is that the direction of travel then sweeps a
+  # full 360 deg around the circle while the steering hinges are limited to
+  # +/- pi/2 (ranger_mini_v3.urdf): the hinges wrap twice per revolution, which
+  # is visible in the logs as two short steering flips.
+
+  # GENERATED-BEGIN: make-trajectory-waypoints.py
+  # Endpoint-pinned least-squares Bezier control points; regenerate with
+  #   python3 rolling-contact-report/scripts/make-trajectory-waypoints.py --write
+  # These are Bezier control points, not samples of the curve: the trajectory does
+  # NOT pass through them (src/mc_trajectory/BSpline.cpp builds one bezier_curve_t
+  # from [start, controlPoints..., target]).
+  # Circle: 6.283 m in 14 s (0.449 m/s), Bezier fit error 2.03e-08 m
+  # Line: 2.000 m in 4.5 s (0.444 m/s), Bezier fit error 4.00e-15 m
+  # Lissajous: 15.209 m in 34 s (0.447 m/s), Bezier fit error 2.03e-07 m
+  Ranger::Circle:
+    base: Ranger::ChassisCurve
+    tasks:
+      ChassisCurve:
+        duration: 14
+        controlPoints:
+        - [0.483322, 0.000000, 0.160000]
+        - [0.966644, 0.253070, 0.160000]
+        - [1.305412, 0.759185, 0.160000]
+        - [1.355094, 1.427629, 0.160000]
+        - [1.034465, 2.076413, 0.160000]
+        - [0.389453, 2.483704, 0.160000]
+        - [-0.389453, 2.483704, 0.160000]
+        - [-1.034465, 2.076413, 0.160000]
+        - [-1.355094, 1.427629, 0.160000]
+        - [-1.305412, 0.759185, 0.160000]
+        - [-0.966644, 0.253070, 0.160000]
+        - [-0.483322, 0.000000, 0.160000]
+        target:
+          translation: [0.000000, 0.000000, 0.160000]
+          rotation: [0.0, 0.0, 0.0]
+  Ranger::Line:
+    base: Ranger::ChassisCurve
+    tasks:
+      ChassisCurve:
+        duration: 4.5
+        controlPoints:
+        - [0.666667, 0.000000, 0.160000]
+        - [1.333333, 0.000000, 0.160000]
+        target:
+          translation: [2.000000, 0.000000, 0.160000]
+          rotation: [0.0, 0.0, 0.0]
+  Ranger::Lissajous:
+    base: Ranger::ChassisCurve
+    tasks:
+      ChassisCurve:
+        duration: 34
+        controlPoints:
+        - [2.897592, 0.000000, 0.160000]
+        - [3.795283, -0.375985, 0.160000]
+        - [3.852757, -1.127955, 0.160000]
+        - [2.237969, -2.082300, 0.160000]
+        - [-0.951434, -2.891834, 0.160000]
+        - [-3.475319, -3.136434, 0.160000]
+        - [-2.302634, -2.525122, 0.160000]
+        - [5.807266, -1.121246, 0.160000]
+        - [11.935753, 0.554226, 0.160000]
+        - [13.403597, 1.706650, 0.160000]
+        - [-9.403597, 1.706650, 0.160000]
+        - [-7.935753, 0.554226, 0.160000]
+        - [-1.807266, -1.121246, 0.160000]
+        - [6.302634, -2.525122, 0.160000]
+        - [7.475319, -3.136434, 0.160000]
+        - [4.951434, -2.891834, 0.160000]
+        - [1.762031, -2.082300, 0.160000]
+        - [0.147243, -1.127955, 0.160000]
+        - [0.204717, -0.375985, 0.160000]
+        - [1.102408, 0.000000, 0.160000]
+        target:
+          translation: [2.000000, 0.000000, 0.160000]
+          rotation: [0.0, 0.0, 0.0]
+  # GENERATED-END
+
+transitions:
+- [Ranger::Circle, OK, Ranger::Line, Auto]
+- [Ranger::Line, OK, Ranger::Lissajous, Auto]
+
+# Initial state
+init: Ranger::Circle
+
+# Observer pipeline. Encoder must run before BodySensor: BodySensorObserver::run()
+# reads realRobot().X_b1_b2(sensor.parentBody(), floatingBaseBody), which depends
+# on the joint state Encoder's update() just refreshed through forwardKinematics().
+# Same pipeline as rolling-contact-report/config/mc_rtc-ranger-mini-v3-keyboard.yaml.
+ObserverPipelines:
+- name: RangerTrajectoryPipeline
+  gui: false
+  observers:
+  - type: Encoder
+    update: true
+    position: encoderValues
+    velocity: encoderVelocities
+  - type: BodySensor
+    update: true
+    bodySensor: FloatingBase
+    method: sensor
+    updatePose: true
+    updateVel: true

@@ -69,6 +69,7 @@ if(${BUILD_CONTROLLER_SAMPLES})
   add_subdirectory(samples/Impedance)
   add_subdirectory(samples/ExternalForces)
   add_subdirectory(samples/RollingContact)
+  add_subdirectory(samples/RangerTrajectory)
 endif()
 
 add_subdirectory(HalfSitPose)
