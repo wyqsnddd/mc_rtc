@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 
-"""Generate the Bezier control points of the RangerTrajectory FSM sample.
+"""Generate the trajectory and steering schedule of the RangerTrajectory sample.
 
 The sample drives the Ranger Mini V3 chassis frame along three curves in
 sequence -- a circle, a straight line and a 3:2 Lissajous figure -- with one
-``bspline_trajectory`` task per FSM state.  This script emits the
-``controlPoints`` list and the final ``target`` of each of those tasks so the
-geometry is reproducible and reviewable instead of hand-typed.
+``bspline_trajectory`` task per FSM state.  This script emits, per curve:
+
+* the ``controlPoints`` list and final ``target`` of the chassis task, and
+* the ``oriWaypoints`` schedule of the four ``<wheel>_carrier`` steering tasks,
+
+so both are reproducible and reviewable instead of hand-typed.
+
+The steering half exists because nothing in the rolling-contact constraints can
+turn a steering hinge on this robot: the steering axis passes through the wheel
+centre, so its column in the contact-point Jacobian is identically zero.  What
+does reach the hinges is that a constant chassis heading makes each carrier
+frame's world orientation exactly ``Rz(delta_i)``, so an orientation waypoint
+list on that frame *is* a hinge schedule.
 
 Regenerate the committed block with::
 
@@ -19,7 +29,7 @@ Without ``--write`` the block is printed on stdout.  ``--check`` exits non-zero
 when the committed block differs from what this script would emit, which is how
 a reviewer can tell that the YAML really is the script's output.
 
-Two properties are asserted rather than assumed:
+Four properties are asserted rather than assumed:
 
 * **Continuity.**  Each curve must start exactly where the previous one ended.
   ``mc_tasks::BSplineTrajectoryTask`` anchors its curve at the *current* frame
@@ -35,6 +45,16 @@ Two properties are asserted rather than assumed:
   least-squares Bezier fit of the analytic curve, and the script asserts that the
   worst deviation between the fitted Bezier and the analytic curve stays under
   FIT_TOLERANCE.
+* **One schedule for four wheels.**  With the chassis heading constant its
+  motion is a pure translation, so every wheel centre sees the same velocity and
+  all four hinges share one ``delta``.  The emitted YAML relies on that (it
+  aliases a single waypoint list to the four carriers), so it is checked per
+  wheel in ``assert_wheels_share_one_delta()`` rather than taken on trust.
+* **Feasible branch flips.**  The hinges are limited to +/- pi/2 while the
+  direction of travel sweeps a full turn, so the schedule has to change branch.
+  Each change is emitted as an explicit three-point flip and the script checks
+  that its slew stays under the hinge velocity limit, that two flips never
+  overlap, and that a flip fits inside its curve.
 
 The parametrisation of every curve is affine in time, so the Bezier parameter is
 the normalised state time and the commanded speed is what the analytic curve
@@ -69,11 +89,26 @@ LISSAJOUS_B = 1.0
 LISSAJOUS_FREQ_X = 3
 LISSAJOUS_FREQ_Y = 2
 
-# Durations, chosen for a roughly uniform ~0.45 m/s cruise: the arc lengths are
+# Durations, chosen for a roughly uniform ~0.30 m/s cruise: the arc lengths are
 # 6.283 m, 2.000 m and 15.209 m respectively.
-CIRCLE_DURATION = 14.0
-LINE_DURATION = 4.5
-LISSAJOUS_DURATION = 34.0
+#
+# The pace is set by the steering branch flips, not by anything about the
+# curves.  A flip swings a hinge through 180 deg and takes a fixed
+# STEERING_FLIP_WINDOW whatever the chassis is doing, so the distance the
+# chassis loses while its wheels point the wrong way is proportional to its
+# speed.  Measured on the ticker over the whole sequence (max / mean chassis
+# deviation from the commanded curve, and peak drive torque against the 35 Nm
+# limit):
+#
+#   0.45 m/s (52.5 s total)  circle 0.140 / 0.035 m   Lissajous 0.096 / 0.023 m   29.0 Nm
+#   0.30 m/s (78.75 s total) circle 0.094 / 0.021 m   Lissajous 0.067 / 0.011 m   17.8 Nm
+#
+# The slower pace is the better demonstration: max error falls with speed as
+# predicted, mean error halves, and the torque margin nearly doubles.  Scale all
+# three durations together to change it.
+CIRCLE_DURATION = 21.0
+LINE_DURATION = 6.75
+LISSAJOUS_DURATION = 51.0
 
 # Number of *interior* Bezier control points per curve; the Bezier degree is this
 # plus one because the start and end points are pinned.  The Lissajous needs more
@@ -101,6 +136,63 @@ FIT_TOLERANCE = 1e-3
 CONTINUITY_TOLERANCE = 1e-9
 # Samples used both for the least-squares fit and for the error check.
 FIT_SAMPLES = 4001
+
+# --- steering schedule -----------------------------------------------------
+#
+# The chassis heading is held constant, so each <wheel>_carrier frame's world
+# orientation is exactly Rz(delta_i) and a spline task on that frame with
+# orientation waypoints schedules the hinge from YAML.  With a constant heading
+# the chassis motion is a pure translation, every wheel centre has the same
+# velocity, and all four wheels therefore share one delta -- asserted in
+# steering_schedule() rather than assumed.
+#
+# Carrier frame offsets in the chassis frame, from ranger_mini_v3.urdf (the
+# carrier frame is the knuckle body, whose origin is the *_steer joint origin).
+CARRIER_OFFSETS = {
+    "FrontLeft": ("front_left_carrier", 0.247, 0.182, -0.035),
+    "FrontRight": ("front_right_carrier", 0.247, -0.182, -0.035),
+    "RearLeft": ("rear_left_carrier", -0.247, 0.182, -0.035),
+    "RearRight": ("rear_right_carrier", -0.247, -0.182, -0.035),
+}
+
+# Orientation waypoints emitted per curve.  InterpolatedRotation slerps between
+# consecutive waypoints, which for a single-axis rotation is linear in the
+# angle, so the count only has to resolve the curvature of delta(t).  delta is
+# exactly linear in t on the circle (a constant-speed circle turns its tangent
+# uniformly) and identically zero on the line; only the Lissajous needs a dense
+# grid.  Measured worst piecewise-linear error against the analytic schedule,
+# outside the cusp neighbourhoods: 40 -> 7.3 deg, 60 -> 1.4 deg, 80 -> 0.8 deg,
+# 120 -> 0.4 deg.
+CIRCLE_STEERING_SAMPLES = 16
+LINE_STEERING_SAMPLES = 0
+LISSAJOUS_STEERING_SAMPLES = 80
+
+# The steering hinges are limited to +/- pi/2 (ranger_mini_v3.urdf) while the
+# direction of travel sweeps a full turn, so the schedule has to change branch:
+# a wheel line at +pi/2 and at -pi/2 is the same physical line, reached by
+# rolling the other way.  A branch change is a genuine discontinuity in delta,
+# and a slerp straight across it would either be ambiguous (the two endpoints
+# are exactly 180 deg apart, so "shortest path" is a coin flip) or infinitely
+# fast.  Each one is therefore emitted as three waypoints -- (+pi/2, 0, -pi/2)
+# spread over this window -- which makes both legs unambiguous 90 deg slerps and
+# bounds the hinge slew at pi / window.
+#
+# Swept on the ticker (max / mean chassis deviation, circle then Lissajous, at
+# the 0.45 m/s pace): 0.45 s -> 0.141 / 0.038 and 0.106 / 0.031 m; 0.60 s ->
+# 0.140 / 0.035 and 0.096 / 0.023 m; 0.80 s -> 0.142 / 0.032 and 0.099 /
+# 0.015 m.  The peak barely moves because it is set by the 180 deg swing itself
+# rather than by how it is spread; the mean prefers a longer window while the
+# straight segment prefers a shorter one, because a wide flip leaves a larger
+# residual hinge offset behind for the next state to unwind.  0.60 s is the
+# balance, and keeps a 1.5x margin under the hinge velocity limit.
+STEERING_FLIP_WINDOW = 0.6
+# Hinge velocity limit from the URDF, used to check STEERING_FLIP_WINDOW.
+STEERING_RATE_LIMIT = 8.0
+# Below this parameter-space speed the direction of travel is not defined; the
+# 3:2 Lissajous has two genuine cusps where the curve stops and reverses along
+# the same line.  The wheel line is unchanged through a cusp (only the roll
+# direction flips), so the previous direction is held.
+TANGENT_SPEED_FLOOR = 1e-6
 
 BEGIN_MARKER = "  # GENERATED-BEGIN: make-trajectory-waypoints.py"
 END_MARKER = "  # GENERATED-END"
@@ -162,6 +254,12 @@ def circle_curve(start):
             axis=1,
         )
 
+    def derivative(s):
+        angle = 2.0 * pi * np.asarray(s)
+        scale = 2.0 * pi * CIRCLE_RADIUS
+        return np.stack([scale * np.cos(angle), scale * np.sin(angle)], axis=1)
+
+    curve.derivative = derivative
     return curve
 
 
@@ -174,6 +272,11 @@ def line_curve(start):
         y = start[1] + np.zeros_like(t)
         return np.stack([x, y], axis=1)
 
+    def derivative(s):
+        t = np.asarray(s)
+        return np.stack([LINE_LENGTH * np.ones_like(t), np.zeros_like(t)], axis=1)
+
+    curve.derivative = derivative
     return curve
 
 
@@ -200,6 +303,17 @@ def lissajous_curve(start):
         theta = theta0 + 2.0 * pi * np.asarray(s)
         return raw(theta) + offset
 
+    def derivative(s):
+        theta = theta0 + 2.0 * pi * np.asarray(s)
+        return np.stack(
+            [
+                2.0 * pi * a * LISSAJOUS_A * np.cos(a * theta + phase),
+                2.0 * pi * b * LISSAJOUS_B * np.cos(b * theta),
+            ],
+            axis=1,
+        )
+
+    curve.derivative = derivative
     return curve
 
 
@@ -209,13 +323,149 @@ def format_point(x, y):
     return f"[{x:.6f}, {y:.6f}, {CHASSIS_HEIGHT:.6f}]"
 
 
+def wheel_line_direction(curve, s):
+    """Direction of the wheel line along ``curve``, continuous modulo pi.
+
+    The wheel is symmetric, so what the hinge has to match is the *line* of
+    travel, not its orientation: a cusp, where the curve stops and comes back
+    along the same line, needs no hinge motion at all, only a change of roll
+    sign.  Unwrapping with period pi is what removes those pi jumps; it is also
+    what makes the branch bookkeeping below well posed.
+    """
+    delta = curve.derivative(s)
+    speed = np.linalg.norm(delta, axis=1)
+    raw = np.arctan2(delta[:, 1], delta[:, 0])
+    # Hold the previous direction wherever the curve is momentarily stopped.
+    for i in range(len(raw)):
+        if speed[i] < TANGENT_SPEED_FLOOR:
+            raw[i] = raw[i - 1] if i else 0.0
+    return np.unwrap(raw, period=pi)
+
+
+def branch_index(phi):
+    """Index k such that phi - k * pi lands inside [-pi/2, pi/2]."""
+    return np.floor((phi + 0.5 * pi) / pi)
+
+
+def steering_schedule(curve, duration, samples, start_delta):
+    """Hinge angle schedule for one curve, as (time, delta) waypoints.
+
+    Returns the interior waypoints, the final hinge angle, and the diagnostics
+    the caller prints.  Branch changes -- the points where the continuous wheel
+    line direction leaves the +/- pi/2 hinge range -- are emitted as an explicit
+    three-point flip so the slerp between them is unambiguous and rate bounded,
+    exactly the "nearest representation inside the limit" rule
+    mc_rbdyn::steeringWheelReference() applies online.
+    """
+    dense = np.linspace(0.0, 1.0, FIT_SAMPLES)
+    phi = wheel_line_direction(curve, dense)
+    if abs((phi[0] - start_delta + 0.5 * pi) % pi - 0.5 * pi) > 1e-6:
+        raise AssertionError(
+            f"steering schedule starts at {math.degrees(phi[0]):.3f} deg but the previous "
+            f"curve left the hinges at {math.degrees(start_delta):.3f} deg"
+        )
+    # Re-anchor so the schedule continues from the hinge angle the previous
+    # curve ended on instead of from an arbitrary branch of atan2.
+    phi = phi - phi[0] + start_delta
+
+    branch = branch_index(phi)
+    crossings = np.nonzero(np.diff(branch) != 0)[0]
+    flip_times = [duration * 0.5 * (dense[i] + dense[i + 1]) for i in crossings]
+    flip_signs = [1.0 if branch[i + 1] > branch[i] else -1.0 for i in crossings]
+
+    rate = pi / STEERING_FLIP_WINDOW
+    if rate > STEERING_RATE_LIMIT:
+        raise AssertionError(
+            f"a branch flip over {STEERING_FLIP_WINDOW:g} s needs {rate:.2f} rad/s from a "
+            f"hinge limited to {STEERING_RATE_LIMIT:g} rad/s"
+        )
+    for a, b in zip(flip_times, flip_times[1:]):
+        if b - a < STEERING_FLIP_WINDOW:
+            raise AssertionError(
+                f"branch flips at {a:.3f} s and {b:.3f} s are closer than the "
+                f"{STEERING_FLIP_WINDOW:g} s flip window"
+            )
+    for t in flip_times:
+        if (
+            t - 0.5 * STEERING_FLIP_WINDOW <= 0.0
+            or t + 0.5 * STEERING_FLIP_WINDOW >= duration
+        ):
+            raise AssertionError(
+                f"branch flip at {t:.3f} s does not fit inside the curve"
+            )
+
+    def delta_at(time):
+        s = float(np.clip(time / duration, 0.0, 1.0))
+        # The branch is a step function; take it from the nearest dense sample
+        # rather than interpolating across a step.
+        k = branch[min(len(dense) - 1, int(round(s * (len(dense) - 1))))]
+        return float(np.interp(s, dense, phi)) - k * pi
+
+    waypoints = []
+    if samples:
+        for i in range(1, samples):
+            time = duration * i / samples
+            if any(abs(time - t) < 0.5 * STEERING_FLIP_WINDOW for t in flip_times):
+                continue
+            waypoints.append((time, delta_at(time)))
+    for time, sign in zip(flip_times, flip_signs):
+        # Crossing upwards leaves the range at +pi/2 and re-enters at -pi/2.
+        waypoints.append((time - 0.5 * STEERING_FLIP_WINDOW, sign * 0.5 * pi))
+        waypoints.append((time, 0.0))
+        waypoints.append((time + 0.5 * STEERING_FLIP_WINDOW, -sign * 0.5 * pi))
+    waypoints.sort()
+
+    end = float(phi[-1] - branch[-1] * pi)
+    peak = 0.0
+    for (t0, d0), (t1, d1) in zip(waypoints, waypoints[1:]):
+        peak = max(peak, abs(d1 - d0) / (t1 - t0))
+    return waypoints, end, {"flips": flip_times, "peak_rate": peak}
+
+
+def assert_wheels_share_one_delta(curve, duration):
+    """All four hinges follow the same schedule -- checked, not assumed.
+
+    The chassis heading is constant, so the chassis twist is a pure translation
+    (omega = 0) and every wheel centre velocity is v + omega x r_i = v. The
+    per-wheel direction is therefore independent of the carrier offset. Compute
+    it per wheel anyway, so that a future curve which does rotate the chassis
+    trips this instead of silently emitting four wrong identical schedules.
+    """
+    dense = np.linspace(0.0, 1.0, 2001)
+    velocity = curve.derivative(dense)
+    omega = 0.0  # constant chassis heading
+    for name, (_, x, y, _) in CARRIER_OFFSETS.items():
+        at_wheel = velocity + omega * np.stack(
+            [-y * np.ones_like(dense), x * np.ones_like(dense)], axis=1
+        )
+        if np.max(np.abs(at_wheel - velocity)) > 1e-12:
+            raise AssertionError(
+                f"wheel {name} does not see the chassis velocity; the four hinges no "
+                "longer share one schedule and the emitted YAML would be wrong"
+            )
+    del duration
+
+
 def generate():
     start = np.array(START_XY, dtype=float)
+    delta = 0.0
     specs = []
-    for name, factory, interior, duration in (
-        ("Circle", circle_curve, CIRCLE_CONTROL_POINTS, CIRCLE_DURATION),
-        ("Line", line_curve, LINE_CONTROL_POINTS, LINE_DURATION),
-        ("Lissajous", lissajous_curve, LISSAJOUS_CONTROL_POINTS, LISSAJOUS_DURATION),
+    for name, factory, interior, duration, steering_samples in (
+        (
+            "Circle",
+            circle_curve,
+            CIRCLE_CONTROL_POINTS,
+            CIRCLE_DURATION,
+            CIRCLE_STEERING_SAMPLES,
+        ),
+        ("Line", line_curve, LINE_CONTROL_POINTS, LINE_DURATION, LINE_STEERING_SAMPLES),
+        (
+            "Lissajous",
+            lissajous_curve,
+            LISSAJOUS_CONTROL_POINTS,
+            LISSAJOUS_DURATION,
+            LISSAJOUS_STEERING_SAMPLES,
+        ),
     ):
         curve = factory(tuple(start))
         actual_start = curve(np.array([0.0]))[0]
@@ -231,6 +481,10 @@ def generate():
                 f"{name} Bezier fit deviates by {error:.3e} m (tolerance {FIT_TOLERANCE:.1e}); "
                 f"raise the interior control point count above {interior}"
             )
+        assert_wheels_share_one_delta(curve, duration)
+        steering, delta_end, diagnostics = steering_schedule(
+            curve, duration, steering_samples, delta
+        )
         end = curve(np.array([1.0]))[0]
         length = arc_length(curve)
         specs.append(
@@ -242,27 +496,49 @@ def generate():
                 "error": error,
                 "length": length,
                 "speed": length / duration,
+                "steering": steering,
+                "steering_end": delta_end,
+                "flips": diagnostics["flips"],
+                "peak_steering_rate": diagnostics["peak_rate"],
             }
         )
         start = end
+        delta = delta_end
     return specs
 
 
 def render(specs):
     lines = [
         BEGIN_MARKER,
-        "  # Endpoint-pinned least-squares Bezier control points; regenerate with",
+        "  # Generated; regenerate with",
         "  #   python3 rolling-contact-report/scripts/make-trajectory-waypoints.py --write",
+        "  #",
+        "  # ChassisCurve carries endpoint-pinned least-squares Bezier control points.",
         "  # These are Bezier control points, not samples of the curve: the trajectory does",
         "  # NOT pass through them (src/mc_trajectory/BSpline.cpp builds one bezier_curve_t",
         "  # from [start, controlPoints..., target]).",
+        "  #",
+        "  # The four *Steering tasks schedule the steering hinges. With the chassis",
+        "  # heading held constant a <wheel>_carrier frame's world orientation is exactly",
+        "  # Rz(delta), so an orientation waypoint list on that frame IS the hinge",
+        "  # schedule. All four wheels share it (pure translation: every wheel centre has",
+        "  # the same velocity), hence the YAML anchor. orientation is [roll, pitch, yaw]",
+        "  # in rad -- mc_rtc reads a 3-vector rotation as RPY.",
     ]
     for spec in specs:
         lines.append(
             "  # {name}: {length:.3f} m in {duration:g} s ({speed:.3f} m/s), "
-            "Bezier fit error {error:.2e} m".format(**spec)
+            "Bezier fit error {error:.2e} m,".format(**spec)
+        )
+        flips = ", ".join(f"{t:.2f} s" for t in spec["flips"]) or "none"
+        lines.append(
+            "  #   {n} steering waypoints, branch flips at {flips}, "
+            "peak scheduled hinge rate {rate:.2f} rad/s (limit 8)".format(
+                n=len(spec["steering"]), flips=flips, rate=spec["peak_steering_rate"]
+            )
         )
     for spec in specs:
+        anchor = spec["name"].lower()
         lines.append(f"  Ranger::{spec['name']}:")
         lines.append("    base: Ranger::ChassisCurve")
         lines.append("    tasks:")
@@ -277,6 +553,33 @@ def render(specs):
         )
         # Constant heading: see the Ranger::ChassisCurve comment in the sample.
         lines.append("          rotation: [0.0, 0.0, 0.0]")
+        first = True
+        for wheel, (frame, dx, dy, dz) in CARRIER_OFFSETS.items():
+            del frame
+            lines.append(f"      {wheel}Steering:")
+            lines.append(f"        duration: {spec['duration']:g}")
+            lines.append("        target:")
+            translation = (
+                f"[{spec['target'][0] + dx:.6f}, {spec['target'][1] + dy:.6f}, "
+                f"{CHASSIS_HEIGHT + dz:.6f}]"
+            )
+            lines.append(f"          translation: {translation}")
+            end = f"[0.0, 0.0, {spec['steering_end']:.6f}]"
+            if first:
+                lines.append(f"          rotation: &{anchor}_steering_end {end}")
+            else:
+                lines.append(f"          rotation: *{anchor}_steering_end")
+            if spec["steering"]:
+                if first:
+                    lines.append(f"        oriWaypoints: &{anchor}_steering")
+                    for time, angle in spec["steering"]:
+                        lines.append(
+                            f"        - {{time: {time:.4f}, "
+                            f"orientation: [0.0, 0.0, {angle:.6f}]}}"
+                        )
+                else:
+                    lines.append(f"        oriWaypoints: *{anchor}_steering")
+            first = False
     lines.append(END_MARKER)
     return "\n".join(lines) + "\n"
 
@@ -309,8 +612,15 @@ def main():
     for spec in specs:
         print(
             "{name}: {length:.4f} m over {duration:g} s ({speed:.4f} m/s), "
-            "{n} interior control points, Bezier fit error {error:.3e} m".format(
-                n=len(spec["control"]), **spec
+            "{n} interior control points, Bezier fit error {error:.3e} m; "
+            "{m} steering waypoints, {f} branch flips, peak hinge rate "
+            "{rate:.3f} rad/s, end delta {end:.4f} rad".format(
+                n=len(spec["control"]),
+                m=len(spec["steering"]),
+                f=len(spec["flips"]),
+                rate=spec["peak_steering_rate"],
+                end=spec["steering_end"],
+                **spec,
             ),
             file=sys.stderr,
         )
