@@ -11,11 +11,13 @@
 #include <unistd.h>
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -231,6 +233,15 @@ struct ScopedPseudoTerminalStdin
 
   bool active() const noexcept { return active_ && ::isatty(STDIN_FILENO) == 1; }
 
+  /** Type one character at the terminal, exactly as an operator would.
+   *
+   * RoboticsUtils::KeyboardCapture reads single bytes off STDIN_FILENO with
+   * ICANON/ECHO cleared, so a byte written to the master end is delivered to
+   * its poll thread verbatim. This is what lets a test exercise the production
+   * key handler instead of a test-only re-implementation of it.
+   */
+  bool send(char key) const { return active_ && ::write(master_, &key, 1) == 1; }
+
 private:
   int master_ = -1;
   int slave_ = -1;
@@ -241,6 +252,35 @@ private:
 Eigen::Vector3d chassisMotion(const sva::PTransformd & start, const sva::PTransformd & end)
 {
   return start.rotation() * (end.translation() - start.translation());
+}
+
+/** Type @p key at the terminal and keep the controller running until the
+ * keyboard poll thread has delivered it, i.e. until @p accepted holds on the
+ * commanded twist.
+ *
+ * KeyboardCapture reads one byte per poll (10 ms by default) on its own
+ * thread, so a key press is only observable a few controller cycles later.
+ * Polling on the resulting command - rather than sleeping a fixed amount -
+ * keeps the test deterministic while still going through the real terminal.
+ */
+void typeKey(mc_control::MCRollingContactController & controller,
+             const ScopedPseudoTerminalStdin & tty,
+             char key,
+             const std::function<bool(const Eigen::Vector3d &)> & accepted)
+{
+  BOOST_REQUIRE_MESSAGE(tty.send(key), "could not write '" << key << "' to the pseudo-terminal");
+  // Wait out the poll interval before stepping the controller, so the key is
+  // normally already latched on the first run() below and the number of
+  // controller cycles this helper consumes does not depend on machine load.
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  for(int cycle = 0; cycle < 400; ++cycle)
+  {
+    BOOST_REQUIRE(controller.run());
+    if(accepted(controller.commandedTwist())) { return; }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  BOOST_FAIL("the keyboard command for '" << key << "' never reached the controller; last commanded twist was "
+                                          << controller.commandedTwist().transpose());
 }
 
 /** Signed yaw travelled between two floating-base poses.
@@ -777,6 +817,130 @@ BOOST_AUTO_TEST_CASE(KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading)
   BOOST_TEST_MESSAGE("[keyboard-heading] sensorYaw=" << sensorYaw << " worldYaw=" << worldYaw
                                                      << " walkedYaw=" << walkedYaw);
   BOOST_CHECK_SMALL(std::remainder(walkedYaw - worldYaw, 2.0 * 3.14159265358979323846), 1e-6);
+}
+
+BOOST_AUTO_TEST_CASE(KeyboardForwardAfterACrabAndAYawTravelsAlongTheChassisHeading)
+{
+  // The operator-visible contract of the translation keys: W means "drive
+  // forward", i.e. along the chassis' own +X axis, whatever was commanded
+  // before it. A terminal has no key-release event, so every axis the handler
+  // does not explicitly rewrite stays latched, and an axis that stays latched
+  // is indistinguishable from one the operator is still holding down.
+  //
+  // Reported symptom, in an interactive mc_mujoco session: after using the
+  // lateral and yaw keys, W and S no longer drive the robot along the
+  // direction it points; it crabs away at a constant 45 degrees that nothing
+  // short of space or the exit key clears. 45 degrees exactly, because both
+  // translation axes are commanded at the same keyboardLinearSpeed, so a
+  // latched pair is always (v, v).
+  //
+  // Drive the production key handler through a real terminal - the same
+  // ScopedPseudoTerminalStdin the closed-loop heading test uses - rather than
+  // calling setCommandedTwist(), because the defect is in the key -> twist
+  // mapping and setCommandedTwist() would bypass it entirely.
+  ScopedPseudoTerminalStdin tty;
+  BOOST_REQUIRE_MESSAGE(tty.active(), "could not allocate a pseudo-terminal for the keyboard scenario");
+  // Open loop on purpose: this test measures where the chassis actually goes,
+  // and closed-loop feedback would pin the floating base to a FloatingBase
+  // sensor no simulator is updating here (see makeController's comment).
+  auto controller = makeController("RollingContactRangerMiniV3", "keyboard");
+
+  const auto nonZero = [](int axis) {
+    return [axis](const Eigen::Vector3d & twist) { return std::abs(twist(axis)) > 1e-9; };
+  };
+  const auto settle = [&controller](int cycles) {
+    for(int cycle = 0; cycle < cycles; ++cycle) { BOOST_REQUIRE(controller->run()); }
+  };
+
+  // W, A, E, W. Both orderings of the two translation axes appear on purpose:
+  // the defect is symmetric - W leaving a latched A/D and A/D leaving a latched
+  // W/S are the same missing store - and a test that exercised only one of them
+  // would pass against half a fix.
+
+  // W: drive forward. From a clean start this is trivially a pure forward
+  // command; it is here to latch the forward axis for the A press below.
+  typeKey(*controller, tty, 'w', nonZero(0));
+  settle(200);
+
+  // A: crab left. This must be a *pure* crab - the forward axis latched by the
+  // W above has to go - which is also what the 60 s session in
+  // rolling-contact-report/README.md calls "the 90-degree re-steer from a turn
+  // into a pure crab".
+  typeKey(*controller, tty, 'a', nonZero(1));
+  const Eigen::Vector3d crabCommand = controller->commandedTwist();
+  BOOST_TEST_MESSAGE("[keyboard-forward] commanded twist after A = " << crabCommand.transpose());
+  BOOST_CHECK_SMALL(crabCommand.x(), 1e-12);
+  BOOST_CHECK_SMALL(crabCommand.z(), 1e-12);
+  settle(300);
+
+  // E: yaw. This is the "after rotating with Q/E" step of the report; A+E is
+  // the crabbing turn Q/E are documented to produce, so nothing is asserted to
+  // be zero here.
+  typeKey(*controller, tty, 'e', nonZero(2));
+  settle(200);
+  BOOST_REQUIRE_GT(std::abs(controller->commandedTwist().z()), 1e-9);
+
+  // W: drive forward. Nothing else.
+  typeKey(*controller, tty, 'w', nonZero(0));
+  const Eigen::Vector3d forwardCommand = controller->commandedTwist();
+  BOOST_TEST_MESSAGE("[keyboard-forward] commanded twist after W = " << forwardCommand.transpose());
+  // The chassis-frame direction the command asks the wheels to travel in. The
+  // per-wheel references are the exact planar inverse of this twist, so this
+  // angle is what the robot physically does: measured against real mc_mujoco
+  // on this exact key sequence it predicts the achieved travel direction to
+  // within 0.05 degrees.
+  const double commandDirection = std::atan2(forwardCommand.y(), forwardCommand.x());
+  BOOST_CHECK_SMALL(commandDirection, 1e-12);
+  BOOST_CHECK_SMALL(forwardCommand.z(), 1e-12);
+
+  // And the physical consequence, which is what the operator actually sees.
+  //
+  // Two transients have to die first, and neither is the subject of this test.
+  // The drive reference is rate limited and the hinges converge with a 0.15 s
+  // time constant, so the first few hundred milliseconds of any command are
+  // deliberately not the command; and this is the *open-loop* keyboard branch,
+  // where baseYawTarget_ integrates the commanded yaw rate with no feedback, so
+  // after the E press the orientation task is still closing a heading target
+  // the chassis had not reached. Measured here, that second one decays roughly
+  // a decade per second once the hinges are back - about 7, 2, 1, 0.2, 0.03,
+  // 0.004 degrees of sideslip per second-long window - so 1600 cycles is eight
+  // seconds and lands well past the knee.
+  settle(1600);
+  // Integrate the chassis' own linear velocity in its own frame. RBDyn stores a
+  // free joint's velocity in body coordinates, so alpha[0][3..5] is literally
+  // "where the robot is going relative to where it points" - the quantity the
+  // report is about. A world displacement measured against a single start pose
+  // is not: any chassis yaw inside the window biases it by roughly half the yaw
+  // travelled, which on this manoeuvre is the same order as the number being
+  // measured.
+  Eigen::Vector2d motion = Eigen::Vector2d::Zero();
+  for(int cycle = 0; cycle < 300; ++cycle)
+  {
+    BOOST_REQUIRE(controller->run());
+    const auto & alpha0 = controller->robot().mbc().alpha[0];
+    BOOST_REQUIRE_EQUAL(alpha0.size(), 6u);
+    motion += 0.005 * Eigen::Vector2d{alpha0[3], alpha0[4]};
+  }
+
+  const double travelDirection = std::atan2(motion.y(), motion.x());
+  BOOST_TEST_MESSAGE("[keyboard-forward] chassis-frame travel over 1.5 s: dx=" << motion.x() << " dy=" << motion.y()
+                                                                               << " angle="
+                                                                               << 180.0 * travelDirection
+                                                                                      / 3.14159265358979323846
+                                                                               << " deg");
+  // Non-vacuity: the chassis has to have actually driven somewhere, otherwise
+  // atan2 of two zeros would pass this test without the robot moving at all.
+  // 300 cycles at dt = 5 ms is 1.5 s, so a tracked 0.3 m/s command covers
+  // 0.45 m; require a third of it, the same margin
+  // FourSteeringTracksCommandedTwistSigns uses.
+  BOOST_REQUIRE_GT(motion.norm(), 0.15);
+  BOOST_CHECK_GT(motion.x(), 0.0);
+  // The defect puts this at 45 degrees (0.785 rad; measured 0.78531 rad here
+  // and 45.009 degrees in real mc_mujoco). A healthy run measures 6.5e-8 rad. The
+  // bound below is 39x under the failure it has to catch; it is not tightened
+  // to the observation because the observation is a converged QP solution and
+  // a different solver build has no obligation to reproduce it to six decades.
+  BOOST_CHECK_SMALL(travelDirection, 0.02);
 }
 
 BOOST_AUTO_TEST_CASE(RollingContactObserverPipelineDrivesRealRobotEstimate)

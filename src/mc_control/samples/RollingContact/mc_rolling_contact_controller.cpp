@@ -159,25 +159,44 @@ struct MCRollingContactController::KeyboardInput
       if(key == exitKey) { stopRequested.store(true); }
       return;
     }
+    // Each translation key names one axis of the chassis twist and is an
+    // explicit, complete command on the two others: W/S mean "drive forward or
+    // back", not "drive forward and keep whatever else was running".
+    //
+    // Terminal input has no key-release event, so every axis this handler does
+    // not rewrite stays latched and is indistinguishable from an axis the
+    // operator is still holding down. Rewriting only the key's own axis makes
+    // the latched remainder silently steer the robot: a previously latched Q/E
+    // turns a requested straight or crab motion into an unintended circle, and
+    // a previously latched A/D turns a requested straight motion into a
+    // permanent diagonal. The second one is not a small effect - both
+    // translation axes are commanded at the same keyboardLinearSpeed, so the
+    // latched pair is always (v, v) and the robot travels at exactly 45 degrees
+    // to the direction it points, for as long as the session lasts, with no key
+    // other than space or the exit key able to clear it.
+    //
+    // Q/E deliberately keep the translation in effect: "add yaw to translation"
+    // is what makes W then E an arc and A then Q a crabbing turn, and it is a
+    // command the operator can undo with any translation key.
     switch(key)
     {
       case 'w':
         vx.store(linearVelocity);
-        // Translation keys are an explicit change away from a pure yaw
-        // command.  Terminal input has no key-release event, therefore a
-        // previously latched Q/E would otherwise remain active and turn a
-        // requested straight/crab motion into an unintended circle.
+        vy.store(0.0);
         wz.store(0.0);
         break;
       case 's':
         vx.store(-linearVelocity);
+        vy.store(0.0);
         wz.store(0.0);
         break;
       case 'a':
+        vx.store(0.0);
         vy.store(-linearVelocity);
         wz.store(0.0);
         break;
       case 'd':
+        vx.store(0.0);
         vy.store(linearVelocity);
         wz.store(0.0);
         break;
@@ -373,8 +392,9 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
           "RollingContact was built without RoboticsUtils::Keyboard; install RoboticsUtils and rebuild mc_rtc");
 #endif
     }
-    mc_rtc::log::info("RollingContact keyboard: W/S/A/D clear a latched Q/E yaw; Q/E add yaw to translation; "
-                      "press '{}' to stop capture and zero velocity references, space to clear the axes",
+    mc_rtc::log::info("RollingContact keyboard: W/S/A/D each command one translation axis and clear the other two "
+                      "(so W after A drives straight forward, not diagonally); Q/E add yaw to the translation in "
+                      "effect; press '{}' to stop capture and zero velocity references, space to clear the axes",
                       keyboardExitKey[0]);
   }
   gui()->addElement(

@@ -352,10 +352,18 @@ keyboard, the GUI and the scripted scenarios. `mc_rbdyn::steeringWheelReference`
 four-steering rolling rows per wheel, including the ±90° Ranger steering limits, and the QP's rotating-rate rows
 track both the rolling and the steering rate. There is no analytic hinge IK, no drive-hold barrier and no
 command-transition grace period left in the controller: the QP arbitrates steering and drive in the same solve.
-Terminal input supplies key-down bytes rather than continuous release state, so commands are latched explicitly. W/S
-and A/D update the translation axes and clear a previously latched Q/E yaw; this makes Q/E followed by W/A a true
-straight or crab command instead of an unintended circle. Q/E add yaw to the current
-translation, so W+Q/W+E still provides mixed-radius motion. `space` clears every axis. The Tasks backend supplies chassis linear/angular and wheel-rate
+Terminal input supplies key-down bytes rather than continuous release state, so commands are latched explicitly, and
+every axis a key does not rewrite is indistinguishable from one the operator is still holding down. Each of W/S and
+A/D therefore commands *one* translation axis and clears the other two: `W` is "drive forward", not "drive forward
+and keep whatever else was running". This makes Q/E followed by W a true straight command instead of an unintended
+circle, and A followed by W a true straight command instead of a permanent diagonal. That second half was missing
+until the `A`/`D` and `W`/`S` branches cleared each other's axis: because both translation axes are commanded at the
+same `keyboardLinearSpeed`, a latched pair is always `(v, v)` and the robot travelled at exactly 45 degrees to the
+direction it pointed for the rest of the session, with only `space` or `x` able to clear it.
+`KeyboardForwardAfterACrabAndAYawTravelsAlongTheChassisHeading` in `test_controller_lifecycle.cpp` pins this by
+typing the keys into a pseudo-terminal, so the production key handler runs unmodified. Q/E still add yaw to the
+current translation, so W+Q/W+E provides mixed-radius motion. `space` clears every axis.
+The Tasks backend supplies chassis linear/angular and wheel-rate
 feed-forward, and synchronizes MuJoCo encoder/body-sensor measurements into the controller MBC before each cycle. It
 then emits measured-state-relative wheel `q`/`alpha` references, matching the position/velocity signals consumed by
 mc_mujoco. This keeps the chassis target and actual motion coupled instead of integrating an untracked absolute target.
