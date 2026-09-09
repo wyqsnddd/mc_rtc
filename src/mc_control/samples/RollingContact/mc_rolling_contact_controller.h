@@ -129,7 +129,6 @@ private:
   double elapsed_ = 0.0;
   bool fourSteering_ = false;
   bool closedLoopFeedback_ = false;
-  bool keyboardStopLatched_ = false;
   bool keyboardCaptureWasRunning_ = false;
   bool contactFallback_ = false;
   bool lastSolverSuccess_ = false;

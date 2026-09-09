@@ -1138,7 +1138,6 @@ void MCRollingContactController::reset(const ControllerResetData & data)
   elapsed_ = 0.0;
   lastSolverSuccess_ = false;
   contactFallback_ = false;
-  keyboardStopLatched_ = false;
   keyboardCaptureWasRunning_ = false;
   commandedTwist_.setZero();
   updateTimeMs_ = 0.0;
@@ -1433,11 +1432,6 @@ void MCRollingContactController::updateReference()
     // leaving a permanent position-task error that cannot be corrected with
     // zero wheel rates.
     basePositionTarget_ = robot().posW().translation();
-    keyboardStopLatched_ = true;
-  }
-  else
-  {
-    keyboardStopLatched_ = false;
   }
   basePositionTarget_ += solver().dt() * (forward * heading + lateral * side);
   // Feed the measured position error back into the chassis task. The
@@ -1487,7 +1481,6 @@ void MCRollingContactController::updateReference()
   baseOrientationTask_->refVel(taskRefVel_);
 
   auto & targets = postureTargets_;
-  double keyboardYawCorrection = 0.0;
   // For a mixed translation+yaw command the steering angles encode the
   // requested instantaneous centre of curvature.  An absolute-heading
   // correction would continuously perturb that geometry whenever the pose
@@ -1510,7 +1503,6 @@ void MCRollingContactController::updateReference()
       const double yawError = std::remainder(baseYawTarget_ - measuredYaw, 2.0 * 3.14159265358979323846);
       keyboardYawError_ = yawError;
       keyboardYawCorrection_ = keyboardYawFeedbackGain_ * yawError;
-      keyboardYawCorrection = keyboardYawCorrection_;
     }
   }
   // The wheel targets above provide the position trajectory used by the
@@ -1545,7 +1537,7 @@ void MCRollingContactController::updateReference()
     // tracks both rates through its soft rate rows, so there is no analytic
     // hinge IK, no branch-cut bookkeeping and no drive gating left here.
     const double dt = solver().dt();
-    const Eigen::Vector3d twist(forward, lateral, yaw + keyboardYawCorrection);
+    const Eigen::Vector3d twist(forward, lateral, yaw + keyboardYawCorrection_);
     for(size_t i = 0; i < wheels_.size(); ++i)
     {
       mc_rbdyn::PlanarWheel planar;
@@ -1735,7 +1727,6 @@ void MCRollingContactController::updateModes()
     appliedActivations_[i] = appliedActivation;
     wheels_[i].mode = state.estimated;
     wheels_[i].activation = state.activation;
-    appliedActivations_[i] = appliedActivation;
     rolling_->mode(wheels_[i].name, state.estimated, appliedActivation);
     dynamics_->mode(wheels_[i].name, state.estimated);
     // A commanded twist change can change the instantaneous turning radius
