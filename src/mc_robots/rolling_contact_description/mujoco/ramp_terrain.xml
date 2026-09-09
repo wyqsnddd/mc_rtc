@@ -1,0 +1,125 @@
+<mujoco model="ground">
+    <!--
+      Ramp terrain for the rolling-contact work: flat ground with four driveable
+      ramp lanes, used to separate "constant slope" from "slope transition".
+
+      WHY THIS IS A `ground` MODEL AND NOT PART OF THE ROBOT
+      mc_mujoco builds its scene by merging one MuJoCo model per mc_rtc robot
+      (mj_utils_merge_mujoco_models.cpp), resolving `<name>.yaml` from its user
+      folder first and its share folder second. `mc_control::MCController` always
+      loads `env/ground` as a second robot (src/mc_control/MCController.cpp:96),
+      so `ground.yaml` is the one hook that puts geometry in the world without
+      touching the robot description or the controller. Every name below is
+      prefixed with `ground_` in the merged scene, exactly as the stock
+      `env/ground.xml` is, so `ground_base_link` and `ground_floor` keep their
+      meaning for anything that looks them up by name.
+
+      `<include>` is NOT an option here: mc_mujoco expands MuJoCo includes only
+      inside `asset`, `contact`, `actuator` and `sensor`
+      (mj_utils_merge_mujoco_models.cpp:344-363), never inside `worldbody`, so a
+      "scene that includes the robot" cannot be assembled that way.
+
+      LAYOUT (all lanes run along +x; the robot drives up, across and down)
+        y =  -4.0   flat reference, no geometry at all
+        y =   0.0   5 deg
+        y =   4.0   10 deg
+        y =   8.0   15 deg
+        y =  12.0   20 deg
+      Each lane is 2.4 m wide and has the same longitudinal stations:
+        x = 0.600   toe    (flat -> incline; the surface tangent steps 0 -> theta)
+        x = 2.100   crest  (incline -> plateau)
+        x = 3.100   plateau end (plateau -> descent)
+        x = 4.600   toe-out (descent -> flat)
+      so a lane's crest height is 1.5 * tan(theta).
+
+      GEOMETRY CONSTRUCTION
+      Each incline is a single box of half-sizes (L/(2 cos t), 1.2, 0.5) rotated
+      about +y by -t (quat = [cos(t/2), 0, -sin(t/2), 0]) and placed so that its
+      top face contains the segment from (x_toe, 0) to (x_crest, h):
+        centre = (x_toe + L/2 + 0.5 sin t,  y_lane,  h/2 - 0.5 cos t)
+      The 0.5 m half-thickness buries the slab under the floor plane over the
+      whole lane, including the 20 deg one. Floor and ramps share the single
+      `base_link` body, so MuJoCo generates no contacts between them and the
+      buried parts are inert.
+
+      The plateau overlaps its two neighbours by 1 mm on each side so that no
+      hairline gap can open at the crest from decimal rounding; the resulting
+      lip is at most 1 mm * tan(20 deg) = 0.36 mm, three orders of magnitude
+      below the 0.125 m wheel radius.
+
+      THE POINT OF THE TOE
+      Standing assumption A4 of the formulation (`as:one-plane` in
+      rolling-contact-qp.tex) is that all four contacts share one plane, and the
+      controller takes `terrainNormal` as a configuration constant. On the flat
+      and on the plateau that holds. Between x = 0.6 - 0.494 and x = 0.6 the
+      front and rear axles are on surfaces with different normals and it does
+      not. That interval is the object of study, not a defect of this model.
+    -->
+
+    <visual>
+      <headlight diffuse="0.6 0.6 0.6"  ambient="0.3 0.3 0.3" specular="0 0 0"/>
+      <rgba haze="0.15 0.25 0.35 1"/>
+    </visual>
+
+    <asset>
+        <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+
+        <texture name="texplane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2" width="512" height="512" mark="cross" markrgb=".8 .8 .8"/>
+        <material name="matplane" reflectance="0.3" texture="texplane" texrepeat="1 1" texuniform="true"/>
+        <material name="ramp_05" rgba="0.20 0.55 0.30 1"/>
+        <material name="ramp_10" rgba="0.55 0.55 0.20 1"/>
+        <material name="ramp_15" rgba="0.65 0.40 0.15 1"/>
+        <material name="ramp_20" rgba="0.65 0.20 0.20 1"/>
+    </asset>
+
+    <worldbody>
+      <light pos="0 0 2" dir="0 0 -1" directional="true"/>
+      <body name="base_link">
+        <geom name="floor" pos="0 0 0" size="0 0 .25" type="plane" material="matplane" condim="3" group="1"/>
+
+        <!-- 5 deg lane, centre y = 0.0, crest height 0.1312 m -->
+        <geom name="ramp_05_up" type="box" material="ramp_05" condim="3" group="1"
+              size="0.752865 1.200000 0.500000"
+              pos="1.393578 0.000000 -0.432481" quat="0.999048 0 -0.043619 0"/>
+        <geom name="ramp_05_top" type="box" material="ramp_05" condim="3" group="1"
+              size="0.501000 1.200000 0.500000"
+              pos="2.600000 0.000000 -0.368767"/>
+        <geom name="ramp_05_down" type="box" material="ramp_05" condim="3" group="1"
+              size="0.752865 1.200000 0.500000"
+              pos="3.806422 0.000000 -0.432481" quat="0.999048 0 0.043619 0"/>
+
+        <!-- 10 deg lane, centre y = 4.0, crest height 0.2645 m -->
+        <geom name="ramp_10_up" type="box" material="ramp_10" condim="3" group="1"
+              size="0.761570 1.200000 0.500000"
+              pos="1.436824 4.000000 -0.360159" quat="0.996195 0 -0.087156 0"/>
+        <geom name="ramp_10_top" type="box" material="ramp_10" condim="3" group="1"
+              size="0.501000 1.200000 0.500000"
+              pos="2.600000 4.000000 -0.235510"/>
+        <geom name="ramp_10_down" type="box" material="ramp_10" condim="3" group="1"
+              size="0.761570 1.200000 0.500000"
+              pos="3.763176 4.000000 -0.360159" quat="0.996195 0 0.087156 0"/>
+
+        <!-- 15 deg lane, centre y = 8.0, crest height 0.4019 m -->
+        <geom name="ramp_15_up" type="box" material="ramp_15" condim="3" group="1"
+              size="0.776457 1.200000 0.500000"
+              pos="1.479410 8.000000 -0.282001" quat="0.991445 0 -0.130526 0"/>
+        <geom name="ramp_15_top" type="box" material="ramp_15" condim="3" group="1"
+              size="0.501000 1.200000 0.500000"
+              pos="2.600000 8.000000 -0.098076"/>
+        <geom name="ramp_15_down" type="box" material="ramp_15" condim="3" group="1"
+              size="0.776457 1.200000 0.500000"
+              pos="3.720590 8.000000 -0.282001" quat="0.991445 0 0.130526 0"/>
+
+        <!-- 20 deg lane, centre y = 12.0, crest height 0.5460 m -->
+        <geom name="ramp_20_up" type="box" material="ramp_20" condim="3" group="1"
+              size="0.798133 1.200000 0.500000"
+              pos="1.521010 12.000000 -0.196869" quat="0.984808 0 -0.173648 0"/>
+        <geom name="ramp_20_top" type="box" material="ramp_20" condim="3" group="1"
+              size="0.501000 1.200000 0.500000"
+              pos="2.600000 12.000000 0.045955"/>
+        <geom name="ramp_20_down" type="box" material="ramp_20" condim="3" group="1"
+              size="0.798133 1.200000 0.500000"
+              pos="3.678990 12.000000 -0.196869" quat="0.984808 0 0.173648 0"/>
+      </body>
+    </worldbody>
+</mujoco>
