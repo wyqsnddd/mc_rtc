@@ -151,7 +151,11 @@ struct RollingContactConstraint::Impl
     steeringRateReferences.assign(wheels.size(), 0.0);
     for(size_t i = 0; i < wheels.size(); ++i)
     {
-      if(wheels[i].mode == mc_rbdyn::RollingContactMode::Detached) { activations[i] = 0.0; }
+      // Honour the configured activation (already range-checked by wheel.validate()
+      // above) unless the wheel starts Detached, which always means zero regardless
+      // of what the configuration says - see the mode() setter for the same rule
+      // enforced again at runtime.
+      activations[i] = wheels[i].mode == mc_rbdyn::RollingContactMode::Detached ? 0.0 : wheels[i].activation;
     }
     buildRowLayout(false);
     if(backend == QPSolver::Backend::Tasks)

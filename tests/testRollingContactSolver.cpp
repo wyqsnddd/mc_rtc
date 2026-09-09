@@ -1807,6 +1807,47 @@ BOOST_AUTO_TEST_CASE(RollingTasksModesKeepVariablesAndEnforceForcePolicy)
   BOOST_CHECK_EQUAL(solver.data().totalLambda(), 0);
 }
 
+BOOST_AUTO_TEST_CASE(ConfiguredActivationSeedsTheInitialRowLayout)
+{
+  // A wheel's activation is parsed from configuration and range-checked by
+  // RollingContactDescription::validate() (see RollingContactConfig.h and
+  // doc/_data/schemas/common/RollingContactWheel.json), but it must also reach
+  // the constraint's own activations[] before the very first buildRowLayout():
+  // otherwise a wheel configured below full activation is silently treated as
+  // fully active until something later happens to call mode()/activation() on it.
+  auto robots = loadDifferentialRobot();
+  mc_solver::TasksQPSolver solver(robots, 0.005);
+  auto wheels = differentialWheels();
+  wheels[0].activation = 0.25;
+  mc_solver::RollingContactConstraintOptions options;
+  mc_solver::RollingContactConstraint rolling(solver.robots(), 0, wheels, options);
+
+  // The description itself is unaffected either way: wheels() reports what was asked for.
+  BOOST_CHECK_CLOSE(rolling.wheels()[0].activation, 0.25, 1e-12);
+
+  // The constraint's own notion of activation must match immediately, before any
+  // call to mode() or activation(): this is the getter a caller would use to
+  // confirm the configured activation took effect.
+  BOOST_CHECK_CLOSE(rolling.activation("left"), 0.25, 1e-12);
+  BOOST_CHECK_EQUAL(rolling.activation("right"), 1.0);
+
+  // A partially-activated wheel's rows move to the soft block immediately, the
+  // same demotion RollingTasksModesKeepVariablesAndEnforceForcePolicy exercises
+  // through the runtime setter above: here it must happen from construction
+  // alone, with no setter call at all.
+  BOOST_REQUIRE_EQUAL(rolling.hardMatrix().rows(), 3);
+  BOOST_REQUIRE_EQUAL(rolling.softMatrix().rows(), 3);
+  const auto & hard = rolling.hardRowLabels();
+  const auto & soft = rolling.softRowLabels();
+  for(const std::string axis : {"longitudinal", "lateral", "normal"})
+  {
+    BOOST_CHECK(std::find(hard.begin(), hard.end(), "right/" + axis) != hard.end());
+    BOOST_CHECK(std::find(hard.begin(), hard.end(), "left/" + axis) == hard.end());
+    BOOST_CHECK(std::find(soft.begin(), soft.end(), "left/" + axis) != soft.end());
+    BOOST_CHECK(std::find(soft.begin(), soft.end(), "right/" + axis) == soft.end());
+  }
+}
+
 BOOST_AUTO_TEST_CASE(RollingTasksTVMStaticSolutionParity)
 {
   const auto tasks = backendParitySnapshot<mc_solver::TasksQPSolver>();
