@@ -1174,11 +1174,16 @@ void MCRollingContactController::saturateYawTargetAgainstMeasuredHeading()
   baseYawTarget_ -= headingError - std::copysign(maxYawTargetError_, headingError);
 }
 
-void MCRollingContactController::updateReference()
+/** Resolve this cycle's commanded planar twist [vx, vy, omega].
+ *
+ * Turns scenario_ into a twist - polling the keyboard when that is the
+ * active scenario - republishes it through setCommandedTwist() on a
+ * four-steering chassis, records it in the reference_* diagnostics, and
+ * zeroes it while a contact fallback is latched.
+ */
+Eigen::Vector3d MCRollingContactController::resolveCommandedTwist()
 {
   const double phase = 2.0 * 3.14159265358979323846 * elapsed_ / commandPeriod_;
-  keyboardYawCorrection_ = 0.0;
-  keyboardYawError_ = 0.0;
   double forward = linearSpeed_;
   double lateral = 0.0;
   double yaw = yawRate_;
@@ -1279,7 +1284,15 @@ void MCRollingContactController::updateReference()
       driveTargets_[i] = robot().mbc().q[drive][0];
     }
   }
+  return {forward, lateral, yaw};
+}
 
+/** Integrate the chassis pose targets and feed the two chassis tasks. */
+void MCRollingContactController::updateChassisReference(const Eigen::Vector3d & twist)
+{
+  const double forward = twist.x();
+  const double lateral = twist.y();
+  const double yaw = twist.z();
   if(scenario_ == "keyboard")
   {
     if(closedLoopFeedback_)
@@ -1400,7 +1413,14 @@ void MCRollingContactController::updateReference()
   baseOrientationTask_->orientation(baseRotation.transpose());
   taskRefVel_ = baseReferenceAngularVelocity_;
   baseOrientationTask_->refVel(taskRefVel_);
+}
 
+/** Build this cycle's per-wheel drive and steering references. */
+void MCRollingContactController::updateWheelReferences(const Eigen::Vector3d & twist)
+{
+  const double forward = twist.x();
+  const double lateral = twist.y();
+  const double yaw = twist.z();
   auto & targets = postureTargets_;
   // For a mixed translation+yaw command the steering angles encode the
   // requested instantaneous centre of curvature.  An absolute-heading
@@ -1459,7 +1479,10 @@ void MCRollingContactController::updateReference()
     // tracks both rates through its soft rate rows, so there is no analytic
     // hinge IK, no branch-cut bookkeeping and no drive gating left here.
     const double dt = solver().dt();
-    const Eigen::Vector3d twist(forward, lateral, yaw + keyboardYawCorrection_);
+    // The commanded twist plus the closed-loop keyboard yaw correction: the
+    // wheel references are inverted from this, the chassis tasks from the
+    // uncorrected command.
+    const Eigen::Vector3d steeringTwist(forward, lateral, yaw + keyboardYawCorrection_);
     for(size_t i = 0; i < wheels_.size(); ++i)
     {
       mc_rbdyn::PlanarWheel planar;
@@ -1474,9 +1497,9 @@ void MCRollingContactController::updateReference()
 
       // Wheel-centre velocity of the commanded planar twist, the same quantity
       // steeringWheelReference() inverts.
-      const Eigen::Vector2d point(twist.x() - twist.z() * planar.offset.y(),
-                                  twist.y() + twist.z() * planar.offset.x());
-      auto reference = mc_rbdyn::steeringWheelReference(planar, twist, measuredSteering);
+      const Eigen::Vector2d point(steeringTwist.x() - steeringTwist.z() * planar.offset.y(),
+                                  steeringTwist.y() + steeringTwist.z() * planar.offset.x());
+      auto reference = mc_rbdyn::steeringWheelReference(planar, steeringTwist, measuredSteering);
 
       // First-order convergence to the reference heading, saturated by the
       // hinge velocity limit. This is deltaDot^ref of the four-steering QP.
@@ -1529,6 +1552,15 @@ void MCRollingContactController::updateReference()
   }
   postureTask->target(targets);
   if(keyboardFeedForward) { postureTask->refVel(keyboardRefVel_); }
+}
+
+void MCRollingContactController::updateReference()
+{
+  keyboardYawCorrection_ = 0.0;
+  keyboardYawError_ = 0.0;
+  const Eigen::Vector3d twist = resolveCommandedTwist();
+  updateChassisReference(twist);
+  updateWheelReferences(twist);
 }
 
 void MCRollingContactController::updateModes()

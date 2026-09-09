@@ -62,7 +62,20 @@ private:
     bool valid = false;
   };
 
+  /** Rebuild every reference the QP reads, in three phases. */
   void updateReference();
+  /** Phase 1: resolve this cycle's commanded planar twist [vx, vy, omega].
+   *
+   * Turns scenario_ into a twist - polling the keyboard when that is the active
+   * scenario - republishes it through setCommandedTwist() on a four-steering
+   * chassis, records it in the reference_* diagnostics, and zeroes it while a
+   * contact fallback is latched.
+   */
+  Eigen::Vector3d resolveCommandedTwist();
+  /** Phase 2: integrate the chassis pose targets and feed the two chassis tasks. */
+  void updateChassisReference(const Eigen::Vector3d & twist);
+  /** Phase 3: build the per-wheel drive and steering references and the posture target. */
+  void updateWheelReferences(const Eigen::Vector3d & twist);
   /** Bound the accumulated heading target against the measured chassis heading.
    *
    * Applies to every branch that integrates the commanded yaw rate open loop;
