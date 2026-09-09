@@ -501,6 +501,83 @@ BOOST_AUTO_TEST_CASE(FourSteeringCommandChangeKeepsResidualsBounded)
   BOOST_TEST_MESSAGE("[residual] worst lateral slip over the sequence: " << worst);
 }
 
+BOOST_AUTO_TEST_CASE(ForwardDriveFromNonZeroInitialYawTracksTheChassisHeading)
+{
+  // Every baseYawTarget_ seed (reset(), the keyboard-exit retarget, the
+  // contact-fallback retarget) must read the chassis' true world heading, not
+  // its mirror. Every other scripted-scenario test starts at psi = 0, where
+  // +psi and -psi are the same value and a sign bug in the seed is invisible.
+  // Start the chassis at a non-zero yaw instead: a pure-forward command (no
+  // commanded yaw) must neither rotate the chassis away from its start
+  // heading nor drift it off its own body-frame +x axis.
+  auto controller = makeRangerController();
+
+  constexpr double psi = 0.6;
+  sva::PTransformd pose = controller->robot().posW();
+  // posW().rotation() is E_0_b = Rz(psi)^T = Rz(-psi) for a chassis yawed by
+  // psi (see measuredWorldYaw()'s doc comment). Robot::posW(pt) round-trips
+  // pt.rotation() exactly: it stores Quaterniond{pt.rotation().transpose()},
+  // and RBDyn's QuatToE(q) returns q.toRotationMatrix().transpose(), so the
+  // two transposes cancel - the same round trip
+  // driveObserverPipelineAndCheckRealRobotTracksSensor already relies on for
+  // the BodySensor path (real.posW().rotation() == orientation.toRotationMatrix()).
+  pose.rotation() = Eigen::AngleAxisd(-psi, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+  controller->robot().posW(pose);
+  controller->reset({controller->robot().mbc().q});
+
+  // Confirm the pose landed at the intended world heading before trusting the
+  // rest of the test to it - the same expression measuredWorldYaw() and the
+  // pinned KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading test use.
+  const Eigen::Vector3d worldForward = controller->robot().posW().rotation().transpose().col(0);
+  const double actualYaw = std::atan2(worldForward.y(), worldForward.x());
+  BOOST_REQUIRE_CLOSE(actualYaw, psi, 1e-6);
+
+  // Primary check. In this "hold" scenario the wheel steering/drive targets
+  // are built directly from the commanded twist (updateWheelReferences never
+  // reads baseYawTarget_ outside the closed-loop-keyboard branch), so a wrong
+  // seed does NOT show up as chassis drift below - it shows up here instead.
+  // A seed mirrored to -psi points the orientation task at a target
+  // 2*psi = 1.2 rad away from the pose just measured above; a correct seed
+  // starts this at 0. eval() reflects the reference as of the last run(), not
+  // the one reset() just set, so it only becomes observable after the first
+  // cycle - read it there and again at the end of the loop. Measured
+  // empirically (mutation: reverting the fix reproduces exactly 1.2 at both
+  // points, undecayed, because the rolling-contact QP cannot resolve this
+  // error by driving the wheels straight): 0.4 comfortably separates the two.
+  controller->setCommandedTwist({0.3, 0.0, 0.0});
+  const sva::PTransformd start = controller->robot().posW();
+  double orientationErrorAfterFirstCycle = 0.0;
+  for(int cycle = 0; cycle < 400; ++cycle)
+  {
+    BOOST_REQUIRE(controller->run());
+    if(cycle == 0)
+    {
+      orientationErrorAfterFirstCycle = controller->datastore().call<double>("RollingContact::GetOrientationEvalNorm");
+    }
+  }
+  const sva::PTransformd end = controller->robot().posW();
+
+  const double orientationErrorAfterRun =
+      controller->datastore().call<double>("RollingContact::GetOrientationEvalNorm");
+  BOOST_CHECK_SMALL(orientationErrorAfterFirstCycle, 0.4);
+  BOOST_CHECK_SMALL(orientationErrorAfterRun, 0.4);
+
+  const double yawDrift = chassisYaw(start, end);
+  const Eigen::Vector3d motion = chassisMotion(start, end);
+  BOOST_TEST_MESSAGE("[non-zero-yaw-forward] dx=" << motion.x() << " dy=" << motion.y() << " yawDrift=" << yawDrift
+                                                    << " orientationErrorAfterFirstCycle="
+                                                    << orientationErrorAfterFirstCycle
+                                                    << " orientationErrorAfterRun=" << orientationErrorAfterRun);
+
+  // Secondary sanity check, and the literal claim this test is named for:
+  // whatever the orientation-task target, the drive must still go forward
+  // along the chassis' own heading and not pick up gross yaw drift. Same
+  // bound FourSteeringTracksCommandedTwistSigns uses for its "forward" case.
+  BOOST_CHECK_SMALL(yawDrift, 0.4);
+  BOOST_CHECK_GT(motion.x(), 0.2);
+  BOOST_CHECK_SMALL(motion.y(), 0.2);
+}
+
 BOOST_AUTO_TEST_CASE(TwistWeightAxesAreUnitNormalizedNotInterchangeable)
 {
   // eq:planar-twist-weight weights the planar twist error with a diagonal

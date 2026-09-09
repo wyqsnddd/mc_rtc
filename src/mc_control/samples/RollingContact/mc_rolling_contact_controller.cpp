@@ -1077,9 +1077,7 @@ void MCRollingContactController::reset(const ControllerResetData & data)
   // Start the accumulated yaw reference at the measured chassis heading. This
   // keeps the first Q/E command continuous even when the simulator is reset
   // with a non-zero initial orientation.
-  const Eigen::Vector3d initialHeading = robot().posW().rotation().col(0);
-  const double initialYaw = std::atan2(initialHeading.dot(terrainTangentY_),
-                                       initialHeading.dot(terrainTangentX_));
+  const double initialYaw = measuredWorldYaw();
   baseYawTarget_ = std::isfinite(initialYaw) ? initialYaw : 0.0;
   keyboardYawCorrection_ = 0.0;
   keyboardYawError_ = 0.0;
@@ -1130,6 +1128,13 @@ void MCRollingContactController::setCommandedTwist(const Eigen::Vector3d & twist
   commandedTwist_ = twist;
 }
 
+double MCRollingContactController::measuredWorldYaw() const
+{
+  // E_0_b^T * e_x: see the doc comment on the declaration for the convention.
+  const Eigen::Vector3d worldForward = robot().posW().rotation().transpose().col(0);
+  return std::atan2(worldForward.dot(terrainTangentY_), worldForward.dot(terrainTangentX_));
+}
+
 void MCRollingContactController::saturateYawTargetAgainstMeasuredHeading()
 {
   // Reference governor on the accumulated heading target.
@@ -1159,17 +1164,13 @@ void MCRollingContactController::saturateYawTargetAgainstMeasuredHeading()
   // it deliberately does not hide the tracking loss: baseYawTarget_ resumes
   // integrating the instant the chassis catches up, and the shortfall stays
   // visible in RollingContact_base_orientation_eval.
-  const Eigen::Vector3d measuredHeading = robot().posW().rotation().col(0);
-  const double measuredYaw =
-      std::atan2(measuredHeading.dot(terrainTangentY_), measuredHeading.dot(terrainTangentX_));
+  const double measuredYaw = measuredWorldYaw();
   if(!std::isfinite(measuredYaw) || !std::isfinite(baseYawTarget_)) { return; }
   constexpr double twoPi = 2.0 * 3.14159265358979323846;
-  // measuredYaw is read off posW().rotation().col(0), which is E_0_b's first
-  // column and therefore carries -psi for a chassis yawed by psi (see the long
-  // comment on trajectoryHeadingYaw below). baseYawTarget_ is the world
-  // heading in every branch that calls this, so the heading error is
-  // baseYawTarget_ - psi = baseYawTarget_ + measuredYaw.
-  const double headingError = std::remainder(baseYawTarget_ + measuredYaw, twoPi);
+  // measuredYaw is measuredWorldYaw(), +psi for a chassis yawed by psi (see
+  // its doc comment). baseYawTarget_ is the world heading in every branch
+  // that calls this, so the heading error is simply the difference.
+  const double headingError = std::remainder(baseYawTarget_ - measuredYaw, twoPi);
   if(std::abs(headingError) <= maxYawTargetError_) { return; }
   baseYawTarget_ -= headingError - std::copysign(maxYawTargetError_, headingError);
 }
@@ -1232,9 +1233,7 @@ Eigen::Vector3d MCRollingContactController::resolveCommandedTwist()
         // x is an explicit emergency stop. Retarget the held heading to the
         // measured pose at that instant so braking does not leave an
         // unreachable orientation error that would keep the wheels turning.
-        const Eigen::Vector3d measuredHeading = robot().posW().rotation().col(0);
-        const double measuredYaw = std::atan2(measuredHeading.dot(terrainTangentY_),
-                                              measuredHeading.dot(terrainTangentX_));
+        const double measuredYaw = measuredWorldYaw();
         if(std::isfinite(measuredYaw)) { baseYawTarget_ = measuredYaw; }
       }
     }
@@ -1304,9 +1303,10 @@ void MCRollingContactController::updateChassisReference(const Eigen::Vector3d & 
       // during W+Q/W+E. In closed loop, the sensor is authoritative: follow
       // its current heading and let the orientation task's velocity reference
       // carry the operator's yaw command.
-      const Eigen::Vector3d measuredHeading = robot().posW().rotation().col(0);
-      const double measuredYaw = std::atan2(measuredHeading.dot(terrainTangentY_),
-                                            measuredHeading.dot(terrainTangentX_));
+      // Deliberately -measuredWorldYaw(), not measuredWorldYaw(): baseYawTarget_
+      // holds -psi in this branch only, mirrored back to +psi by
+      // trajectoryHeadingYaw below. See the long comment there.
+      const double measuredYaw = -measuredWorldYaw();
       if(std::isfinite(measuredYaw))
       {
         // Keep the logged target continuous while following the wrapped
@@ -1335,17 +1335,14 @@ void MCRollingContactController::updateChassisReference(const Eigen::Vector3d & 
   // so the heading below has to undo the difference.
   //
   // Everywhere except closed-loop keyboard, baseYawTarget_ integrates the
-  // commanded yaw rate, so it already is the world heading.
+  // commanded yaw rate, so it already is the world heading, measuredWorldYaw()'s
+  // +psi convention (see its doc comment).
   //
-  // Closed-loop keyboard instead copies measuredYaw, which is read off
-  // posW().rotation().col(0). Robot::posW().rotation() (and the MuJoCo
-  // FloatingBase sensor) is the inertial-to-body map E_0_b, so for a chassis
-  // yawed by psi in the world E_0_b = Rz(psi)^T and its first column is
-  // (cos psi, -sin psi). measuredYaw is therefore -psi, the negation of the
-  // world direction the chassis' +X axis actually travels, and the sign has
-  // to be flipped back here. Without the flip a W+Q/W+E command follows the
-  // mirrored circle and accumulates a metre-scale position-task error even
-  // though the measured body-forward speed is correct.
+  // Closed-loop keyboard instead copies -measuredWorldYaw(), i.e. -psi, the
+  // negation of the world direction the chassis' +X axis actually travels, and
+  // the sign has to be flipped back here. Without the flip a W+Q/W+E command
+  // follows the mirrored circle and accumulates a metre-scale position-task
+  // error even though the measured body-forward speed is correct.
   //
   // KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading pins this.
   const double trajectoryHeadingYaw = scenario_ == "keyboard" && closedLoopFeedback_ ? -baseYawTarget_ : baseYawTarget_;
@@ -1735,8 +1732,13 @@ void MCRollingContactController::updateModes()
   {
     const auto & chassis = robot().frame("chassis").position();
     basePositionTarget_ = chassis.translation();
-    const Eigen::Vector3d forward = chassis.rotation().transpose() * Eigen::Vector3d::UnitX();
-    baseYawTarget_ = std::atan2(forward.dot(terrainTangentY_), forward.dot(terrainTangentX_));
+    // "chassis" is the floating-base frame for every rolling-contact robot
+    // (RollingContactControllerSynchronizesFloatingBase pins
+    // frame("chassis").position() == posW()), so measuredWorldYaw() reads the
+    // same pose. Leave baseYawTarget_ unchanged in the degenerate NaN case
+    // rather than snapping it to an arbitrary heading mid-recovery.
+    const double worldYaw = measuredWorldYaw();
+    baseYawTarget_ = std::isfinite(worldYaw) ? worldYaw : baseYawTarget_;
   }
   if(contactFallback_ != wasContactFallback)
   {

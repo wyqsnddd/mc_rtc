@@ -76,6 +76,21 @@ private:
   void updateChassisReference(const Eigen::Vector3d & twist);
   /** Phase 3: build the per-wheel drive and steering references and the posture target. */
   void updateWheelReferences(const Eigen::Vector3d & twist);
+  /** True world heading of the chassis' +X axis, +psi for a chassis yawed by
+   * psi in the world.
+   *
+   * robot().posW().rotation() is the inertial-to-body map E_0_b (E_0_b =
+   * Rz(psi)^T for a chassis yawed by psi), so its transpose is the
+   * body-to-inertial map and E_0_b^T * e_x is the true world direction the
+   * chassis' +X axis points in. This is the single convention baseYawTarget_
+   * uses everywhere except the closed-loop keyboard branch of
+   * updateChassisReference(), which mirrors the measured heading directly
+   * (see the long comment there) and negates this value at its point of use.
+   *
+   * May return NaN in the same atan2(0, 0) degenerate case every caller here
+   * already guards against.
+   */
+  double measuredWorldYaw() const;
   /** Bound the accumulated heading target against the measured chassis heading.
    *
    * Applies to every branch that integrates the commanded yaw rate open loop;
