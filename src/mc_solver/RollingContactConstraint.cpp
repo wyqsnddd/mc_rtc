@@ -13,8 +13,6 @@
 
 #include <mc_tvm/RollingContactFunction.h>
 
-#include <mc_rtc/logging.h>
-
 #include <Tasks/QPSolver.h>
 
 #include <tvm/task_dynamics/None.h>

@@ -12,7 +12,6 @@
 
 #include <mc_tvm/DynamicFunction.h>
 
-#include <mc_rtc/logging.h>
 #include <mc_rtc/void_ptr.h>
 
 #include <Tasks/Bounds.h>
@@ -98,8 +97,6 @@ public:
     }
     jacobian_[force_.get()] = matrix_;
   }
-
-  const Eigen::MatrixXd & matrix() const noexcept { return matrix_; }
 
 private:
   void updateJacobian() { jacobian_[force_.get()] = matrix_; }
@@ -596,7 +593,6 @@ struct RollingContactDynamicsConstraint::Impl
   // lockstep in the constructor and never reordered afterwards).
   std::vector<std::unique_ptr<GeneratorRegularizationTask>> regularizationTasks;
   Eigen::Vector3d terrainNormal = Eigen::Vector3d::UnitZ();
-  RollingMotionConstr * motion = nullptr;
 };
 
 RollingContactDynamicsConstraint::RollingContactDynamicsConstraint(
@@ -616,7 +612,6 @@ RollingContactDynamicsConstraint::RollingContactDynamicsConstraint(
     tasks::TorqueDBound torqueRate(torqueRateLower(robot, infTorque), torqueRateUpper(robot, infTorque));
     auto motion = std::make_unique<Impl::RollingMotionConstr>(*impl_, robots.mbs(), static_cast<int>(robotIndex),
                                                               torque, torqueRate, timeStep);
-    impl_->motion = motion.get();
     motion_constr_ = mc_rtc::make_void_ptr(std::move(motion));
   }
   else if(backend_ != QPSolver::Backend::TVM)

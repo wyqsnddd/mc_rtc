@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <atomic>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cctype>
 #include <limits>
@@ -1218,8 +1219,14 @@ void MCRollingContactController::updateReference()
     setCommandedTwist({command[0] + guiForwardCommand_, -command[1] + guiLateralCommand_,
                        -command[2] + guiYawCommand_});
   }
-  else if(scenario_ != "hold")
+  else
   {
+    // Unreachable as long as this chain covers every name the constructor
+    // accepts, which it does today; kept so that adding a scenario to the
+    // constructor's list and forgetting it here fails loudly instead of
+    // silently driving at linearSpeed_/yawRate_. The condition used to be
+    // scenario_ != "hold", which cannot be false here - "hold" is the first
+    // branch of the chain.
     mc_rtc::log::error_and_throw<std::invalid_argument>("Unknown RollingContact scenario: {}", scenario_);
   }
   if(fourSteering_)
@@ -1716,7 +1723,6 @@ void MCRollingContactController::safeStop(const std::string & reason)
   {
     const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
     driveTargets_[i] = robot().mbc().q[drive][0];
-    wheelReferenceRates_[i] = 0.0;
     targets.at(wheels_[i].driveJoint)[0] = driveTargets_[i];
     if(!wheels_[i].steeringJoint.empty())
     {
