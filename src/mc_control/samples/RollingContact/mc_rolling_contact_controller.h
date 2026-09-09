@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <limits>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -181,6 +182,24 @@ private:
   std::vector<double> appliedActivations_;
   std::vector<bool> hardPromotionPending_;
   std::vector<ExternalContactMeasurement> externalMeasurements_;
+
+  // Scratch buffers owned by the controller so that run() allocates nothing.
+  // Each is sized once (constructor for the fixed-size ones, reset() for the
+  // model-sized ones) and only overwritten afterwards; none carries state
+  // across cycles.
+  //
+  // postureTargets_ holds one entry per drive joint, plus one per steering
+  // joint on a four-steering chassis - exactly the key set updateReference()
+  // and safeStop() used to rebuild from scratch every cycle. The keys never
+  // change after construction, so only the stored values are rewritten.
+  std::map<std::string, std::vector<double>> postureTargets_;
+  std::vector<double> measuredDrivePositions_;
+  /** Three-element scratch for the chassis tasks' refVel(), which copies. */
+  Eigen::VectorXd taskRefVel_ = Eigen::VectorXd::Zero(3);
+  /** nrDof scratch for the keyboard posture feed-forward. */
+  Eigen::VectorXd keyboardRefVel_;
+  /** nrDof scratch for the solved accelerations read back by updateDiagnostics(). */
+  Eigen::VectorXd alphaDBuffer_;
 };
 
 } // namespace mc_control

@@ -632,6 +632,16 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   appliedActivations_.resize(wheels_.size(), 1.0);
   hardPromotionPending_.resize(wheels_.size(), false);
   externalMeasurements_.resize(wheels_.size());
+  measuredDrivePositions_.resize(wheels_.size(), 0.0);
+  keyboardRefVel_.setZero(robot().mb().nrDof());
+  alphaDBuffer_.setZero(robot().mb().nrDof());
+  // Install the posture-target keys once. run() only ever rewrites the single
+  // value behind each key, so the map never rehashes or reallocates.
+  for(const auto & wheel : wheels_)
+  {
+    postureTargets_.emplace(wheel.driveJoint, std::vector<double>{0.0});
+    if(!wheel.steeringJoint.empty()) { postureTargets_.emplace(wheel.steeringJoint, std::vector<double>{0.0}); }
+  }
 
   datastore().make_call(
       "RollingContact::SetMeasuredContact",
@@ -1450,8 +1460,8 @@ void MCRollingContactController::updateReference()
   // the velocity feed-forward makes the chassis follow that trajectory from
   // the first cycle. Without this, the target can move indefinitely while a
   // low-error position task continues to request zero chassis velocity.
-  const Eigen::VectorXd basePositionReferenceVelocity = baseTrackingVelocity_;
-  basePositionTask_->refVel(basePositionReferenceVelocity);
+  taskRefVel_ = baseTrackingVelocity_;
+  basePositionTask_->refVel(taskRefVel_);
   Eigen::Matrix3d baseRotation;
   if(scenario_ == "keyboard" && closedLoopFeedback_)
   {
@@ -1473,10 +1483,10 @@ void MCRollingContactController::updateReference()
     baseRotation.col(2) = terrainNormal_;
   }
   baseOrientationTask_->orientation(baseRotation.transpose());
-  const Eigen::VectorXd baseAngularReferenceVelocity = baseReferenceAngularVelocity_;
-  baseOrientationTask_->refVel(baseAngularReferenceVelocity);
+  taskRefVel_ = baseReferenceAngularVelocity_;
+  baseOrientationTask_->refVel(taskRefVel_);
 
-  std::map<std::string, std::vector<double>> targets;
+  auto & targets = postureTargets_;
   double keyboardYawCorrection = 0.0;
   // For a mixed translation+yaw command the steering angles encode the
   // requested instantaneous centre of curvature.  An absolute-heading
@@ -1509,8 +1519,7 @@ void MCRollingContactController::updateReference()
   // command immediately instead of waiting for a growing position error to
   // generate acceleration through the posture gain.
   const bool keyboardFeedForward = scenario_ == "keyboard" && solver().backend() == Backend::Tasks;
-  Eigen::VectorXd keyboardRefVel;
-  if(keyboardFeedForward) { keyboardRefVel = Eigen::VectorXd::Zero(robot().mb().nrDof()); }
+  if(keyboardFeedForward) { keyboardRefVel_.setZero(); }
   if(!fourSteering_)
   {
     const double halfTrack = 0.5 * std::abs(wheelOffsets_[0].y() - wheelOffsets_[1].y());
@@ -1521,11 +1530,11 @@ void MCRollingContactController::updateReference()
     {
       driveTargets_[i] += rates[i] * solver().dt();
       wheelReferenceRates_[i] = rates[i];
-      targets[wheels_[i].driveJoint] = {driveTargets_[i]};
+      targets.at(wheels_[i].driveJoint)[0] = driveTargets_[i];
       if(keyboardFeedForward)
       {
         const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
-        keyboardRefVel(robot().mb().jointPosInDof(drive)) = rates[i];
+        keyboardRefVel_(robot().mb().jointPosInDof(drive)) = rates[i];
       }
     }
   }
@@ -1589,13 +1598,13 @@ void MCRollingContactController::updateReference()
       steeringRateReferences_[i] = steeringRate;
       wheelReferenceRates_[i] = rollingRate;
       driveTargets_[i] += rollingRate * dt;
-      targets[wheels_[i].driveJoint] = {driveTargets_[i]};
-      targets[wheels_[i].steeringJoint] = {steeringTargets_[i]};
+      targets.at(wheels_[i].driveJoint)[0] = driveTargets_[i];
+      targets.at(wheels_[i].steeringJoint)[0] = steeringTargets_[i];
       if(keyboardFeedForward)
       {
         const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
-        keyboardRefVel(robot().mb().jointPosInDof(drive)) = rollingRate;
-        keyboardRefVel(robot().mb().jointPosInDof(static_cast<int>(steeringJoint))) = steeringRate;
+        keyboardRefVel_(robot().mb().jointPosInDof(drive)) = rollingRate;
+        keyboardRefVel_(robot().mb().jointPosInDof(static_cast<int>(steeringJoint))) = steeringRate;
       }
 
       // The QP owns both rates from here on. It must receive the same rolling
@@ -1605,7 +1614,7 @@ void MCRollingContactController::updateReference()
     }
   }
   postureTask->target(targets);
-  if(keyboardFeedForward) { postureTask->refVel(keyboardRefVel); }
+  if(keyboardFeedForward) { postureTask->refVel(keyboardRefVel_); }
 }
 
 void MCRollingContactController::updateModes()
@@ -1810,23 +1819,24 @@ void MCRollingContactController::safeStop(const std::string & reason)
   baseTrackingVelocity_.setZero();
   baseReferenceAngularVelocity_.setZero();
   basePositionTask_->position(basePositionTarget_);
-  basePositionTask_->refVel(Eigen::VectorXd::Zero(3));
+  taskRefVel_.setZero();
+  basePositionTask_->refVel(taskRefVel_);
   baseOrientationTask_->orientation(robot().posW().rotation());
-  baseOrientationTask_->refVel(Eigen::VectorXd::Zero(3));
+  baseOrientationTask_->refVel(taskRefVel_);
   std::fill(wheelReferenceRates_.begin(), wheelReferenceRates_.end(), 0.0);
-  std::map<std::string, std::vector<double>> targets;
+  auto & targets = postureTargets_;
   for(size_t i = 0; i < wheels_.size(); ++i)
   {
     const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
     driveTargets_[i] = robot().mbc().q[drive][0];
     wheelReferenceRates_[i] = 0.0;
-    targets[wheels_[i].driveJoint] = {driveTargets_[i]};
+    targets.at(wheels_[i].driveJoint)[0] = driveTargets_[i];
     if(!wheels_[i].steeringJoint.empty())
     {
       const auto steering = robot().jointIndexByName(wheels_[i].steeringJoint);
       steeringTargets_[i] = robot().mbc().q[steering][0];
       steeringRateReferences_[i] = 0.0;
-      targets[wheels_[i].steeringJoint] = {robot().mbc().q[steering][0]};
+      targets.at(wheels_[i].steeringJoint)[0] = robot().mbc().q[steering][0];
     }
     rolling_->rotatingRateReference(wheels_[i].name, 0.0, 0.0);
     modeManagers_[i].reset(mc_rbdyn::RollingContactMode::Detached, mc_rbdyn::RollingContactMode::Detached, 0.0);
@@ -1855,7 +1865,9 @@ void MCRollingContactController::updateDiagnostics(bool solverSuccess)
   lateralSlackNorm_ = 0.0;
   minFrictionMargin_ = std::numeric_limits<double>::infinity();
   const auto & geometry = rolling_->geometryResults();
-  Eigen::VectorXd alphaD;
+  // Pre-sized in the constructor: rbd::dofToVector() would allocate a fresh
+  // nrDof vector every cycle, and it is exactly this buffer filled in place.
+  Eigen::VectorXd & alphaD = alphaDBuffer_;
   if(solver().backend() == Backend::TVM)
   {
     alphaD = robot().tvmRobot().alphaD()->value();
@@ -1865,7 +1877,7 @@ void MCRollingContactController::updateDiagnostics(bool solverSuccess)
     const Eigen::Index floatingDof = robot().mb().joint(0).type() == rbd::Joint::Free ? 6 : 0;
     floatingBaseEffortNorm_ = floatingDof == 0 ? 0.0 : effort.head(floatingDof).norm();
   }
-  else { alphaD = rbd::dofToVector(robot().mb(), robot().mbc().alphaD); }
+  else { rbd::paramToVector(robot().mbc().alphaD, alphaD); }
   lateralSlackNorm_ = rolling_->lateralSlack(alphaD).norm();
   for(size_t i = 0; i < geometry.size(); ++i)
   {
@@ -2010,18 +2022,16 @@ bool MCRollingContactController::run()
 {
   const auto begin = std::chrono::steady_clock::now();
   bool success = false;
-  std::vector<double> measuredDrivePositions;
   try
   {
     if(closedLoopFeedback_)
     {
       syncControlRobotFromSensors();
     }
-    measuredDrivePositions.resize(wheels_.size());
     for(size_t i = 0; i < wheels_.size(); ++i)
     {
       const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
-      measuredDrivePositions[i] = robot().mbc().q[drive][0];
+      measuredDrivePositions_[i] = robot().mbc().q[drive][0];
     }
     updateModes();
     updateReference();
@@ -2036,7 +2046,7 @@ bool MCRollingContactController::run()
       for(size_t i = 0; i < wheels_.size(); ++i)
       {
         const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
-        robot().mbc().q[drive][0] = measuredDrivePositions[i];
+        robot().mbc().q[drive][0] = measuredDrivePositions_[i];
         robot().mbc().alpha[drive][0] = wheelReferenceRates_[i];
         if(!wheels_[i].steeringJoint.empty())
         {
