@@ -1687,7 +1687,6 @@ BOOST_AUTO_TEST_CASE(OdometryCrossCheckIncludingWhereItMustDisagreeSMK11)
  */
 BOOST_AUTO_TEST_CASE(LongHorizonClosedLoopSMK13, *boost::unit_test::disabled())
 {
-  constexpr double dt = 0.005;
   constexpr int cycles = 12000; // 60 s
   constexpr int windowCycles = 1000; // 5 s
   const double pi = 3.14159265358979323846;
