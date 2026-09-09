@@ -22,6 +22,18 @@ class Case:
     scenario: str
     kind: str = "nominal"
     ramp_degrees: float = 0.0
+    # World geometry, as opposed to `ramp_degrees` which tilts the whole world
+    # and tells the controller the matching normal. "flat" is mc_mujoco's own
+    # env/ground.xml; "ramps" is
+    # src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml, flat
+    # ground with a ramp lane every 4 m in y, selected by writing `ground.yaml`
+    # into mc_mujoco's model folder. The mapping is written before every case
+    # and REMOVED again for "flat", so a ramp case can never leak into the next
+    # one: a stale ground.yaml would silently re-run the whole suite on ramps.
+    terrain: str = "flat"
+    # Reset offset in the terrain tangent plane. With the ramp terrain this
+    # selects the lane: 0 = 5 deg, 4 = 10 deg, 8 = 15 deg, 12 = 20 deg.
+    start_y: float = 0.0
     friction: float = 0.8
     linear_speed: float = 0.15
     yaw_rate: float = 0.25
@@ -221,6 +233,61 @@ CASES = (
         linear_speed=0.1,
         longitudinal="soft",
     ),
+    # Real ramp geometry, as opposed to `ramp_degrees` above which tilts the
+    # whole world uniformly and tells the controller the matching normal. Here
+    # the world is flat where the robot starts and the controller is told the
+    # truth, [0, 0, 1]; the ramp is 0.6 m ahead and nothing updates the normal
+    # when the wheels reach it. That is standing assumption A4 (`as:one-plane`)
+    # being violated by the environment rather than by the configuration, and
+    # both cases below are expected_failure because it is not fixed.
+    Case(
+        "four-ramp-traverse-05",
+        "four-steering",
+        "forward",
+        terrain="ramps",
+        start_y=0.0,
+        linear_speed=0.3,
+        cycles=4000,
+        warmup_cycles=300,
+        expected_failure=(
+            "5 degree ramp: the toe (flat -> incline, x = 0.6 m) is crossed with all four"
+            " wheels loaded and rolling, and the robot climbs at 0.29 m/s with the contact"
+            " normals 5 degrees off the configured one. The CREST (incline -> plateau,"
+            " x = 2.1 m) is where it breaks: measured first contact loss at chassis"
+            " x = 1.840 m, i.e. the front wheels exactly at the crest, after which three of"
+            " four wheels alternate off the ground, the modes never return to rolling and"
+            " drive torque saturates at 35 N.m. It still reaches x = 4.9 m, past the"
+            " toe-out at 4.6 m, at 83% of the commanded speed"
+        ),
+        torque_control=True,
+        measured_contacts=False,
+        preset_steering=False,
+    ),
+    Case(
+        "four-ramp-toe-10",
+        "four-steering",
+        "forward",
+        terrain="ramps",
+        start_y=4.0,
+        linear_speed=0.3,
+        cycles=4000,
+        warmup_cycles=300,
+        expected_failure=(
+            "10 degree ramp: unlike the 5 degree lane this one fails at the TOE, not the"
+            " crest. Measured first contact loss at chassis x = 0.739 m - front axle on the"
+            " incline, rear axle still on the flat - and the robot never crests, stopping at"
+            " x = 1.74 m having averaged 0.07 m/s of a commanded 0.3. The mechanism is the"
+            " chassis orientation task, whose reference is built from the constant"
+            " terrainNormal (mc_rolling_contact_controller.cpp:1422): holding the chassis"
+            " level against the pitch the ramp demands is what lifts the wheel. Lowering"
+            " baseOrientationWeight from 500 to 50 on this exact case turns the stall into a"
+            " completed traverse to x = 5.89 m, and pre-loading the incline normal instead"
+            " of the flat one completes it to x = 6.08 m at 101% of the commanded speed"
+        ),
+        torque_control=True,
+        measured_contacts=False,
+        preset_steering=False,
+    ),
     Case(
         "four-lateral-impulse",
         "four-steering",
@@ -374,6 +441,29 @@ def terrain_normal(degrees):
     return (-math.sin(angle), 0.0, math.cos(angle))
 
 
+RAMP_TERRAIN = "src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml"
+
+
+def install_terrain(user_directory, case, root):
+    """Select the `ground` MuJoCo model for this case.
+
+    mc_mujoco resolves one model per mc_rtc robot from `<module>.yaml` in its
+    user folder before its share folder (mj_sim.cpp:110-127), and mc_rtc always
+    loads `env/ground` (MCController.cpp:96). Writing the mapping is therefore
+    the whole terrain-selection mechanism; removing it restores the stock flat
+    plane, which is what every pre-existing case in this table expects.
+    """
+    mapping = user_directory / "ground.yaml"
+    if case.terrain == "ramps":
+        user_directory.mkdir(parents=True, exist_ok=True)
+        mapping.write_text(f"xmlModelPath: {root / RAMP_TERRAIN}\n", encoding="utf-8")
+    elif case.terrain == "flat":
+        if mapping.exists():
+            mapping.unlink()
+    else:
+        raise RuntimeError(f"{case.name}: unknown terrain {case.terrain!r}")
+
+
 def configuration(case, backend, root, build, artifact):
     robot_module = (
         "RollingContactDifferential"
@@ -508,6 +598,13 @@ def parse_args():
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--backend", choices=("Tasks", "TVM", "both"), default="both")
     parser.add_argument("--case", action="append", dest="selected_cases")
+    parser.add_argument(
+        "--mujoco-user-dir",
+        type=pathlib.Path,
+        default=pathlib.Path("/tmp/rolling-contact-cpu-mujoco/mc_mujoco-user"),
+        help="mc_mujoco model folder of the runner's mc_mujoco build; the "
+        "`ground` mapping is written and removed here per case",
+    )
     return parser.parse_args()
 
 
@@ -573,6 +670,21 @@ def main():
         "cases": [],
     }
     started = time.monotonic()
+    # The `ground` mapping lives outside the artifact directory, so a crash in
+    # the middle of a ramp case would otherwise leave the next invocation of
+    # this script - or of mc_mujoco by hand - silently running on ramps.
+    try:
+        run_cases(args, aggregate, backends, cases, artifact, root, build, runner, checker, env)
+    finally:
+        install_terrain(args.mujoco_user_dir, Case("restore", "four-steering", "hold"), root)
+    aggregate["wall_time_s"] = time.monotonic() - started
+    aggregate["status"] = "pass"
+    output = artifact / "suite-report.json"
+    output.write_text(json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"CPU MuJoCo suite passed: {output}")
+
+
+def run_cases(args, aggregate, backends, cases, artifact, root, build, runner, checker, env):
     for backend in backends:
         for case in cases:
             case_dir = artifact / backend.lower() / case.name
@@ -581,6 +693,7 @@ def main():
             config.write_text(
                 configuration(case, backend, root, build, artifact), encoding="utf-8"
             )
+            install_terrain(args.mujoco_user_dir, case, root)
             reports = []
             csv_paths = []
             for repetition in range(args.repetitions):
@@ -604,6 +717,8 @@ def main():
                     str(case.warmup_cycles or args.warmup_cycles),
                     "--ramp-deg",
                     str(case.ramp_degrees),
+                    "--start-y",
+                    str(case.start_y),
                     "--friction",
                     str(case.friction),
                     "--friction-cycle",
@@ -684,6 +799,8 @@ def main():
                     "robot": case.robot,
                     "scenario": case.scenario,
                     "kind": case.kind,
+                    "terrain": case.terrain,
+                    "start_y": case.start_y,
                     "regime": case.regime,
                     "expected_failure": case.expected_failure,
                     "torque_control": case.torque_control,
@@ -711,11 +828,6 @@ def main():
             if case.expected_failure:
                 line += f"  {case.expected_failure}"
             print(line, flush=True)
-    aggregate["wall_time_s"] = time.monotonic() - started
-    aggregate["status"] = "pass"
-    output = artifact / "suite-report.json"
-    output.write_text(json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"CPU MuJoCo suite passed: {output}")
 
 
 if __name__ == "__main__":

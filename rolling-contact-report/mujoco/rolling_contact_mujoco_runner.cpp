@@ -52,6 +52,13 @@ struct Options
   size_t cycles = 0;
   size_t warmupCycles = 100;
   double rampDegrees = 0.0;
+  // Where on the terrain the chassis is reset, in terrain tangent coordinates.
+  // Zero reproduces the historical reset at the terrain origin. The ramp
+  // terrain (src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml)
+  // puts one ramp lane every 4 m in y, so `--start-y 8` is "reset in front of
+  // the 15 degree ramp".
+  double startX = 0.0;
+  double startY = 0.0;
   double friction = 0.8;
   long frictionCycle = -1;
   double linearSpeed = 0.15;
@@ -125,6 +132,15 @@ struct WheelSample
   double hardPromotionResidual = 0.0;
   double qpNormalForce = 0.0;
   double qpTangentialForce = 0.0;
+  // Angle between MuJoCo's actual contact normal under this wheel and the
+  // terrain normal the controller was configured with, in radians, unsigned.
+  // Standing assumption A4 of the formulation (`as:one-plane`) says all four
+  // contacts share one plane and the controller takes that plane's normal as a
+  // constant, so this number is the direct measure of how far a sample is from
+  // the modelling assumption: 0 on flat ground and on a plateau, theta while a
+  // wheel is on an incline the controller has not been told about. It is left
+  // at 0 for a wheel with no contact, which `contacts` already reports.
+  double contactNormalDeviation = 0.0;
   std::string mode = "unknown";
   int slidingGenerator = -1;
   int contacts = 0;
@@ -141,6 +157,7 @@ struct Statistics
   double minFrictionMargin = std::numeric_limits<double>::infinity();
   double maxDriveTorque = 0.0;
   double maxSteerTorque = 0.0;
+  double maxContactNormalDeviation = 0.0;
   double maxTrajectoryError = 0.0;
   double trajectoryErrorSquared = 0.0;
   double maxYawError = 0.0;
@@ -180,7 +197,8 @@ struct ControllerReference
       reason
       + "\nusage: rolling_contact_mujoco_runner --mc-config FILE --robot differential|four-steering"
         " --backend Tasks|TVM"
-        " --scenario NAME --cycles N --csv FILE --report FILE [--warmup-cycles N] [--ramp-deg D] [--friction MU]"
+        " --scenario NAME --cycles N --csv FILE --report FILE [--warmup-cycles N] [--ramp-deg D]"
+        " [--start-x M] [--start-y M] [--friction MU]"
         " [--friction-cycle N]"
         " [--linear-speed MPS] [--yaw-rate RADPS] [--steering-angle RAD]"
         " [--impulse-cycle N --impulse MPS --impulse-direction longitudinal|lateral|normal]"
@@ -238,6 +256,8 @@ Options parseOptions(int argc, char ** argv)
       out.warmupCycles = static_cast<size_t>(warmup);
     }
     else if(option == "--ramp-deg") { out.rampDegrees = parseDouble(value, option); }
+    else if(option == "--start-x") { out.startX = parseDouble(value, option); }
+    else if(option == "--start-y") { out.startY = parseDouble(value, option); }
     else if(option == "--friction") { out.friction = parseDouble(value, option); }
     else if(option == "--friction-cycle") { out.frictionCycle = parseLong(value, option); }
     else if(option == "--linear-speed") { out.linearSpeed = parseDouble(value, option); }
@@ -474,6 +494,30 @@ bool checkStaticParity(const mjModel & model, const Options & options, const std
   return parity;
 }
 
+// Every geom carried by the mc_mujoco ground body is terrain. The stock
+// env/ground.xml has exactly one of them (`ground_floor`); the ramp terrain in
+// src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml adds twelve
+// ramp slabs to the same body. Contact attribution, friction and the contact
+// margin all have to cover the whole set: attributing contacts to the plane
+// alone makes a wheel that has driven onto a ramp read as zero normal force,
+// which the contact-mode estimator then reports as `detached`.
+std::vector<int> collectTerrainGeoms(const mjModel & model)
+{
+  const int floor = namedId(model, mjOBJ_GEOM, "ground_floor");
+  const int body = model.geom_bodyid[floor];
+  std::vector<int> geoms;
+  for(int geom = 0; geom < model.ngeom; ++geom)
+  {
+    if(model.geom_bodyid[geom] == body) { geoms.push_back(geom); }
+  }
+  return geoms;
+}
+
+bool isTerrain(const std::vector<int> & terrainGeoms, int geom)
+{
+  return std::find(terrainGeoms.begin(), terrainGeoms.end(), geom) != terrainGeoms.end();
+}
+
 void configureTerrain(mc_mujoco::MjSim & simulation,
                       const Options & options,
                       const std::string & robotName,
@@ -496,9 +540,12 @@ void configureTerrain(mc_mujoco::MjSim & simulation,
   model.body_quat[4 * groundBody + 1] = quaternion.x();
   model.body_quat[4 * groundBody + 2] = quaternion.y();
   model.body_quat[4 * groundBody + 3] = quaternion.z();
-  model.geom_friction[3 * ground] = options.frictionCycle >= 0 ? 0.8 : options.friction;
-  model.geom_friction[3 * ground + 1] = 0.01;
-  model.geom_friction[3 * ground + 2] = 0.001;
+  for(const int geom : collectTerrainGeoms(model))
+  {
+    model.geom_friction[3 * geom] = options.frictionCycle >= 0 ? 0.8 : options.friction;
+    model.geom_friction[3 * geom + 1] = 0.01;
+    model.geom_friction[3 * geom + 2] = 0.001;
+  }
   // World-geom transforms are part of MuJoCo's derived model constants.
   // Recompute them before resetting the robot onto the rotated plane.
   mj_setConst(&model, &simulation.data());
@@ -511,7 +558,11 @@ void configureTerrain(mc_mujoco::MjSim & simulation,
   const double contactPreload = options.rampDegrees == 0.0 ? 0.0 : 1e-4;
   const double chassisHeight = wheels.front().radius
                                + (options.robot == "differential" ? 0.0 : rangerChassisToAxle);
-  const Eigen::Vector3d position = (chassisHeight - contactPreload) * normal;
+  // The lane offset is expressed in the terrain tangent frame so that it keeps
+  // the chassis on the plane for a uniformly tilted world as well as for the
+  // flat approach apron of the ramp terrain.
+  const Eigen::Vector3d position =
+      (chassisHeight - contactPreload) * normal + options.startX * tangentX + options.startY * tangentY;
   const sva::PTransformd pose(orientation.toRotationMatrix().transpose(), position);
   std::map<std::string, std::vector<double>> initialJoints;
   if(options.presetSteering && options.robot == "four-steering"
@@ -601,7 +652,7 @@ Eigen::Vector3d pointVelocity(const mjModel & model,
 std::vector<WheelSample> sampleWheels(const mjModel & model,
                                       const mjData & data,
                                       const std::vector<Wheel> & wheels,
-                                      int groundGeom,
+                                      const std::vector<int> & terrainGeoms,
                                       double friction,
                                       const Eigen::Vector3d & normal,
                                       std::vector<mjtNum> & jacobianPosition,
@@ -644,8 +695,9 @@ std::vector<WheelSample> sampleWheels(const mjModel & model,
   for(int contactIndex = 0; contactIndex < data.ncon; ++contactIndex)
   {
     const auto & contact = data.contact[contactIndex];
-    const int wheelGeom = contact.geom[0] == groundGeom ? contact.geom[1]
-                                                        : (contact.geom[1] == groundGeom ? contact.geom[0] : -1);
+    const int wheelGeom = isTerrain(terrainGeoms, contact.geom[0])
+                              ? contact.geom[1]
+                              : (isTerrain(terrainGeoms, contact.geom[1]) ? contact.geom[0] : -1);
     if(wheelGeom < 0) { continue; }
     const auto wheel = std::find_if(wheels.begin(), wheels.end(),
                                     [wheelGeom](const Wheel & candidate) { return candidate.geomId == wheelGeom; });
@@ -655,6 +707,12 @@ std::vector<WheelSample> sampleWheels(const mjModel & model,
     mj_contactForce(&model, &data, contactIndex, force);
     samples[index].normalForce += std::max(0.0, static_cast<double>(force[0]));
     samples[index].tangentialForce += std::hypot(static_cast<double>(force[1]), static_cast<double>(force[2]));
+    // Unsigned tilt of the real contact plane against the assumed one; the
+    // absolute value makes it independent of which of the pair MuJoCo made
+    // geom[0], since a plane and its opposite normal are the same plane.
+    const Eigen::Vector3d contactNormal{contact.frame[0], contact.frame[1], contact.frame[2]};
+    const double alignment = std::min(1.0, std::abs(contactNormal.normalized().dot(normal)));
+    samples[index].contactNormalDeviation = std::max(samples[index].contactNormalDeviation, std::acos(alignment));
     ++samples[index].contacts;
   }
   for(auto & sample : samples)
@@ -844,6 +902,8 @@ void updateStatistics(Statistics & statistics,
     statistics.minFrictionMargin = std::min(statistics.minFrictionMargin, sample.frictionMargin);
     statistics.maxDriveTorque = std::max(statistics.maxDriveTorque, std::abs(sample.driveTorque));
     statistics.maxSteerTorque = std::max(statistics.maxSteerTorque, std::abs(sample.steerTorque));
+    statistics.maxContactNormalDeviation =
+        std::max(statistics.maxContactNormalDeviation, sample.contactNormalDeviation);
     statistics.rollingSlips.push_back(std::abs(sample.rollingSlip));
     statistics.lateralSlips.push_back(std::abs(sample.lateralSlip));
     statistics.normalSpeeds.push_back(std::abs(sample.normalSpeed));
@@ -884,7 +944,8 @@ void writeCsvHeader(std::ofstream & stream, const std::vector<Wheel> & wheels)
     stream << ',' << wheel.name << "_mode," << wheel.name << "_activation," << wheel.name << "_solver_activation,"
            << wheel.name << "_acceleration_residual," << wheel.name << "_lateral_acceleration_residual," << wheel.name
            << "_normal_acceleration_residual," << wheel.name << "_hard_promotion_residual," << wheel.name
-           << "_qp_normal_force," << wheel.name << "_qp_tangential_force," << wheel.name << "_sliding_generator";
+           << "_qp_normal_force," << wheel.name << "_qp_tangential_force," << wheel.name << "_sliding_generator,"
+           << wheel.name << "_contact_normal_deviation";
   }
   stream << '\n';
 }
@@ -928,7 +989,8 @@ void writeCsvRow(std::ofstream & stream,
            << sample.mode << ',' << sample.activation << ',' << sample.solverActivation << ','
            << sample.accelerationResidual << ',' << sample.lateralAccelerationResidual << ','
            << sample.normalAccelerationResidual << ',' << sample.hardPromotionResidual << ',' << sample.qpNormalForce
-           << ',' << sample.qpTangentialForce << ',' << sample.slidingGenerator;
+           << ',' << sample.qpTangentialForce << ',' << sample.slidingGenerator << ','
+           << sample.contactNormalDeviation;
   }
   stream << '\n';
 }
@@ -975,7 +1037,8 @@ void writeReport(const Options & options,
                                                    / static_cast<double>(statistics.samples);
   stream << std::setprecision(17);
   stream << "{\n"
-         << "  \"schema\": 3,\n"
+         // 4 adds start_x_m, start_y_m and max_contact_normal_deviation_deg.
+         << "  \"schema\": 4,\n"
          << "  \"device\": \"CPU\",\n"
          << "  \"robot\": \"" << options.robot << "\",\n"
          << "  \"scenario\": \"" << options.scenario << "\",\n"
@@ -993,6 +1056,8 @@ void writeReport(const Options & options,
          << "  \"controller_failed\": " << (controllerFailed ? "true" : "false") << ",\n"
          << "  \"finite_state\": " << (finite ? "true" : "false") << ",\n"
          << "  \"ramp_degrees\": " << options.rampDegrees << ",\n"
+         << "  \"start_x_m\": " << options.startX << ",\n"
+         << "  \"start_y_m\": " << options.startY << ",\n"
          << "  \"friction\": " << options.friction << ",\n"
          << "  \"linear_speed_mps\": " << options.linearSpeed << ",\n"
          << "  \"yaw_rate_radps\": " << options.yawRate << ",\n"
@@ -1016,6 +1081,8 @@ void writeReport(const Options & options,
          << "  \"min_friction_margin_n\": " << minimumFrictionMargin << ",\n"
          << "  \"max_drive_torque_nm\": " << statistics.maxDriveTorque << ",\n"
          << "  \"max_steer_torque_nm\": " << statistics.maxSteerTorque << ",\n"
+         << "  \"max_contact_normal_deviation_deg\": "
+         << statistics.maxContactNormalDeviation * 180.0 / pi << ",\n"
          << "  \"no_contact_sample_fraction\": " << noContactFraction << ",\n"
          << "  \"contact_fallback_sample_fraction\": " << contactFallbackFraction << ",\n"
          << "  \"odometry_position_error_rms_m\": " << odometryRms << ",\n"
@@ -1115,10 +1182,14 @@ int main(int argc, char ** argv)
     }
     requireControllerBackend(simulation, options.backend);
     const int groundGeom = namedId(model, mjOBJ_GEOM, "ground_floor");
+    const std::vector<int> terrainGeoms = collectTerrainGeoms(model);
     // Preserve the exact zero-gap reset while giving MuJoCo a small contact
     // discovery envelope. Without it, round-off on a coplanar four-wheel
     // reset can select only the front or rear axle for the first substep.
-    model.geom_margin[groundGeom] = std::max(model.geom_margin[groundGeom], 1e-4);
+    for(const int geom : terrainGeoms)
+    {
+      model.geom_margin[geom] = std::max(model.geom_margin[geom], 1e-4);
+    }
     for(const auto & wheel : wheels)
     {
       model.geom_margin[wheel.geomId] = std::max(model.geom_margin[wheel.geomId], 1e-4);
@@ -1188,7 +1259,7 @@ int main(int argc, char ** argv)
       const auto cycleStart = std::chrono::steady_clock::now();
       if(static_cast<long>(cycle) == options.frictionCycle)
       {
-        model.geom_friction[3 * groundGeom] = options.friction;
+        for(const int geom : terrainGeoms) { model.geom_friction[3 * geom] = options.friction; }
         for(const auto & wheel : wheels) { model.geom_friction[3 * wheel.geomId] = options.friction; }
       }
       if(static_cast<long>(cycle) == options.impulseCycle)
@@ -1213,7 +1284,7 @@ int main(int argc, char ** argv)
         controllerFailed = simulation.stepSimulation();
         if(options.measuredContacts)
         {
-          const auto substepSamples = sampleWheels(model, data, wheels, groundGeom, options.friction, normal,
+          const auto substepSamples = sampleWheels(model, data, wheels, terrainGeoms, options.friction, normal,
                                                    jacobianPosition, jacobianRotation);
           sendMeasurements(simulation, wheels, substepSamples);
         }
@@ -1223,7 +1294,7 @@ int main(int argc, char ** argv)
       if(controllerFailed || !allFinite) { break; }
 
       const auto samples =
-          sampleWheels(model, data, wheels, groundGeom, options.friction, normal, jacobianPosition,
+          sampleWheels(model, data, wheels, terrainGeoms, options.friction, normal, jacobianPosition,
                        jacobianRotation);
       auto samplesWithModes = samples;
       const bool contactFallback = readControllerState(simulation, wheels, samplesWithModes);

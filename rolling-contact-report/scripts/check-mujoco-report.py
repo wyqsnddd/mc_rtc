@@ -26,6 +26,12 @@ REQUIRED_NUMERIC = {
     "min_friction_margin_n",
     "max_drive_torque_nm",
     "max_steer_torque_nm",
+    # Angle between MuJoCo's real contact normals and the terrain normal the
+    # controller was configured with. Required to be present and finite, but
+    # deliberately not bounded here: the whole point of the ramp terrain is to
+    # make it non-zero, and the acceptance policy for flat and uniformly tilted
+    # worlds is expressed by the slip and contact bounds below.
+    "max_contact_normal_deviation_deg",
     "no_contact_sample_fraction",
     "contact_fallback_sample_fraction",
     "odometry_position_error_rms_m",
@@ -61,7 +67,7 @@ def require(condition, message):
 
 
 def validate_common(report, path, backend, robot):
-    require(report.get("schema") == 3, f"{path}: expected schema 3")
+    require(report.get("schema") == 4, f"{path}: expected schema 4")
     require(report.get("device") == "CPU", f"{path}: device is not CPU")
     require(report.get("backend") == backend, f"{path}: backend mismatch")
     require(report.get("robot") == robot, f"{path}: robot mismatch")

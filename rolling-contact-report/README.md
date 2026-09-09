@@ -408,11 +408,76 @@ For a headless terminal smoke test, use `--without-visualization --without-mc-rt
 then press Ctrl-C. A recorded log should show nonzero `RollingContact_front_left_target` and steering targets while
 the keys are active.
 
+## Ramp terrain
+
+`src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml` is flat ground with four driveable ramp lanes -
+5, 10, 15 and 20 degrees at `y` = 0, 4, 8 and 12, plus a flat reference lane at `y` = -4. Every lane has its toe at
+`x` = 0.6 m, its crest at `x` = 2.1 m, its plateau end at `x` = 3.1 m and its toe-out at `x` = 4.6 m.
+
+It is a `ground` model, not part of the robot: `mc_control::MCController` always loads `env/ground`
+(`MCController.cpp:96`) and mc_mujoco resolves one MuJoCo model per mc_rtc robot from `<module>.yaml`
+(`mj_sim.cpp:110-127`), so `ground.yaml` is the one hook that changes the world without touching the robot
+description or the controller. A "scene XML that includes the robot" is **not** possible here: mc_mujoco expands
+MuJoCo `<include>` only inside `asset`, `contact`, `actuator` and `sensor`
+(`mj_utils_merge_mujoco_models.cpp:344-363`), never inside `worldbody`.
+
+Install the mapping once, then select the terrain per configuration:
+
+```sh
+cp rolling-contact-report/mujoco/ground.yaml ~/local/share/mc_mujoco/
+/home/yuquan/local/bin/mc_mujoco -s -f rolling-contact-report/config/mc_rtc-ranger-ramps-mujoco.yaml
+```
+
+The selection is one line. mc_mujoco prefers a section of `ground.yaml` keyed by the first element of `MainRobot`
+over the top-level `xmlModelPath` (`mj_sim.cpp:233-248`), so `MainRobot: RollingContactRangerMiniV3` keeps the stock
+flat plane while `MainRobot: [RollingContact, "src/mc_robots/rolling_contact_description", ranger_mini_v3]` - the
+same robot, spelled as the three-argument module - selects the ramps. Installing the mapping therefore changes
+nothing for the existing configurations, the suite, or any other robot.
+
+`scripts/run-mujoco-suite.py` does not rely on that: it writes and **removes** `ground.yaml` in mc_mujoco's model
+folder around every case, from `Case.terrain`, and restores the flat mapping in a `finally`, so a ramp case cannot
+leak into the next run.
+
+## Terrain validation
+
+```sh
+python3 rolling-contact-report/scripts/run-ramp-validation.py \
+  --runner /tmp/rolling-contact-cpu-mujoco/runner-build/rolling_contact_mujoco_runner \
+  --build build --artifact-dir /tmp/rolling-contact-ramp-validation
+```
+
+Two sections, both driven through the deterministic runner:
+
+- **`slope`** - a uniformly tilted world at 0, 5, 10, 15, 20, 25 and 30 degrees with the controller told the matching
+  normal, so assumption A4 (`as:one-plane`) holds exactly, crossed with ten commands covering pure forward, pure
+  lateral (`crab` at a steering angle of pi/2), pure yaw and four forward-by-yaw combinations.
+- **`transition`** - the ramp terrain, forward at 0.3 m/s for 20 s, which is long enough to cover toe, crest, plateau
+  and toe-out. Each angle is run twice: once with the controller told the flat normal (what it can actually know) and
+  once with the incline's normal pre-loaded, which separates "the constant is wrong" from "the terrain is not one
+  plane".
+
+Both actuation regimes are reported. `torque` drives the MuJoCo motors from the QP's joint torques; `pd` is
+mc_mujoco's own default, where mc_mujoco PD-tracks the controller's `q`/`alpha` output through
+`ranger_mini_v3-gains.txt`, and it is the regime `mc_mujoco -f <config>` uses.
+
+`scripts/run-trajectory-terrain.py` does the same for the `RangerTrajectory` FSM sample, which the deterministic
+runner cannot drive (it requires fifteen `RollingContact::Get*` datastore calls that the FSM sample does not
+register), so it runs mc_mujoco headless and measures the three curves from the binary log. It reports the deviation
+of the **simulated** chassis (`ff_real`) as well as of the control robot (`ChassisCurve_surfacePose`): the sample's
+own configuration declares no `robots:` block and `fsm::Controller` does not add `env/ground`
+(`fsm/Controller.cpp:29` uses the robot-vector overload), so without the `robots:` block that
+`config/mc_rtc-ranger-trajectory-{flat,ramps}-mujoco.yaml` add at the top level the chassis is in free fall for the
+whole run while the control robot still reports millimetric tracking.
+
 ## Relevant files
 
 - `config/mc_rtc-differential*.yaml`: differential-drive Tasks/TVM/mode examples;
 - `config/mc_rtc-four-steering*.yaml`: Ranger Mini V3 deterministic Tasks/TVM examples;
 - `config/mc_rtc-ranger-mini-v3-keyboard.yaml`: interactive keyboard example;
-- `mujoco/ranger_mini_v3.yaml`: mc_mujoco user mapping;
-- `scripts/build-cpu-mujoco-runner.sh`: pinned CPU build/install helper; and
-- `scripts/run-mujoco-suite.py`: deterministic headless scenario driver and report checker.
+- `config/mc_rtc-ranger-ramps-mujoco.yaml`: the same keyboard profile on the ramp terrain;
+- `config/mc_rtc-ranger-trajectory-{flat,ramps}-mujoco.yaml`: the RangerTrajectory FSM on flat ground and on the ramps;
+- `mujoco/ranger_mini_v3.yaml`, `mujoco/ground.yaml`: mc_mujoco model mappings;
+- `scripts/build-cpu-mujoco-runner.sh`: pinned CPU build/install helper;
+- `scripts/run-mujoco-suite.py`: deterministic headless scenario driver and report checker;
+- `scripts/run-ramp-validation.py`: slope and slope-transition sweep; and
+- `scripts/run-trajectory-terrain.py`: RangerTrajectory curve tracking under mc_mujoco.
