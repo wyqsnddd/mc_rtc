@@ -91,6 +91,20 @@ private:
    */
   void makeWheelValueCall(const std::string & key, const char * query, const std::vector<double> & values);
 
+  // Constructor-time publication of this controller's external interfaces.
+  // Split out of the constructor only for length; each is called exactly once,
+  // in this order, and must keep that order: the datastore and log callbacks
+  // capture members that the constraint and task construction between them
+  // sets up.
+  /** The operator's twist entry point, under "Rolling Contact"/"Command". */
+  void registerCommandGUI();
+  /** Every RollingContact::* datastore call. */
+  void registerDatastoreCalls();
+  /** Every RollingContact_* log entry, including the per-wheel ones. */
+  void registerLogEntries();
+  /** The read-only status labels, under "Rolling Contact". */
+  void registerStatusGUI();
+
   std::vector<mc_rbdyn::RollingContactDescription> wheels_;
   std::vector<Eigen::Vector2d> wheelOffsets_;
   std::unique_ptr<KeyboardInput> keyboard_;

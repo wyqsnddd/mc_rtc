@@ -420,44 +420,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
                       "effect; press '{}' to stop capture and zero velocity references, space to clear the axes",
                       keyboardExitKey[0]);
   }
-  gui()->addElement(
-      {"Rolling Contact", "Command"},
-      // Outside the keyboard scenario the GUI is the operator's only entry
-      // point, so it publishes the commanded twist directly. The keyboard poll
-      // republishes the key state plus these offsets every cycle instead.
-      mc_rtc::gui::NumberInput(
-          "Forward velocity", [this]() { return guiForwardCommand_; },
-          [this](double value)
-          {
-            if(!std::isfinite(value)) { return; }
-            guiForwardCommand_ = value;
-            if(scenario_ != "keyboard") { setCommandedTwist({value, commandedTwist_.y(), commandedTwist_.z()}); }
-          }),
-      mc_rtc::gui::NumberInput(
-          "Lateral velocity", [this]() { return guiLateralCommand_; },
-          [this](double value)
-          {
-            if(!std::isfinite(value)) { return; }
-            guiLateralCommand_ = value;
-            if(scenario_ != "keyboard") { setCommandedTwist({commandedTwist_.x(), value, commandedTwist_.z()}); }
-          }),
-      mc_rtc::gui::NumberInput(
-          "Yaw velocity", [this]() { return guiYawCommand_; },
-          [this](double value)
-          {
-            if(!std::isfinite(value)) { return; }
-            guiYawCommand_ = value;
-            if(scenario_ != "keyboard") { setCommandedTwist({commandedTwist_.x(), commandedTwist_.y(), value}); }
-          }),
-      mc_rtc::gui::Button(
-          "Clear command", [this]()
-          {
-            guiForwardCommand_ = 0.0;
-            guiLateralCommand_ = 0.0;
-            guiYawCommand_ = 0.0;
-            if(scenario_ != "keyboard") { setCommandedTwist(Eigen::Vector3d::Zero()); }
-            if(keyboard_) { keyboard_->clear(); }
-          }));
+  registerCommandGUI();
   mc_solver::RollingContactConstraintOptions options;
   options.terrainNormal = settings("terrainNormal", Eigen::Vector3d{0.0, 0.0, 1.0});
   if(!options.terrainNormal.allFinite() || options.terrainNormal.norm() < 1e-8)
@@ -666,6 +629,57 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     if(!wheel.steeringJoint.empty()) { postureTargets_.emplace(wheel.steeringJoint, std::vector<double>{0.0}); }
   }
 
+  registerDatastoreCalls();
+
+  registerLogEntries();
+  registerStatusGUI();
+  mc_rtc::log::success("RollingContact CPU controller initialized for {} ({})", robot().name(), scenario_);
+}
+
+void MCRollingContactController::registerCommandGUI()
+{
+  gui()->addElement(
+      {"Rolling Contact", "Command"},
+      // Outside the keyboard scenario the GUI is the operator's only entry
+      // point, so it publishes the commanded twist directly. The keyboard poll
+      // republishes the key state plus these offsets every cycle instead.
+      mc_rtc::gui::NumberInput(
+          "Forward velocity", [this]() { return guiForwardCommand_; },
+          [this](double value)
+          {
+            if(!std::isfinite(value)) { return; }
+            guiForwardCommand_ = value;
+            if(scenario_ != "keyboard") { setCommandedTwist({value, commandedTwist_.y(), commandedTwist_.z()}); }
+          }),
+      mc_rtc::gui::NumberInput(
+          "Lateral velocity", [this]() { return guiLateralCommand_; },
+          [this](double value)
+          {
+            if(!std::isfinite(value)) { return; }
+            guiLateralCommand_ = value;
+            if(scenario_ != "keyboard") { setCommandedTwist({commandedTwist_.x(), value, commandedTwist_.z()}); }
+          }),
+      mc_rtc::gui::NumberInput(
+          "Yaw velocity", [this]() { return guiYawCommand_; },
+          [this](double value)
+          {
+            if(!std::isfinite(value)) { return; }
+            guiYawCommand_ = value;
+            if(scenario_ != "keyboard") { setCommandedTwist({commandedTwist_.x(), commandedTwist_.y(), value}); }
+          }),
+      mc_rtc::gui::Button(
+          "Clear command", [this]()
+          {
+            guiForwardCommand_ = 0.0;
+            guiLateralCommand_ = 0.0;
+            guiYawCommand_ = 0.0;
+            if(scenario_ != "keyboard") { setCommandedTwist(Eigen::Vector3d::Zero()); }
+            if(keyboard_) { keyboard_->clear(); }
+          }));
+}
+
+void MCRollingContactController::registerDatastoreCalls()
+{
   datastore().make_call(
       "RollingContact::SetMeasuredContact",
       [this](const std::string & name,
@@ -749,7 +763,10 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   datastore().make_call("RollingContact::GetHardRhsNorm", [this]() { return rolling_->hardRhs().norm(); });
   datastore().make_call("RollingContact::GetSlidingGenerator",
                         [this](const std::string & name) { return dynamics_->slidingGenerator(name); });
+}
 
+void MCRollingContactController::registerLogEntries()
+{
   logger().addLogEntry("RollingContact_scenario", [this]() { return scenario_; });
   logger().addLogEntry("RollingContact_backend", [this]()
                        { return solver().backend() == Backend::Tasks ? std::string{"Tasks"} : std::string{"TVM"}; });
@@ -952,6 +969,10 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
                            });
     }
   }
+}
+
+void MCRollingContactController::registerStatusGUI()
+{
   gui()->addElement({"Rolling Contact"},
                     mc_rtc::gui::Label("Scenario", [this]() { return scenario_; }),
                     mc_rtc::gui::Label("Backend", [this]()
@@ -973,7 +994,6 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
         mc_rtc::gui::Label("Friction margin", [this, i]() { return frictionMargins_[i]; }),
         mc_rtc::gui::Label("Drive torque margin", [this, i]() { return driveTorqueMargins_[i]; }));
   }
-  mc_rtc::log::success("RollingContact CPU controller initialized for {} ({})", robot().name(), scenario_);
 }
 
 MCRollingContactController::~MCRollingContactController()
