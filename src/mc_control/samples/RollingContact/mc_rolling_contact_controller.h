@@ -77,6 +77,20 @@ private:
   void syncControlRobotFromSensors();
   void safeStop(const std::string & reason);
   std::vector<mc_rbdyn::RollingContactDescription> makeWheels() const;
+  /** Index of the wheel named @p name, for the datastore lookups.
+   *
+   * @param query names the query in the exception message: "drive target"
+   * produces "Unknown rolling-contact drive target wheel: <name>".
+   * @throws std::invalid_argument when no wheel carries that name.
+   */
+  size_t wheelIndex(const std::string & name, const char * query) const;
+  /** Publish a datastore call returning one per-wheel entry of @p values.
+   *
+   * @p values is held by reference: every caller passes one of this
+   * controller's own diagnostic vectors, which stays index-aligned with
+   * wheels_ and outlives the datastore.
+   */
+  void makeWheelValueCall(const std::string & key, const char * query, const std::vector<double> & values);
 
   std::vector<mc_rbdyn::RollingContactDescription> wheels_;
   std::vector<Eigen::Vector2d> wheelOffsets_;

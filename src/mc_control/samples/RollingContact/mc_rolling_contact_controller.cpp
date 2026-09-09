@@ -219,6 +219,25 @@ struct MCRollingContactController::KeyboardInput
 #endif
 };
 
+size_t MCRollingContactController::wheelIndex(const std::string & name, const char * query) const
+{
+  const auto wheel = std::find_if(wheels_.begin(), wheels_.end(),
+                                  [&name](const auto & candidate) { return candidate.name == name; });
+  if(wheel == wheels_.end())
+  {
+    throw std::invalid_argument(std::string{"Unknown rolling-contact "} + query + " wheel: " + name);
+  }
+  return static_cast<size_t>(std::distance(wheels_.begin(), wheel));
+}
+
+void MCRollingContactController::makeWheelValueCall(const std::string & key,
+                                                    const char * query,
+                                                    const std::vector<double> & values)
+{
+  datastore().make_call(key, [this, query, &values](const std::string & name) -> double
+                        { return values[wheelIndex(name, query)]; });
+}
+
 MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr robotModule,
                                                        double dt,
                                                        const mc_rtc::Configuration & config)
@@ -652,14 +671,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
              double tangentialForce,
              bool valid)
       {
-        const auto wheel = std::find_if(wheels_.begin(), wheels_.end(),
-                                        [&name](const auto & candidate) { return candidate.name == name; });
-        if(wheel == wheels_.end())
-        {
-          throw std::invalid_argument("Unknown rolling-contact measurement wheel: " + name);
-        }
-        const size_t index = static_cast<size_t>(std::distance(wheels_.begin(), wheel));
-        auto & measurement = externalMeasurements_[index];
+        auto & measurement = externalMeasurements_[wheelIndex(name, "measurement")];
         measurement.rollingSlip = rollingSlip;
         measurement.lateralSlip = lateralSlip;
         measurement.normalForce = normalForce;
@@ -670,94 +682,20 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
                             && tangentialForce >= 0.0;
       });
   datastore().make_call("RollingContact::GetEstimatedMode",
-                        [this](const std::string & name)
+                        [this](const std::string & name) -> std::string
                         {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact mode wheel: " + name);
-                          }
-                          const size_t index = static_cast<size_t>(std::distance(wheels_.begin(), wheel));
-                          return std::string{mc_rbdyn::to_string(modeManagers_[index].state().estimated)};
+                          return mc_rbdyn::to_string(modeManagers_[wheelIndex(name, "mode")].state().estimated);
                         });
   datastore().make_call("RollingContact::GetActivation",
-                        [this](const std::string & name)
-                        {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact activation wheel: " + name);
-                          }
-                          const size_t index = static_cast<size_t>(std::distance(wheels_.begin(), wheel));
-                          return modeManagers_[index].state().activation;
-                        });
-  datastore().make_call("RollingContact::GetSolverActivation",
-                        [this](const std::string & name)
-                        {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact solver activation wheel: " + name);
-                          }
-                          return appliedActivations_[static_cast<size_t>(std::distance(wheels_.begin(), wheel))];
-                        });
-  datastore().make_call("RollingContact::GetAccelerationResidual",
-                        [this](const std::string & name)
-                        {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact acceleration residual wheel: " + name);
-                          }
-                          return accelerationResiduals_[static_cast<size_t>(std::distance(wheels_.begin(), wheel))];
-                        });
-  datastore().make_call("RollingContact::GetHardPromotionResidual",
-                        [this](const std::string & name)
-                        {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact hard promotion residual wheel: "
-                                                        + name);
-                          }
-                          return hardPromotionResiduals_[static_cast<size_t>(std::distance(wheels_.begin(), wheel))];
-                        });
-  datastore().make_call("RollingContact::GetLateralAccelerationResidual",
-                        [this](const std::string & name)
-                        {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact lateral acceleration wheel: " + name);
-                          }
-                          return lateralAccelerationResiduals_[static_cast<size_t>(
-                              std::distance(wheels_.begin(), wheel))];
-                        });
-  datastore().make_call("RollingContact::GetNormalAccelerationResidual",
-                        [this](const std::string & name)
-                        {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact normal acceleration wheel: " + name);
-                          }
-                          return normalAccelerationResiduals_[static_cast<size_t>(
-                              std::distance(wheels_.begin(), wheel))];
-                        });
+                        [this](const std::string & name) -> double
+                        { return modeManagers_[wheelIndex(name, "activation")].state().activation; });
+  makeWheelValueCall("RollingContact::GetSolverActivation", "solver activation", appliedActivations_);
+  makeWheelValueCall("RollingContact::GetAccelerationResidual", "acceleration residual", accelerationResiduals_);
+  makeWheelValueCall("RollingContact::GetHardPromotionResidual", "hard promotion residual", hardPromotionResiduals_);
+  makeWheelValueCall("RollingContact::GetLateralAccelerationResidual", "lateral acceleration",
+                     lateralAccelerationResiduals_);
+  makeWheelValueCall("RollingContact::GetNormalAccelerationResidual", "normal acceleration",
+                     normalAccelerationResiduals_);
   datastore().make_call("RollingContact::GetBasePositionTarget", [this]() { return basePositionTarget_; });
   datastore().make_call("RollingContact::GetBaseYawTarget", [this]() { return baseYawTarget_; });
   datastore().make_call("RollingContact::GetKeyboardStatus", [this]()
@@ -766,74 +704,26 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   datastore().make_call("RollingContact::GetRollingWeight", [this]() { return rolling_->rollingWeight(); });
   datastore().make_call("RollingContact::GetDynamicsResidual", [this]() { return dynamicsResidual_; });
   datastore().make_call("RollingContact::GetFloatingBaseEffortNorm", [this]() { return floatingBaseEffortNorm_; });
-  datastore().make_call(
-      "RollingContact::GetQPNormalForce",
-      [this](const std::string & name)
-      {
-        const auto wheel = std::find_if(wheels_.begin(), wheels_.end(), [&name](const auto & candidate)
-                                        { return candidate.name == name; });
-        if(wheel == wheels_.end()) { throw std::invalid_argument("Unknown rolling-contact QP-force wheel: " + name); }
-        return normalForces_[static_cast<size_t>(std::distance(wheels_.begin(), wheel))];
-      });
-  datastore().make_call(
-      "RollingContact::GetQPTangentialForce",
-      [this](const std::string & name)
-      {
-        const auto wheel = std::find_if(wheels_.begin(), wheels_.end(), [&name](const auto & candidate)
-                                        { return candidate.name == name; });
-        if(wheel == wheels_.end()) { throw std::invalid_argument("Unknown rolling-contact QP-force wheel: " + name); }
-        return tangentialForces_[static_cast<size_t>(std::distance(wheels_.begin(), wheel))];
-      });
-  datastore().make_call("RollingContact::GetDriveTarget",
-                        [this](const std::string & name)
-                        {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact drive target wheel: " + name);
-                          }
-                          return driveTargets_[static_cast<size_t>(std::distance(wheels_.begin(), wheel))];
-                        });
+  makeWheelValueCall("RollingContact::GetQPNormalForce", "QP-force", normalForces_);
+  makeWheelValueCall("RollingContact::GetQPTangentialForce", "QP-force", tangentialForces_);
+  makeWheelValueCall("RollingContact::GetDriveTarget", "drive target", driveTargets_);
   datastore().make_call("RollingContact::GetDriveAcceleration",
-                        [this](const std::string & name)
+                        [this](const std::string & name) -> double
                         {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact drive acceleration wheel: " + name);
-                          }
-                          const auto joint = robot().jointIndexByName(wheel->driveJoint);
-                          return robot().mbc().alphaD[joint][0];
+                          const auto & wheel = wheels_[wheelIndex(name, "drive acceleration")];
+                          return robot().mbc().alphaD[robot().jointIndexByName(wheel.driveJoint)][0];
                         });
   datastore().make_call("RollingContact::GetDrivePosition",
-                        [this](const std::string & name)
+                        [this](const std::string & name) -> double
                         {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact drive position wheel: " + name);
-                          }
-                          const auto joint = robot().jointIndexByName(wheel->driveJoint);
-                          return robot().mbc().q[joint][0];
+                          const auto & wheel = wheels_[wheelIndex(name, "drive position")];
+                          return robot().mbc().q[robot().jointIndexByName(wheel.driveJoint)][0];
                         });
   datastore().make_call("RollingContact::GetDriveVelocity",
-                        [this](const std::string & name)
+                        [this](const std::string & name) -> double
                         {
-                          const auto wheel = std::find_if(
-                              wheels_.begin(), wheels_.end(),
-                              [&name](const auto & candidate) { return candidate.name == name; });
-                          if(wheel == wheels_.end())
-                          {
-                            throw std::invalid_argument("Unknown rolling-contact drive velocity wheel: " + name);
-                          }
-                          const auto joint = robot().jointIndexByName(wheel->driveJoint);
-                          return robot().mbc().alpha[joint][0];
+                          const auto & wheel = wheels_[wheelIndex(name, "drive velocity")];
+                          return robot().mbc().alpha[robot().jointIndexByName(wheel.driveJoint)][0];
                         });
   datastore().make_call("RollingContact::GetBackend", [this]()
                         { return solver().backend() == Backend::Tasks ? std::string{"Tasks"} : std::string{"TVM"}; });
