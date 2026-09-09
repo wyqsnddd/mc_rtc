@@ -1,0 +1,93 @@
+# Run the RangerTrajectory FSM sample on the ramp terrain in mc_mujoco.
+#
+#   cd /home/yuquan/local/mc_rtc_sources/mc_rtc
+#   cp rolling-contact-report/mujoco/ground.yaml ~/local/share/mc_mujoco/   # once
+#   source /opt/ros/jazzy/setup.bash
+#   export MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON CUDA_VISIBLE_DEVICES=-1
+#   export LD_LIBRARY_PATH="$PWD/build/src:$PWD/build/plugins/ROS:$PWD/build/deps/tasks-system-install/lib:/opt/ros/jazzy/lib:/usr/local/lib"
+#   /home/yuquan/local/bin/mc_mujoco -f rolling-contact-report/config/mc_rtc-ranger-trajectory-ramps-mujoco.yaml
+#
+# This is mc_rtc-ranger-trajectory-mujoco.yaml with two changes: `MainRobot` is
+# spelled in the three-argument module form so that mc_mujoco's `ground` lookup
+# selects the ramp terrain (see rolling-contact-report/mujoco/ground.yaml for
+# the mechanism), and the log template is distinct so the two runs can be
+# compared side by side.
+#
+# The FSM drives a circle, then a straight line, then a Lissajous curve:
+# 21 + 6.75 + 51 = 78.75 s. Let it run that long before judging the result.
+#
+# WHERE THE CURVES MEET THE RAMPS
+# The curves are absolute world paths starting at the origin, and the terrain's
+# 5 deg lane runs along +x with its toe at x = 0.6 m, its crest at x = 2.1 m and
+# its toe-out at x = 4.6 m, spanning y in [-1.2, 1.2]; the 10 deg lane is the
+# same shape centred on y = 4.0. So:
+#   Ranger::Circle     radius 2 m about (0, 2), so it enters the 5 deg lane on
+#                      its way out and grazes the 10 deg lane at the top
+#   Ranger::Line       2 m straight along +x, i.e. straight at the 5 deg toe
+#   Ranger::Lissajous  stays inside the same band
+# Nothing here moves the curves onto a chosen lane; that is deliberate, because
+# the point is what the tracking error does when the terrain stops being the
+# single plane the constraints were told about.
+#
+# THE TERRAIN NORMAL IS NOT SET HERE
+# It is `terrainNormal: [0.0, 0.0, 1.0]` inside the sample's own configuration
+# (src/mc_control/samples/RangerTrajectory/etc/RangerTrajectory.in.yaml, on both
+# the `rollingContactDynamics` and the `rollingContact` constraint), which is
+# merged on top of this file. There is no C++ or YAML in this controller that
+# updates it while running.
+MainRobot: [RollingContact, "src/mc_robots/rolling_contact_description", ranger_mini_v3]
+Enabled: [RangerTrajectory]
+Default: RangerTrajectory
+Timestep: 0.005
+
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-ranger-trajectory-ramps-mujoco
+
+ClearControllerModulePath: true
+# Two entries, as in the ticker configuration: add_fsm_controller puts the
+# shared library under src/, while the controller configuration is configured
+# into etc/ one level up. MCGlobalController looks for the library in each
+# ControllerModulePaths entry and for <name>.yaml in each entry's etc/
+# subdirectory, so both are needed.
+ControllerModulePaths:
+- build/src/mc_control/samples/RangerTrajectory/src
+- build/src/mc_control/samples/RangerTrajectory
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+
+GUIServer:
+  Enable: true
+  # Keep the standard IPC endpoint used by mc_mujoco's built-in visualizer.
+  # ControllerServer probes and removes only stale socket files before retrying
+  # a bind, while leaving a live controller endpoint untouched.
+  IPC:
+    Socket: /tmp/mc_rtc
+  TCP:
+    Host: "127.0.0.1"
+    Ports: [4242, 4343]
+
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
+
+# THE SAMPLE ITSELF LOADS NO GROUND ROBOT
+# mc_control::fsm::Controller forwards {rm} to the robot-vector overload of
+# MCController (src/mc_control/fsm/Controller.cpp:29), and only the single-robot
+# overload appends `env/ground` (MCController.cpp:96). The sample's own
+# configuration declares no `robots:` block either, so in any real simulator the
+# chassis free-falls: measured without this block, ff_real_tz followed
+# 0.16 - 0.5 * 9.81 * t^2 exactly for the whole 78.75 s while the control robot
+# happily "tracked" all three curves. MCController reads `robots` from the
+# controller configuration (MCController.cpp:242-289), and the controller
+# configuration is this whole file overlaid with the sample's etc/ file
+# (mc_global_controller_configuration.cpp:329-352, `c.load(default_config)` with
+# default_config being the global configuration). The key therefore has to sit
+# at the TOP LEVEL here, not under a `RangerTrajectory:` section, and it
+# survives because the sample declares no `robots:` of its own.
+robots:
+  ground:
+    module: env/ground

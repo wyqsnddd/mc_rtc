@@ -1,0 +1,109 @@
+# Drive the four-steering Ranger Mini V3 on the ramp terrain in mc_mujoco.
+#
+#   cd /home/yuquan/local/mc_rtc_sources/mc_rtc
+#   cp rolling-contact-report/mujoco/ground.yaml ~/local/share/mc_mujoco/   # once
+#   source /opt/ros/jazzy/setup.bash
+#   export MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON CUDA_VISIBLE_DEVICES=-1
+#   export LD_LIBRARY_PATH="$PWD/build/src:$PWD/build/plugins/ROS:$PWD/build/deps/tasks-system-install/lib:/opt/ros/jazzy/lib:/usr/local/lib"
+#   /home/yuquan/local/bin/mc_mujoco -s -f rolling-contact-report/config/mc_rtc-ranger-ramps-mujoco.yaml
+#
+# Add --without-visualization --without-mc-rtc-gui for a headless run, and set
+# GUIServer.Enable to false with it so nothing binds /tmp/mc_rtc_pub.ipc.
+#
+# THE ONE LINE THAT SELECTS THE TERRAIN
+# `MainRobot` is spelled below in the three-argument module form rather than as
+# the `RollingContactRangerMiniV3` alias. It resolves to exactly the same robot
+# -- the alias is [RollingContact, <description path>, ranger_mini_v3]
+# (src/mc_robots/rolling_contact_aliases.in.yml:3) -- but mc_mujoco keys its
+# `ground` model lookup on the first element of `MainRobot`, so this form picks
+# up the `RollingContact:` section of ground.yaml and with it
+# src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml. Change it
+# back to the alias and the same configuration runs on flat ground. The
+# description path is repo relative, so run from the repository root.
+#
+# THE TERRAIN
+# Flat ground with four ramp lanes, each 2.4 m wide, running along +x:
+#   y =  -4.0  flat reference        y =  0.0  5 deg
+#   y =   4.0  10 deg                y =  8.0  15 deg
+#   y =  12.0  20 deg
+# Every lane has its toe at x = 0.6 m, its crest at x = 2.1 m, its plateau end
+# at x = 3.1 m and its toe-out at x = 4.6 m. The robot spawns at the origin,
+# i.e. 0.6 m short of the 5 deg toe; drive +y to reach the steeper lanes.
+#
+# WHAT TO EXPECT, AND WHY
+# The controller reads `terrainNormal` once from this file and nothing updates
+# it (mc_rolling_contact_controller.cpp:425-447 and :527 are all constructor
+# code), so it believes the world is the single flat plane declared below. That
+# is standing assumption A4 of the formulation (`as:one-plane` in
+# rolling-contact-qp.tex). It stops being true the moment a wheel reaches a toe,
+# and while the robot straddles one, the four wheels are on two different planes
+# and no constant could be right. Measured behaviour with the settings below and
+# a 0.3 m/s forward command: the 5 deg lane is climbed cleanly and fails at the
+# crest; 10 deg and above lose a wheel at the toe itself. This configuration is
+# for looking at that, not for demonstrating that it works.
+MainRobot: [RollingContact, "src/mc_robots/rolling_contact_description", ranger_mini_v3]
+Enabled: [RollingContact]
+Default: RollingContact
+Timestep: 0.005
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-ranger-ramps-mujoco
+ClearControllerModulePath: true
+ControllerModulePaths: [build/src/mc_control/samples/RollingContact]
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+ObserverPipelines:
+  - name: RollingContactPipeline
+    gui: true
+    observers:
+      - type: Encoder
+        update: true
+        position: encoderValues
+        velocity: encoderVelocities
+      - type: BodySensor
+        update: true
+        bodySensor: FloatingBase
+        method: sensor
+        updatePose: true
+        updateVel: true
+GUIServer:
+  Enable: true
+  # Keep the standard IPC endpoint used by mc_mujoco's built-in visualizer.
+  # ControllerServer probes and removes only stale socket files before retrying
+  # a bind, while leaving a live controller endpoint untouched.
+  IPC:
+    Socket: /tmp/mc_rtc
+  TCP:
+    Host: "127.0.0.1"
+    Ports: [4242, 4343]
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
+RollingContact:
+  # `keyboard` needs a real terminal on standard input; use `forward` (or any
+  # other scripted scenario) for a headless or piped run.
+  scenario: keyboard
+  closedLoopFeedback: true
+  keyboardLinearSpeed: 0.3
+  keyboardAngularSpeed: 0.5
+  keyboardPollIntervalMs: 10
+  keyboardExitKey: x
+  driveAcceleration: 20.0
+  rollingRateWeight: 4.0e7
+  steeringRateWeight: 4.0e7
+  lateralSlackWeight: 1.0e7
+  steeringPostureWeight: 1.0
+  positionFeedbackGain: 5.0
+  velocityGain: 20.0
+  postureStiffness: 5.0
+  postureWeight: 100.0
+  # `hard` matches the keyboard profile. `soft` is NOT a way to make the ramps
+  # easier: measured on flat ground at this speed, the soft rolling row at
+  # rollingWeight 1000 let a commanded 0.3 m/s come out as 1.31 m/s.
+  longitudinal: hard
+  # The single plane the whole formulation is built on. It cannot be right on
+  # more than one of the surfaces this terrain contains; see the header.
+  terrainNormal: [0.0, 0.0, 1.0]

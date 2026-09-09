@@ -1,0 +1,39 @@
+# mc_mujoco model mapping for the `ground` robot.
+#
+# Install it next to the other mappings, i.e. copy it to mc_mujoco's model
+# folder (in this workspace the installed binary uses
+# /home/yuquan/local/share/mc_mujoco for both its user and its share folder;
+# the CPU suite's isolated build uses
+# /tmp/rolling-contact-cpu-mujoco/mc_mujoco-user):
+#
+#   cp rolling-contact-report/mujoco/ground.yaml ~/local/share/mc_mujoco/
+#
+# WHY THIS FILE EXISTS
+# mc_control::MCController always loads `env/ground` as a second robot
+# (src/mc_control/MCController.cpp:96) and mc_mujoco resolves one MuJoCo model
+# per mc_rtc robot from `<module name>.yaml` (mj_sim.cpp:110-127). `ground.yaml`
+# is therefore the hook that decides what the world looks like, without editing
+# the robot description and without touching the controller.
+#
+# HOW THE SELECTION WORKS -- READ THIS BEFORE EDITING
+# mc_mujoco prefers a section keyed by the FIRST element of `MainRobot` over the
+# top-level `xmlModelPath` (mj_sim.cpp:233-248). `MainRobot` written as a plain
+# alias, e.g.
+#     MainRobot: RollingContactRangerMiniV3
+# yields the key "RollingContactRangerMiniV3", which is absent here, so those
+# configurations fall through to the top-level entry and keep the stock flat
+# ground -- the existing suite, the keyboard profile and every unrelated robot
+# are unaffected by installing this file. `MainRobot` written in the
+# three-argument module form,
+#     MainRobot: [RollingContact, "src/mc_robots/rolling_contact_description", ranger_mini_v3]
+# yields the key "RollingContact" and selects the ramp terrain. That is the only
+# difference between config/mc_rtc-ranger-mini-v3-keyboard.yaml and
+# config/mc_rtc-ranger-ramps-mujoco.yaml.
+#
+# The default below is an absolute path because it has to keep working for
+# runs started from any directory; the ramp entry is repo relative because it
+# only ever applies to this repository's own configurations, which the README
+# already requires to be launched from the repository root.
+xmlModelPath: /home/yuquan/local/share/mc_mujoco/env/ground.xml
+RollingContact:
+  xmlModelPath: src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml
