@@ -6,6 +6,17 @@ The controller reference alone is not sufficient: this check reconstructs the
 MuJoCo chassis yaw from the logged floating-base quaternion, verifies the sign
 of the measured motion, estimates its steady-state rate, and checks that the
 closed-loop yaw error settles before the keyboard stop.
+
+It also checks that RollingContact_keyboard_yaw_error is not suspiciously
+zero throughout the transient right after the key is pressed (see
+--min-transient-error below). That signal was silently dead in every recorded
+log until MCRollingContactController::updateWheelReferences() compared it
+against the wrong target (baseYawTarget_, which updateChassisReference()
+re-snaps to the same measurement every cycle, instead of the accumulator that
+actually tracks the operator's commanded heading) - it read exactly 0 for
+every prior run this script validated, and every check that only bounds it
+from above (like --settle-error below) passes vacuously on that constant zero
+regardless of whether the feedback does anything at all.
 """
 
 import argparse
@@ -60,6 +71,24 @@ def main():
     parser.add_argument("--rate-tolerance", type=float, default=0.1)
     parser.add_argument("--min-active-seconds", type=float, default=2.0)
     parser.add_argument("--settle-error", type=float, default=0.15)
+    parser.add_argument(
+        "--min-transient-error",
+        type=float,
+        default=0.01,
+        help=(
+            "Lower bound (rad) on the largest RollingContact_keyboard_yaw_error "
+            "seen during the 1s steering-alignment transient at the start of the "
+            "active interval. Catches the feedback being wired dead (it then "
+            "reads exactly 0 for every cycle) rather than merely well-tracked. "
+            "0.01 rad is a conservative floor: with the default 0.5 rad/s "
+            "keyboardAngularSpeed, even a chassis that tracked the commanded "
+            "rate perfectly from the first cycle would still show a discrete- "
+            "time lead of about dt * expected-rate per cycle before the wheels "
+            "physically catch up, and real steering-hinge slew adds well beyond "
+            "that; a dead signal instead reads exactly 0.0, four-plus orders of "
+            "magnitude below this floor."
+        ),
+    )
     parser.add_argument("--residual-limit", type=float, default=0.2)
     parser.add_argument("--output", type=pathlib.Path)
     args = parser.parse_args()
@@ -113,6 +142,14 @@ def main():
         abs(float(rows[index]["RollingContact_keyboard_yaw_error"]))
         for index in range(settled_start, last + 1)
     ]
+    # The 1s window right after the key goes down: settled_errors deliberately
+    # excludes it as a steering-alignment transient, which makes it the window
+    # where a live feedback term has the most room to differ from zero before
+    # convergence pulls it back down. settled_start == fit_start by construction.
+    transient_errors = [
+        abs(float(rows[index]["RollingContact_keyboard_yaw_error"]))
+        for index in range(first, settled_start)
+    ]
     max_residual = max(
         abs(float(row["RollingContact_max_longitudinal_residual"])) for row in rows
     )
@@ -136,6 +173,13 @@ def main():
         )
     if max(settled_errors) > args.settle_error:
         raise RuntimeError(f"settled yaw error exceeded {args.settle_error} rad")
+    if not transient_errors or max(transient_errors) < args.min_transient_error:
+        raise RuntimeError(
+            "keyboard yaw error stayed below "
+            f"{args.min_transient_error} rad through the entire {args.direction.upper()} "
+            "transient - the feedback term looks dead (comparing a target that is "
+            "re-snapped to the measurement every cycle), not merely well-tracked"
+        )
     if max_residual > args.residual_limit:
         raise RuntimeError(f"rolling residual exceeded {args.residual_limit} m/s")
     if rows[-1]["RollingContact_keyboard_running"] != "0":
@@ -153,6 +197,7 @@ def main():
         "expected_rate_rad_s": sign * args.expected_rate,
         "rate_error_rad_s": measured_rate - sign * args.expected_rate,
         "active_yaw_error_max_rad": max(settled_errors),
+        "transient_yaw_error_max_rad": max(transient_errors),
         "stop_yaw_error_max_rad": tail_error,
         "stop_position_error_max_m": tail_position_error,
         "max_longitudinal_residual_m_s": max_residual,

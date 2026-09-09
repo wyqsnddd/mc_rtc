@@ -896,6 +896,92 @@ BOOST_AUTO_TEST_CASE(KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading)
   BOOST_CHECK_SMALL(std::remainder(walkedYaw - worldYaw, 2.0 * 3.14159265358979323846), 1e-6);
 }
 
+BOOST_AUTO_TEST_CASE(KeyboardClosedLoopPureYawFeedbackTracksARealHeadingGap)
+{
+  // Bug: updateWheelReferences() computed keyboardYawError_ from
+  // baseYawTarget_ - measuredYaw, but baseYawTarget_ is re-snapped to that
+  // same measuredYaw every cycle in updateChassisReference() (see the long
+  // comment on its closed-loop keyboard branch, and
+  // KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading above), with
+  // nothing running the physics in between - so the two were bit-for-bit the
+  // same value and the "feedback" was silently always zero, however far the
+  // real heading lagged the operator's command. keyboardYawFeedbackGain_ did
+  // nothing and RollingContact_keyboard_yaw_error/_keyboard_yaw_correction
+  // logged constant zero.
+  //
+  // Reproduce the gap deterministically rather than relying on QP-simulated
+  // slew: pin the FloatingBase sensor at a fixed orientation (yaw = 0, never
+  // updated again - the same technique
+  // KeyboardClosedLoopYawTargetMirrorsTheMeasuredWorldHeading and
+  // driveObserverPipelineAndCheckRealRobotTracksSensor use) and command a
+  // constant yaw rate through the GUI's "Yaw velocity" entry - the same
+  // injection route the pinned heading test uses for "Forward velocity", for
+  // the same reason: resolveCommandedTwist()'s keyboard branch republishes
+  // the key state plus the GUI offsets every cycle, so a bare
+  // setCommandedTwist() call would be overwritten by the next poll. The
+  // measured heading now never moves while the commanded heading keeps
+  // integrating, opening a real, growing, exactly-predictable gap between
+  // them - exactly the scenario the dead comparison could never see.
+  ScopedPseudoTerminalStdin tty;
+  BOOST_REQUIRE_MESSAGE(tty.active(), "could not allocate a pseudo-terminal for the keyboard scenario");
+  auto controller = makeClosedLoopController("keyboard");
+
+  auto & sensor = controller->robot().data()->bodySensors[
+      controller->robot().data()->bodySensorsIndex.at("FloatingBase")];
+  sensor.orientation(Eigen::Quaterniond::Identity());
+  sensor.position(controller->robot().posW().translation());
+  controller->resetObserverPipelines();
+  BOOST_REQUIRE(stepClosedLoop(*controller));
+
+  // The measured heading this pinned sensor holds for the rest of the test:
+  // exactly 0, since posW().rotation() is Identity and terrainTangentX_/Y_
+  // default to world X/Y on flat ground.
+  const Eigen::Vector3d worldForward = controller->robot().posW().rotation().transpose().col(0);
+  BOOST_REQUIRE_SMALL(std::atan2(worldForward.y(), worldForward.x()), 1e-12);
+
+  // Before any yaw is commanded, keyboardPureYaw is false (yaw == 0), so
+  // updateWheelReferences() never enters the feedback block and
+  // updateReference()'s top-of-cycle reset leaves both signals at exactly 0.
+  const double targetBefore = controller->datastore().call<double>("RollingContact::GetKeyboardYawTarget");
+  BOOST_CHECK_SMALL(controller->datastore().call<double>("RollingContact::GetKeyboardYawError"), 1e-9);
+  BOOST_CHECK_SMALL(controller->datastore().call<double>("RollingContact::GetKeyboardYawCorrection"), 1e-9);
+
+  // Command a pure yaw through the GUI, exactly as the pinned heading test
+  // commands "Forward velocity".
+  constexpr double commandedYawRate = 0.5;
+  BOOST_REQUIRE(controller->gui()->handleRequest({"Rolling Contact", "Command"}, "Yaw velocity",
+                                                 mc_rtc::Configuration::fromData(std::to_string(commandedYawRate))));
+
+  constexpr int cycles = 200;
+  for(int cycle = 0; cycle < cycles; ++cycle) { BOOST_REQUIRE(stepClosedLoop(*controller)); }
+
+  const double targetAfter = controller->datastore().call<double>("RollingContact::GetKeyboardYawTarget");
+  const double yawError = controller->datastore().call<double>("RollingContact::GetKeyboardYawError");
+  const double yawCorrection = controller->datastore().call<double>("RollingContact::GetKeyboardYawCorrection");
+  BOOST_TEST_MESSAGE("[keyboard-yaw-feedback] targetBefore=" << targetBefore << " targetAfter=" << targetAfter
+                                                              << " yawError=" << yawError
+                                                              << " yawCorrection=" << yawCorrection);
+
+  // keyboardYawTarget_ is plain Euler integration of a constant commanded
+  // rate at a fixed dt, with no QP or physics in the loop - deterministic to
+  // the bit. 200 cycles at dt = 0.005 s is 1 s, so the target must have
+  // walked commandedYawRate * 1 s = 0.5 rad.
+  constexpr double dt = 0.005;
+  const double expectedDelta = commandedYawRate * dt * cycles;
+  BOOST_CHECK_CLOSE(targetAfter - targetBefore, expectedDelta, 1e-6);
+
+  // The primary check this test exists for: with the measured heading pinned
+  // at exactly 0 the whole time, the operator-commanded target has walked
+  // expectedDelta = 0.5 rad away from it - the feedback error must reflect
+  // that real gap, not the ~0 the dead comparison against baseYawTarget_
+  // always produced regardless of how large the gap actually was.
+  BOOST_CHECK_CLOSE(yawError, expectedDelta, 1e-6);
+  // And the correction is the gain applied to that error - not, e.g., the
+  // error passed through unscaled or silently dropped.
+  BOOST_REQUIRE_GT(std::abs(yawError), 1e-6);
+  BOOST_CHECK_CLOSE(yawCorrection / yawError, 0.5, 1e-6);
+}
+
 BOOST_AUTO_TEST_CASE(KeyboardForwardAfterACrabAndAYawTravelsAlongTheChassisHeading)
 {
   // The operator-visible contract of the translation keys: W means "drive

@@ -211,6 +211,25 @@ private:
   Eigen::Vector3d baseTrackingVelocity_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d baseReferenceAngularVelocity_ = Eigen::Vector3d::Zero();
   double baseYawTarget_ = 0.0;
+  /** Operator-commanded heading for the closed-loop keyboard's pure-yaw
+   * feedback, in measuredWorldYaw()'s +psi convention.
+   *
+   * baseYawTarget_ cannot serve this role in the closed-loop keyboard branch
+   * of updateChassisReference(): it is deliberately re-snapped to the
+   * measured heading every cycle there (the sensor is authoritative in
+   * closed loop, see the comment on that branch), so comparing it against
+   * measuredWorldYaw() in the same cycle - which is what
+   * updateWheelReferences() needs for its pure-yaw feedback - is always ~0.
+   * This member is the accumulator that instead integrates the commanded yaw
+   * rate every cycle the closed-loop keyboard branch runs, independent of
+   * updateWheelReferences()'s pure-yaw gate on whether the resulting
+   * correction gets applied, so it stays current through mixed commands
+   * instead of jumping when pure yaw resumes. Seeded from measuredWorldYaw()
+   * in reset(), same as baseYawTarget_; never used outside the closed-loop
+   * keyboard scenario, which is fixed for the controller's whole lifetime
+   * (see scenario_/closedLoopFeedback_).
+   */
+  double keyboardYawTarget_ = 0.0;
   double keyboardYawCorrection_ = 0.0;
   double keyboardYawError_ = 0.0;
   bool diagnosticsValid_ = false;

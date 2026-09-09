@@ -716,6 +716,9 @@ void MCRollingContactController::registerDatastoreCalls()
                      normalAccelerationResiduals_);
   datastore().make_call("RollingContact::GetBasePositionTarget", [this]() { return basePositionTarget_; });
   datastore().make_call("RollingContact::GetBaseYawTarget", [this]() { return baseYawTarget_; });
+  datastore().make_call("RollingContact::GetKeyboardYawTarget", [this]() { return keyboardYawTarget_; });
+  datastore().make_call("RollingContact::GetKeyboardYawError", [this]() { return keyboardYawError_; });
+  datastore().make_call("RollingContact::GetKeyboardYawCorrection", [this]() { return keyboardYawCorrection_; });
   datastore().make_call("RollingContact::GetKeyboardStatus", [this]()
                         { return keyboard_ ? keyboard_->status() : std::string{"disabled"}; });
   datastore().make_call("RollingContact::GetContactFallback", [this]() { return contactFallback_; });
@@ -1079,6 +1082,7 @@ void MCRollingContactController::reset(const ControllerResetData & data)
   // with a non-zero initial orientation.
   const double initialYaw = measuredWorldYaw();
   baseYawTarget_ = std::isfinite(initialYaw) ? initialYaw : 0.0;
+  keyboardYawTarget_ = baseYawTarget_;
   keyboardYawCorrection_ = 0.0;
   keyboardYawError_ = 0.0;
   diagnosticsValid_ = false;
@@ -1316,6 +1320,16 @@ void MCRollingContactController::updateChassisReference(const Eigen::Vector3d & 
         baseYawTarget_ += std::remainder(measuredYaw - baseYawTarget_, 2.0 * 3.14159265358979323846);
       }
       else { baseYawTarget_ += yaw * solver().dt(); }
+      // baseYawTarget_ above is re-snapped to the measured heading every
+      // cycle (see the comment above), so it cannot also stand in for "the
+      // heading the operator has asked for" - comparing it against the
+      // measurement it was just copied from is always ~0. Accumulate that
+      // separately, in measuredWorldYaw()'s +psi convention like yaw itself
+      // (see the doc comment on keyboardYawTarget_), so
+      // updateWheelReferences()'s pure-yaw feedback has a real target to
+      // measure against.
+      keyboardYawTarget_ =
+          std::remainder(keyboardYawTarget_ + yaw * solver().dt(), 2.0 * 3.14159265358979323846);
     }
     else
     {
@@ -1430,15 +1444,18 @@ void MCRollingContactController::updateWheelReferences(const Eigen::Vector3d & t
   if(scenario_ == "keyboard" && closedLoopFeedback_ && keyboard_->running() && keyboardYawFeedbackGain_ > 0.0
      && keyboardPureYaw)
   {
-    const Eigen::Vector3d measuredHeading = robot().posW().rotation().col(0);
-    const double measuredYaw = std::atan2(measuredHeading.dot(terrainTangentY_),
-                                          measuredHeading.dot(terrainTangentX_));
+    const double measuredYaw = measuredWorldYaw();
     if(std::isfinite(measuredYaw))
     {
-      // Use the wrapped difference: baseYawTarget_ is intentionally unwrapped
-      // for logging, while the shortest local correction remains continuous
+      // keyboardYawTarget_, not baseYawTarget_: baseYawTarget_ is re-snapped to
+      // this same measurement every cycle in updateChassisReference() (see the
+      // comment there), so comparing it here was always ~0 and left this
+      // feedback silently dead. keyboardYawTarget_ is the accumulator that
+      // actually holds the operator's commanded heading. Use the wrapped
+      // difference: the target is intentionally unwrapped for logging/
+      // continuity, while the shortest local correction remains continuous
       // through every +/-pi crossing.
-      const double yawError = std::remainder(baseYawTarget_ - measuredYaw, 2.0 * 3.14159265358979323846);
+      const double yawError = std::remainder(keyboardYawTarget_ - measuredYaw, 2.0 * 3.14159265358979323846);
       keyboardYawError_ = yawError;
       keyboardYawCorrection_ = keyboardYawFeedbackGain_ * yawError;
     }
