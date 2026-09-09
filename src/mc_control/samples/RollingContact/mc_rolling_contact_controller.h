@@ -197,9 +197,9 @@ private:
   std::vector<ExternalContactMeasurement> externalMeasurements_;
 
   // Scratch buffers owned by the controller so that run() allocates nothing.
-  // Each is sized once (constructor for the fixed-size ones, reset() for the
-  // model-sized ones) and only overwritten afterwards; none carries state
-  // across cycles.
+  // Each is sized once, in the constructor or by its in-class initialiser, and
+  // only overwritten afterwards; none carries state across cycles, so reset()
+  // deliberately leaves them alone.
   //
   // postureTargets_ holds one entry per drive joint, plus one per steering
   // joint on a four-steering chassis - exactly the key set updateReference()

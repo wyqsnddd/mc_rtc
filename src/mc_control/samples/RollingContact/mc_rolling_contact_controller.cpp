@@ -287,8 +287,11 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   // next cycle. It must stay well above the steering slope: the reference is a
   // projection onto the *measured* hinge heading, so a drive reference that
   // changes more slowly than the hinge swings keeps the wheels rolling in a
-  // stale direction. This bounds every scenario, hence the name; the
-  // keyboard-scoped spelling remains a deprecated alias.
+  // stale direction. This bounds every four-steering scenario, not just the
+  // keyboard one it was originally named for, hence the rename; the
+  // keyboard-scoped spelling remains a deprecated alias. It has no effect on a
+  // differential chassis, whose branch of updateReference() sets the drive
+  // targets straight from the commanded twist with no rate limiting.
   //
   // This was briefly widened to 100 rad/s^2, tuned only against the
   // kinematic ticker (no contact physics), where it halves the lateral slip
@@ -655,7 +658,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   keyboardRefVel_.setZero(robot().mb().nrDof());
   alphaDBuffer_.setZero(robot().mb().nrDof());
   // Install the posture-target keys once. run() only ever rewrites the single
-  // value behind each key, so the map never rehashes or reallocates.
+  // value behind each key, so no node and no value vector is ever reallocated.
   for(const auto & wheel : wheels_)
   {
     postureTargets_.emplace(wheel.driveJoint, std::vector<double>{0.0});
@@ -1223,9 +1226,10 @@ void MCRollingContactController::updateReference()
   {
     // The keyboard, the GUI and the scripted scenarios all reach the wheel
     // references through setCommandedTwist(). A scripted scenario republishes
-    // its twist every cycle; "hold" and "keyboard" publish none of their own,
-    // so whatever the operator (or a test harness) last commanded stays in
-    // effect.
+    // its twist here every cycle. "keyboard" is excluded because it already
+    // published its own twist above, from the key state plus the GUI offsets,
+    // and "hold" because it publishes none at all: for those two, whatever the
+    // operator (or a test harness) last commanded stays in effect.
     if(scenario_ != "hold" && scenario_ != "keyboard") { setCommandedTwist({forward, lateral, yaw}); }
     forward = commandedTwist_.x();
     lateral = commandedTwist_.y();
@@ -1395,11 +1399,12 @@ void MCRollingContactController::updateReference()
       keyboardYawCorrection_ = keyboardYawFeedbackGain_ * yawError;
     }
   }
-  // The wheel targets above provide the position trajectory used by the
-  // generic posture task. For interactive operation also provide the desired
-  // wheel velocity as feed-forward: this keeps the simulator tracking the
-  // command immediately instead of waiting for a growing position error to
-  // generate acceleration through the posture gain.
+  // The two branches below integrate the wheel targets that the generic
+  // posture task follows as a position trajectory. For interactive operation
+  // they additionally publish the desired wheel velocity as feed-forward: this
+  // keeps the simulator tracking the command immediately instead of waiting
+  // for a growing position error to generate acceleration through the posture
+  // gain.
   const bool keyboardFeedForward = scenario_ == "keyboard" && solver().backend() == Backend::Tasks;
   if(keyboardFeedForward) { keyboardRefVel_.setZero(); }
   if(!fourSteering_)
@@ -1633,9 +1638,10 @@ void MCRollingContactController::updateModes()
     // (e.g. crab to ackermann in one step) produces exactly the same
     // short-lived slip a keyboard operator triggers, so the recovery
     // allowance is keyed on the hinge still slewing rather than on
-    // scenario_ == "keyboard". steeringRateReferences_[i] is only non-zero on
-    // the four-steering wheel loop below, and lags by one cycle here because
-    // updateModes() runs before this cycle's updateReference().
+    // scenario_ == "keyboard". steeringRateReferences_[i] is only written by
+    // the four-steering wheel loop of updateReference(), and the value read
+    // here is one cycle old because run() calls updateModes() before
+    // updateReference().
     const bool hingeSlewing = fourSteering_ && std::abs(steeringRateReferences_[i]) > 1e-6;
     const bool keyboardContactRecovery = (keyboardCaptureActive || hingeSlewing)
                                          && (state.estimated == mc_rbdyn::RollingContactMode::Detached
