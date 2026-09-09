@@ -163,56 +163,38 @@ private:
   Eigen::Matrix3d matrix_;
 };
 
-std::vector<std::vector<double>> torqueLower(const mc_rbdyn::Robot & robot, bool infinite)
+/** One joint bound table, relaxed to @p sign * infinity when @p infinite.
+ *
+ * The four tables Tasks wants (tl, tu, tdl, tdu) have the same shape and take
+ * the same treatment under infTorque; only which infinity they are filled with
+ * differs, hence the sign.
+ */
+std::vector<std::vector<double>> boundTable(const std::vector<std::vector<double>> & source,
+                                            bool infinite,
+                                            double sign)
 {
-  auto out = robot.tl();
+  auto out = source;
   if(infinite)
   {
     for(auto & joint : out)
     {
-      for(auto & value : joint) { value = -std::numeric_limits<double>::infinity(); }
+      for(auto & value : joint) { value = sign * std::numeric_limits<double>::infinity(); }
     }
   }
   return out;
 }
 
-std::vector<std::vector<double>> torqueUpper(const mc_rbdyn::Robot & robot, bool infinite)
+/** Normal component of a wheel's two endpoint forces. */
+double normalComponent(const std::array<Eigen::Vector3d, 2> & forces, const Eigen::Vector3d & normal)
 {
-  auto out = robot.tu();
-  if(infinite)
-  {
-    for(auto & joint : out)
-    {
-      for(auto & value : joint) { value = std::numeric_limits<double>::infinity(); }
-    }
-  }
-  return out;
+  return normal.dot(forces[0] + forces[1]);
 }
 
-std::vector<std::vector<double>> torqueRateLower(const mc_rbdyn::Robot & robot, bool infinite)
+/** Magnitude of the tangential part of a wheel's two endpoint forces. */
+double tangentialComponent(const std::array<Eigen::Vector3d, 2> & forces, const Eigen::Vector3d & normal)
 {
-  auto out = robot.tdl();
-  if(infinite)
-  {
-    for(auto & joint : out)
-    {
-      for(auto & value : joint) { value = -std::numeric_limits<double>::infinity(); }
-    }
-  }
-  return out;
-}
-
-std::vector<std::vector<double>> torqueRateUpper(const mc_rbdyn::Robot & robot, bool infinite)
-{
-  auto out = robot.tdu();
-  if(infinite)
-  {
-    for(auto & joint : out)
-    {
-      for(auto & value : joint) { value = std::numeric_limits<double>::infinity(); }
-    }
-  }
-  return out;
+  const Eigen::Vector3d total = forces[0] + forces[1];
+  return (total - normal.dot(total) * normal).norm();
 }
 
 } // namespace
@@ -608,8 +590,9 @@ RollingContactDynamicsConstraint::RollingContactDynamicsConstraint(
   if(backend_ == QPSolver::Backend::Tasks)
   {
     const auto & robot = robots.robot(robotIndex);
-    tasks::TorqueBound torque(torqueLower(robot, infTorque), torqueUpper(robot, infTorque));
-    tasks::TorqueDBound torqueRate(torqueRateLower(robot, infTorque), torqueRateUpper(robot, infTorque));
+    tasks::TorqueBound torque(boundTable(robot.tl(), infTorque, -1.0), boundTable(robot.tu(), infTorque, 1.0));
+    tasks::TorqueDBound torqueRate(boundTable(robot.tdl(), infTorque, -1.0),
+                                   boundTable(robot.tdu(), infTorque, 1.0));
     auto motion = std::make_unique<Impl::RollingMotionConstr>(*impl_, robots.mbs(), static_cast<int>(robotIndex),
                                                               torque, torqueRate, timeStep);
     motion_constr_ = mc_rtc::make_void_ptr(std::move(motion));
@@ -886,66 +869,73 @@ const Eigen::Matrix<double, 3, Eigen::Dynamic> & RollingContactDynamicsConstrain
   return impl_->wheel(wheel).generators[endpoint];
 }
 
+// The six accessors below come in Tasks/TVM pairs that differ only in which
+// endpointForces() overload supplies the two endpoint forces; everything after
+// that is the same arithmetic on the same geometry.
+
 double RollingContactDynamicsConstraint::normalForce(const std::string & wheel,
                                                      const Eigen::Ref<const Eigen::VectorXd> & lambda) const
 {
-  const auto forces = endpointForces(wheel, lambda);
-  const auto & normal = impl_->wheel(wheel).result.normalDirection;
-  return normal.dot(forces[0] + forces[1]);
+  return normalComponent(endpointForces(wheel, lambda), impl_->wheel(wheel).result.normalDirection);
 }
 
 double RollingContactDynamicsConstraint::tangentialForce(const std::string & wheel,
                                                          const Eigen::Ref<const Eigen::VectorXd> & lambda) const
 {
-  const auto forces = endpointForces(wheel, lambda);
-  const Eigen::Vector3d total = forces[0] + forces[1];
-  const auto & normal = impl_->wheel(wheel).result.normalDirection;
-  return (total - normal.dot(total) * normal).norm();
+  return tangentialComponent(endpointForces(wheel, lambda), impl_->wheel(wheel).result.normalDirection);
 }
 
 double RollingContactDynamicsConstraint::frictionMargin(const std::string & wheel,
                                                         const Eigen::Ref<const Eigen::VectorXd> & lambda) const
 {
-  return impl_->wheel(wheel).description.friction * normalForce(wheel, lambda) - tangentialForce(wheel, lambda);
+  const auto & data = impl_->wheel(wheel);
+  const auto forces = endpointForces(wheel, lambda);
+  return data.description.friction * normalComponent(forces, data.result.normalDirection)
+         - tangentialComponent(forces, data.result.normalDirection);
 }
 
 double RollingContactDynamicsConstraint::normalForce(const std::string & wheel) const
 {
-  const auto forces = endpointForces(wheel);
-  const auto & normal = impl_->wheel(wheel).result.normalDirection;
-  return normal.dot(forces[0] + forces[1]);
+  return normalComponent(endpointForces(wheel), impl_->wheel(wheel).result.normalDirection);
 }
 
 double RollingContactDynamicsConstraint::tangentialForce(const std::string & wheel) const
 {
-  const auto forces = endpointForces(wheel);
-  const Eigen::Vector3d total = forces[0] + forces[1];
-  const auto & normal = impl_->wheel(wheel).result.normalDirection;
-  return (total - normal.dot(total) * normal).norm();
+  return tangentialComponent(endpointForces(wheel), impl_->wheel(wheel).result.normalDirection);
 }
 
 double RollingContactDynamicsConstraint::frictionMargin(const std::string & wheel) const
 {
-  return impl_->wheel(wheel).description.friction * normalForce(wheel) - tangentialForce(wheel);
+  const auto & data = impl_->wheel(wheel);
+  const auto forces = endpointForces(wheel);
+  return data.description.friction * normalComponent(forces, data.result.normalDirection)
+         - tangentialComponent(forces, data.result.normalDirection);
 }
+
+namespace
+{
+
+/** Sum of the two endpoint wrenches, reduced to the carrier centre. */
+Eigen::Matrix<double, 6, 1> carrierWrench(const mc_rbdyn::RollingContactGeometryResult & result,
+                                          const std::array<Eigen::Vector3d, 2> & forces)
+{
+  return mc_rbdyn::contactWrenchAtCarrier(result.carrierCenter, result.lineStart, forces[0])
+         + mc_rbdyn::contactWrenchAtCarrier(result.carrierCenter, result.lineEnd, forces[1]);
+}
+
+} // namespace
 
 Eigen::Matrix<double, 6, 1> RollingContactDynamicsConstraint::resultantWrenchAtCarrier(
     const std::string & wheel,
     const Eigen::Ref<const Eigen::VectorXd> & lambda) const
 {
-  const auto & data = impl_->wheel(wheel);
-  const auto forces = endpointForces(wheel, lambda);
-  return mc_rbdyn::contactWrenchAtCarrier(data.result.carrierCenter, data.result.lineStart, forces[0])
-         + mc_rbdyn::contactWrenchAtCarrier(data.result.carrierCenter, data.result.lineEnd, forces[1]);
+  return carrierWrench(impl_->wheel(wheel).result, endpointForces(wheel, lambda));
 }
 
 Eigen::Matrix<double, 6, 1> RollingContactDynamicsConstraint::resultantWrenchAtCarrier(
     const std::string & wheel) const
 {
-  const auto & data = impl_->wheel(wheel);
-  const auto forces = endpointForces(wheel);
-  return mc_rbdyn::contactWrenchAtCarrier(data.result.carrierCenter, data.result.lineStart, forces[0])
-         + mc_rbdyn::contactWrenchAtCarrier(data.result.carrierCenter, data.result.lineEnd, forces[1]);
+  return carrierWrench(impl_->wheel(wheel).result, endpointForces(wheel));
 }
 
 const mc_rbdyn::RollingContactGeometryResult & RollingContactDynamicsConstraint::geometryResult(
