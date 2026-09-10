@@ -59,6 +59,59 @@
     <visual>
       <headlight diffuse="0.6 0.6 0.6"  ambient="0.3 0.3 0.3" specular="0 0 0"/>
       <rgba haze="0.15 0.25 0.35 1"/>
+      <!--
+        mc_mujoco merges each <visual> child individually (never <statistic>,
+        which the merger drops silently), so this is the one place that can
+        fix contact-point/contact-force marker sizing for the ramps scene
+        without touching the robot model.
+
+        `scale.*` renders relative to mjModel.stat.meansize (the header's
+        "relative to mean body size", NOT stat.extent, despite the name
+        `scale/contactwidth` suggesting otherwise); `map/force` is a
+        newton-to-metre length factor divided by stat.meanmass, independent
+        of meansize/extent. Confirmed empirically both on an isolated probe
+        body and, since that first pass missed the meanmass division (the
+        probe's mass was 1 kg, masking it), by directly reading back
+        mjv_updateScene's mjvGeom sizes for this merged ramps scene's own
+        settled wheel contacts:
+          contact-point radius      = scale.contactwidth  * stat.meansize
+          contact-point half-height = scale.contactheight * stat.meansize
+          force-arrow shaft radius  = scale.forcewidth    * stat.meansize
+          force-arrow length        = normal_force[N] * map.force / stat.meanmass
+
+        This merged scene's stat.meansize is ~1.54 and stat.meanmass is 7.5
+        (the ramp terrain is far bigger than the vehicle), so the MuJoCo
+        defaults (contactwidth=0.3, contactheight=forcewidth=0.1,
+        map/force=0.005) render a 0.46 m-radius, 0.31 m-tall contact disc on
+        a vehicle whose wheels are 0.125 m in radius and 0.08 m wide: the
+        disc alone is bigger than the 0.68 m chassis. The force arrow itself
+        is comparatively short at this scale (measured ~0.11-0.14 m at the
+        ~157-210 N per-wheel settled load), but that is *shorter* than the
+        disc's own 0.15 m half-height, so the arrow's entire length, base to
+        tip, fits inside the disc's volume -- which is why forces looked
+        altogether invisible rather than merely oversized.
+
+        Values below are sized against the robot instead: at this
+        meansize, contactwidth=0.012/contactheight=0.004 give a ~1.8 cm
+        radius / ~0.6 cm half-height contact marker (legible against the
+        0.08 m wheel width without covering it); forcewidth=0.004 gives a
+        ~0.6 cm shaft (thinner than the point marker, so the arrow reads as
+        distinct from it); map/force=0.0025 gives a ~6 cm arrow at the
+        ~184 N/wheel steady-state load -- comfortably longer than the point
+        marker so it is no longer swallowed by it, and still well under the
+        0.25 m wheel diameter and 0.68 m chassis length even at several
+        times that load. Because the arrow points from the ground contact
+        straight up into the wheel, and any length under the 0.25 m wheel
+        diameter stays inside the wheel's own circular cross-section, it
+        remains partly self-occluded by the (opaque) wheel from most
+        outside viewpoints regardless of map/force -- confirmed with a
+        transparency-forced diagnostic render showing the arrow present and
+        correctly placed. That occlusion is inherent to visualising a
+        near-vertical contact force at a wheeled contact, not a defect this
+        file can fix by choosing a different map/force.
+      -->
+      <scale contactwidth="0.012" contactheight="0.004" forcewidth="0.004"/>
+      <map force="0.0025"/>
     </visual>
 
     <asset>
