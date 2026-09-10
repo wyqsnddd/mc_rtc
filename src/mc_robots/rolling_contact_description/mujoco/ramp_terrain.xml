@@ -79,39 +79,49 @@
           force-arrow shaft radius  = scale.forcewidth    * stat.meansize
           force-arrow length        = normal_force[N] * map.force / stat.meanmass
 
-        This merged scene's stat.meansize is ~1.54 and stat.meanmass is 7.5
-        (the ramp terrain is far bigger than the vehicle), so the MuJoCo
-        defaults (contactwidth=0.3, contactheight=forcewidth=0.1,
-        map/force=0.005) render a 0.46 m-radius, 0.31 m-tall contact disc on
-        a vehicle whose wheels are 0.125 m in radius and 0.08 m wide: the
-        disc alone is bigger than the 0.68 m chassis. The force arrow itself
-        is comparatively short at this scale (measured ~0.11-0.14 m at the
-        ~157-210 N per-wheel settled load), but that is *shorter* than the
-        disc's own 0.15 m half-height, so the arrow's entire length, base to
-        tip, fits inside the disc's volume -- which is why forces looked
-        altogether invisible rather than merely oversized.
+        THE TWO FIELDS SCALE OFF DIFFERENT STATISTICS -- THIS IS THE TRAP
+        Only `scale.*` follows the terrain. This merged scene's stat.meansize
+        is 1.5386 against the flat scene's 0.1307 (11.8x, because the ramp
+        terrain dwarfs the vehicle), so MuJoCo's default contactwidth=0.3 does
+        render a 0.46 m-radius disc on a vehicle whose wheels are 0.125 m in
+        radius and 0.08 m wide, and those three fields genuinely have to come
+        down. stat.meanmass does NOT follow the terrain: it is 7.5 in *both*
+        scenes (75 kg over ten bodies; the terrain body is massless), so
+        `map/force` needs no terrain correction at all. Scaling it down with
+        the others -- 0.005 -> 0.0025 -- simply halved the arrows relative to
+        stock flat ground, which is what made contact forces invisible here.
+        |g| does not enter the length: re-running mjv_updateScene on an
+        unchanged mjData with m->opt.gravity halved leaves the arrow
+        bit-identical, while doubling stat.meanmass exactly halves it.
 
-        Values below are sized against the robot instead: at this
-        meansize, contactwidth=0.012/contactheight=0.004 give a ~1.8 cm
-        radius / ~0.6 cm half-height contact marker (legible against the
-        0.08 m wheel width without covering it); forcewidth=0.004 gives a
-        ~0.6 cm shaft (thinner than the point marker, so the arrow reads as
-        distinct from it); map/force=0.0025 gives a ~6 cm arrow at the
-        ~184 N/wheel steady-state load -- comfortably longer than the point
-        marker so it is no longer swallowed by it, and still well under the
-        0.25 m wheel diameter and 0.68 m chassis length even at several
-        times that load. Because the arrow points from the ground contact
-        straight up into the wheel, and any length under the 0.25 m wheel
-        diameter stays inside the wheel's own circular cross-section, it
-        remains partly self-occluded by the (opaque) wheel from most
-        outside viewpoints regardless of map/force -- confirmed with a
-        transparency-forced diagnostic render showing the arrow present and
-        correctly placed. That occlusion is inherent to visualising a
-        near-vertical contact force at a wheeled contact, not a defect this
-        file can fix by choosing a different map/force.
+        WHAT THE LOAD PER ARROW ACTUALLY IS
+        One arrow is drawn per *contact*, and MuJoCo's cylinder-plane collider
+        emits TWO contacts per wheel, at the two ends of the contact line, so
+        each arrow carries half a wheel's load, not a whole one. Settled on
+        the flat part of this terrain: ncon = 8, 91.97 N each, summing to
+        735.75 N = the 75 kg vehicle's weight. Sizing map/force for "184 N per
+        wheel" therefore overestimated the arrow by 2x on top of the halving
+        above: the value 0.0025 drew 3.07 cm, which at mc_mujoco's start-up
+        view is ~2 px and stays under 6 px even zoomed in to 6 m.
+
+        Values below are sized against the robot: at this meansize,
+        contactwidth=0.012/contactheight=0.004 give a ~1.8 cm radius / ~0.6 cm
+        half-height contact marker (legible against the 0.08 m wheel width
+        without covering it); forcewidth=0.006 gives a ~0.92 cm shaft (thinner
+        than the point marker so the arrow reads as distinct from it, and
+        thicker than the ~0.6 cm it was, which matters because the contact
+        sits exactly on the wheel's rim plane so only the outer half of the
+        shaft is ever unoccluded); map/force=0.01 makes the arrow at the
+        91.97 N settled per-contact load 0.1226 m, i.e. one wheel radius --
+        long enough to clear the point marker and the tyre from any viewpoint,
+        and still under the 0.68 m chassis length at four times that load.
+        Because the arrow points from the ground contact straight up along the
+        wheel's rim plane, it stays partly self-occluded by the (opaque) wheel
+        from most outside viewpoints; at one wheel radius enough of it clears
+        the tyre for that to no longer matter.
       -->
-      <scale contactwidth="0.012" contactheight="0.004" forcewidth="0.004"/>
-      <map force="0.0025"/>
+      <scale contactwidth="0.012" contactheight="0.004" forcewidth="0.006"/>
+      <map force="0.01"/>
     </visual>
 
     <asset>
