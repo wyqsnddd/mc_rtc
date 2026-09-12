@@ -21,3 +21,5 @@ rolling-contact-report/*.log
 rolling-contact-report/*.out
 rolling-contact-report/*.pdf
 rolling-contact-report/*.toc
+# mc_mujoco drops this in whatever directory it is launched from
+MUJOCO_LOG.TXT

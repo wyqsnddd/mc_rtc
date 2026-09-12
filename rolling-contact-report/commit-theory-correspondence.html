@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Rolling contacts — commit ↔ theory correspondence</title>
+<style>
+  :root { --fg:#1b1f23; --muted:#57606a; --line:#d8dee4; --bg:#fff; --code:#f6f8fa;
+          --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; --acc:#0969da; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+         color:var(--fg); background:var(--bg); }
+  .wrap { max-width:1180px; margin:0 auto; padding:32px 24px 96px; }
+  h1 { font-size:26px; margin:0 0 6px; }
+  h2 { font-size:20px; margin:44px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  h3 { font-size:16px; margin:28px 0 8px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  code,kbd { background:var(--code); padding:1px 5px; border-radius:4px;
+             font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre { background:var(--code); padding:12px 14px; border-radius:6px; overflow:auto;
+        font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  table { border-collapse:collapse; width:100%; margin:12px 0 8px; font-size:14px; }
+  th,td { border:1px solid var(--line); padding:7px 9px; text-align:left; vertical-align:top; }
+  th { background:var(--code); font-weight:600; }
+  td.sha { white-space:nowrap; font-family:ui-monospace,monospace; font-size:12.5px; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11.5px;
+         font-weight:600; white-space:nowrap; }
+  .t-ok { background:#dafbe1; color:var(--ok); }
+  .t-no { background:#ffebe9; color:var(--bad); }
+  .t-part { background:#fff8c5; color:var(--warn); }
+  .t-inf { background:#ddf4ff; color:var(--acc); }
+  .risk { border:1px solid var(--line); border-left:4px solid var(--warn); border-radius:5px;
+          padding:12px 16px; margin:14px 0; background:#fffdf7; }
+  .risk.high { border-left-color:var(--bad); background:#fff8f7; }
+  .risk.info { border-left-color:var(--acc); background:#f7fbff; }
+  .risk h4 { margin:0 0 6px; font-size:15px; }
+  .risk .why { color:var(--muted); font-size:13.5px; margin-top:6px; }
+  nav { background:var(--code); border:1px solid var(--line); border-radius:6px; padding:14px 18px; }
+  nav ol { margin:6px 0 0; padding-left:22px; } nav li { margin:2px 0; }
+  .note { color:var(--muted); font-size:13.5px; }
+  .kv { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Rolling contacts — commit ↔ theory correspondence</h1>
+<p class="sub">
+  55 commits on <code>feat/four-steering-wheel-qp</code>, from <code>e21ed9a997</code> (exclusive) to <code>9e0e40f3f9</code>.<br/>
+  Theory: <a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/rolling-contact-report/rolling-contact-qp.tex">rolling-contact-qp.tex</a>
+  (the corrected document, promoted in <code>9023877aef</code>/<code>0eb6aed3db</code>; the superseded one is
+  <a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/rolling-contact-report/rolling-contact-qp-prev.tex">rolling-contact-qp-prev.tex</a>).
+  Test spec: <a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/rolling-contact-report/rolling-contact-qp-tests.tex">rolling-contact-qp-tests.tex</a>.
+</p>
+
+<nav>
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#headline">The one-paragraph version</a></li>
+    <li><a href="#corr">Theory element → commits → code</a></li>
+    <li><a href="#nocarry">Corrections that deliberately did <em>not</em> carry over</a></li>
+    <li><a href="#index">Commit index (all 55)</a></li>
+    <li><a href="#risks">Risks and fishy issues</a></li>
+    <li><a href="#limits">Known unfixed limitations</a></li>
+    <li><a href="#howto">How to navigate back to the code</a></li>
+  </ol>
+</nav>
+
+<h2 id="headline">1. The one-paragraph version</h2>
+<p>
+  The revised <code>\eqref{eq:four-steering-wheel-qp}</code> makes five changes to the four-steering QP.
+  <strong>One of them was real for this codebase</strong> — softening the four lateral rows with per-wheel slacks —
+  and it is the change that actually fixed the robot. <strong>Three were measured not to transfer</strong> from the
+  planar reduction to mc_rtc's whole-body QP, and implementing two of them literally would have broken working code.
+  The remaining one (a matrix twist weight) mapped onto machinery mc_rtc already had.
+  The single most consequential line of evidence: with hard lateral rows and non-ICR-coordinated steering, the QP
+  produces <em>identically zero</em> planar acceleration even at 10× demand — a rank fact, not a tuning artefact.
+</p>
+
+<h2 id="corr">2. Theory element → commits → code</h2>
+<p class="note">
+  Line numbers in <code>rolling-contact-qp.tex</code> are for the promoted document as committed.
+  <span class="tag t-ok">implemented</span>
+  <span class="tag t-part">adapted</span>
+  <span class="tag t-no">not carried over</span>
+  <span class="tag t-inf">infrastructure</span>
+</p>
+
+<h3>2.1 The second rotating velocity — steering DoF becomes addressable</h3>
+<table>
+<tr><th>Theory</th><th>Commits</th><th>Code</th><th></th></tr>
+<tr>
+  <td><code>eq:steering-wheel-angular-velocity</code> (tex:732)<br/>
+      <span class="kv">ω<sub>w/c</sub> = δ̇·n<sub>Π</sub> + θ̇·l<sub>i</sub></span></td>
+  <td class="sha">868009e5b9<br/>949a7acac6</td>
+  <td><a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/include/mc_rbdyn/RollingContact.h">include/mc_rbdyn/RollingContact.h</a><br/>
+      <a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_rbdyn/RollingContact.cpp">src/mc_rbdyn/RollingContact.cpp</a></td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+</table>
+<p class="note">
+  Added <code>RollingContactKinematics::steeringSelector</code>, <code>hasSteering()</code>,
+  <code>measuredRollingRate</code>, <code>measuredSteeringRate</code>. Before this, <code>Impl</code> validated the
+  steering joint and <em>discarded its index</em> — the DoF was not addressable at all.
+</p>
+<p class="note">
+  <strong>Deliberately not implemented:</strong> the rotational-coupling block <code>G<sup>rot</sup></code> of
+  <code>eq:geometric-wheel-homogeneous-task</code> (tex:788). Because the wheel and steering rates already <em>are</em>
+  generalized coordinates here, that block is a kinematic identity; the document says
+  “Do not add a second copy of an identity row to the same QP.”
+</p>
+
+<h3>2.2 Predicted rotating rates — the core QP change</h3>
+<table>
+<tr><th>Theory</th><th>Commits</th><th>Code</th><th></th></tr>
+<tr>
+  <td><code>eq:four-steering-rate-prediction</code> (tex:765)<br/>
+      <code>eq:four-steering-decision-vector</code> (tex:1322) — the ν<sub>rot</sub><sup>4s,+</sup> ∈ ℝ⁸ block<br/>
+      rate-tracking terms of <code>eq:four-steering-wheel-qp</code> (tex:1376)</td>
+  <td class="sha">0507998605<br/>4cb817d875<br/>4c4317e0aa<br/>4dffc82a2a<br/>e990588c4d</td>
+  <td><a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/include/mc_solver/RollingContactConstraint.h">include/mc_solver/RollingContactConstraint.h</a><br/>
+      <a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_solver/RollingContactConstraint.cpp">src/mc_solver/RollingContactConstraint.cpp</a></td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+</table>
+<p class="note">
+  Since <code>θ̇⁺ = θ̇ + dt·(S·α̇)</code> is affine in <code>alphaD</code>, the whole ℝ⁸ block plus its prediction
+  equality and objective terms collapse into <strong>two soft rows per steering wheel</strong> — no new decision
+  variables, no non-convexity. Row axes 4 (<code>rolling-rate</code>) and 5 (<code>steering-rate</code>).
+</p>
+<p class="note">
+  <strong>Evidence this was the fix:</strong> for a +0.6 rad/s steering-rate reference, the steering acceleration was
+  <em>identically zero</em> before and is <code>0.597</code> (Tasks) / <code>1.481</code> (TVM) after — both matching
+  their closed forms to ~1 ulp.
+</p>
+<p class="note">
+  <strong>Rate bounds</strong> (<code>θ̇<sub>min</sub> ≤ θ̇⁺ ≤ θ̇<sub>max</sub></code>) were <em>not</em> added:
+  <code>RollingContactDynamicsConstraint : DynamicsConstraint : KinematicsConstraint</code> already applies
+  <code>robot.vl()/vu()</code> (URDF gives steer 8 rad/s, drive 30 rad/s).
+</p>
+
+<h3>2.3 Softened lateral rows — the change that fixed the robot</h3>
+<table>
+<tr><th>Theory</th><th>Commits</th><th>Code</th><th></th></tr>
+<tr>
+  <td><code>re:four-steering-lateral-slack</code> (tex:1503)<br/>
+      lateral rows of <code>eq:four-steering-wheel-qp</code><br/>
+      <code>eq:soft-rolling-equality</code> (tex:353)</td>
+  <td class="sha">e0178cda92</td>
+  <td><a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_solver/RollingContactConstraint.cpp">src/mc_solver/RollingContactConstraint.cpp</a>
+      — <code>softLateralRows</code>, <code>lateralSlackWeight</code>, <code>lateralSlack()</code></td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+</table>
+<p class="note">
+  Four lateral rows act on three planar chassis DoF. Measured on <code>rolling_4s</code>:
+  ICR-coordinated → <code>rank(A)=2</code>, singular values <code>[1.977, 0.952, 3.7e-17]</code>;
+  non-coordinated → <code>rank(A)=3</code>, <code>[1.950, 0.873, 0.440]</code> (not marginal).
+  With <strong>hard</strong> rows and non-coordinated angles the planar acceleration is
+  <strong>exactly zero, and still exactly zero at 10× demand</strong>. With incompatible measured steering rates the
+  hard QP fails outright while the soft one solves with <code>‖σ‖ = 0.0836</code>.
+</p>
+<p class="note">
+  This <strong>retired <code>steeringPlanar</code>/<code>steeringPlanarWheels</code></strong>, the 2-of-4 row-selection
+  workaround — whose <code>{front_left, rear_left}</code> default was also not mirror-symmetric. A config still setting
+  them is now rejected with an explanatory message rather than silently ignored.
+</p>
+<p class="note">
+  <code>lateralSlackWeight = 1e7</code> is bounded on <em>both</em> sides: below <code>5e6</code> the ticker skid
+  exceeds 0.15 m/s; at <code>1e9</code> the MuJoCo pure-yaw error exceeds 0.15 rad. Tuning against the ticker alone
+  would have chosen <code>1e9</code> and shipped a MuJoCo failure.
+</p>
+
+<h3>2.4 Reference generation — inverting the expanded constraints</h3>
+<table>
+<tr><th>Theory</th><th>Commits</th><th>Code</th><th></th></tr>
+<tr>
+  <td><code>eq:steering-expanded-constraints</code> (tex:1930)<br/>
+      <code>eq:steering-directions</code> (tex:1911)</td>
+  <td class="sha">5cd8cfa198</td>
+  <td><a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_rbdyn/RollingContact.cpp">src/mc_rbdyn/RollingContact.cpp</a>
+      — <code>mc_rbdyn::steeringWheelReference()</code></td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+<tr>
+  <td>controller consuming those references<br/>(the ref terms of the QP objective)</td>
+  <td class="sha">cf077eafb6<br/>0070515749<br/>be199de66a<br/>ba9ebaca75<br/>35c7ca1bba</td>
+  <td><a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_control/samples/RollingContact/mc_rolling_contact_controller.cpp">mc_rolling_contact_controller.cpp</a></td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+</table>
+<p class="note">
+  <code>cf077eafb6</code> is the controller rewrite: <strong>−416/+147</strong>, deleting the 256-line open-loop
+  steering layer and with it the yaw sign mirror, <code>keyboardYawScale = 1.7</code>,
+  <code>keyboardMixedDriveScale = 1.15</code>, the ±π/2 branch-cut hysteresis, the “don't spin while steering” gate and
+  the command-transition grace period — all symptoms of steering not being in the QP.
+</p>
+
+<h3>2.5 Objective weighting</h3>
+<table>
+<tr><th>Theory</th><th>Commits</th><th>Code</th><th></th></tr>
+<tr>
+  <td><code>eq:planar-twist-weight</code> (tex:1135)<br/>
+      <span class="kv">W<sub>ξ</sub> = diag(w<sub>vx</sub>, w<sub>vy</sub>, w<sub>ω</sub>)</span></td>
+  <td class="sha">0eba3e6b2b</td>
+  <td>controller <code>twistWeight</code> → <code>dimWeight()</code> on the chassis tasks</td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+<tr>
+  <td><code>eq:planar-force-regularization</code> (tex:1115)<br/>
+      <span class="kv">ε<sub>λ</sub>‖λ‖² Tikhonov term</span></td>
+  <td class="sha">33c7bdc137<br/>1f136644ad</td>
+  <td><a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_solver/RollingContactDynamicsConstraint.cpp">RollingContactDynamicsConstraint.cpp</a>
+      — <code>generatorRegularization</code></td>
+  <td><span class="tag t-part">adapted — default 0</span></td>
+</tr>
+</table>
+<p class="note">
+  <strong>The <code>dt²</code> trap.</strong> A rate row's coefficients carry <code>dt</code>, so its weight enters the
+  objective multiplied by <code>dt²</code>. An authority equivalent to an acceleration-task weight of 1000 at
+  <code>dt = 0.005</code> is <code>4e7</code>, <em>not</em> 1000. At the naive 200 the rate rows contribute
+  <code>5e-3</code> against a posture task at 100 and the QP behaves as if they were absent.
+</p>
+
+<h3>2.6 State observation and modes</h3>
+<table>
+<tr><th>Theory</th><th>Commits</th><th>Code</th><th></th></tr>
+<tr>
+  <td>Floating-base state update (tex §“Floating-base state update”)</td>
+  <td class="sha">52d2529a0e</td>
+  <td>Encoder → BodySensor pipeline in every rolling config;
+      <code>syncControlRobotFromSensors()</code></td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+<tr>
+  <td><code>eq:slip-hysteresis</code>, mode transitions</td>
+  <td class="sha">ba9ebaca75<br/>35c7ca1bba</td>
+  <td><code>updateModes()</code>, <code>RollingContactModeManager</code></td>
+  <td><span class="tag t-ok">implemented</span></td>
+</tr>
+</table>
+<p class="note">
+  Before <code>52d2529a0e</code> every rolling config ran with <code>ObserverPipelines: []</code> and the controller
+  hand-rolled estimation, copying the <em>control</em> robot into <code>realRobots()</code> — inverting mc_rtc's
+  architecture, where <code>realRobots()</code> is the estimate. <code>35c7ca1bba</code> stopped the mode estimator
+  reading the QP's own λ as if it were a contact sensor.
+</p>
+
+<h2 id="nocarry">3. Corrections that deliberately did <em>not</em> carry over</h2>
+<p>
+  <strong>This is the most important section for anyone re-reading the theory against the code.</strong>
+  Four corrections in the planar document are correct <em>there</em> and wrong — or vacuous — in mc_rtc's whole-body QP.
+  Each was settled by measurement, not argument. Implementing two of them literally would have broken working code.
+</p>
+
+<div class="risk info">
+  <h4>R2 — normal-load row <code>eq:planar-normal-load-row</code> (tex:1091) <span class="tag t-no">not carried over</span></h4>
+  <p>Recorded in <code>2bfe66aa85</code>. The planar argument is that <code>n<sub>Π</sub>ᵀ J<sub>red,i</sub> = 0</code>
+  (<code>eq:reduced-normal-annihilated</code>, tex:1067) makes the friction cone vacuous via the ray
+  <code>λ → λ + s·1</code>, and the normal kinematic row identically <code>0 = 0</code>.</p>
+  <p><strong>Measured in whole-body form:</strong> the cone-shape premise <em>holds exactly</em> —
+  <code>C<sub>i</sub>·1 ∥ n<sub>i</sub></code>, <code>cos = 1</code>,
+  <code>|C<sub>i</sub>·1| = 6.55386 = 8/√(1+0.7²)</code> — but the ray is killed <em>linearly</em> by the floating
+  base's vertical equation-of-motion row: violation <code>26.2154</code> per unit <code>s</code>, and that row is not
+  optional. The normal kinematic rows add <strong>rank +3</strong> in both coordinated and non-coordinated
+  configurations, so they are not <code>0 = 0</code>.</p>
+  <p class="why">Consequence: <code>constrainNormal</code> stays <code>true</code> and no normal-load row is imposed.
+  Adding one would fight gravity and over-constrain the QP.</p>
+</div>
+
+<div class="risk info">
+  <h4>A1 — chassis-aligned basis <code>as:planar-basis</code> (tex:1151) <span class="tag t-no">already satisfied</span></h4>
+  <p>Recorded in <code>596036df3d</code>. <code>ρ<sub>i</sub></code> and <code>H<sub>i</sub></code> are objects of the
+  planar reduction. <code>wheelOffsets_</code> is already chassis-frame and constant (drift
+  <code>2.78e-17</code> across yaw <code>{0, π/4, π/2, −2π/3}</code>, where a world-fixed basis drifts
+  <code>0.235–0.531 m</code>), and the whole-body rows have no <code>H<sub>i</sub></code> at all — the Jacobian's time
+  dependence is carried exactly by <code>normalAcceleration()</code> = <code>J̇·α</code>.</p>
+  <p class="why"><strong>Danger:</strong> an earlier draft of this work proposed rebuilding
+  <code>terrainTangentX_</code> from the chassis forward axis. That would have been catastrophic —
+  those vectors are the <em>world-fixed yaw reference</em>, and chassis-aligning them makes
+  <code>measuredYaw = atan2(0, 1) ≡ 0</code>, silently zeroing every yaw measurement.</p>
+</div>
+
+<div class="risk info">
+  <h4>R3 — Tikhonov term <code>eq:planar-force-regularization</code> <span class="tag t-part">kept, defaulted off</span></h4>
+  <p><code>33c7bdc137</code> added it; <code>1f136644ad</code> defaulted it to <code>0.0</code>. The theory's premise is
+  that the generators appear in no motion objective, leaving the Hessian singular on the λ block. <strong>Measured:</strong>
+  the smallest Hessian eigenvalue at <code>ε = 0</code> is <code>1e-4</code> — positive, because the Tasks backend
+  applies an unconditional <code>DIAG_CONSTANT</code> diagonal floor. The solver already prevents the singularity.</p>
+  <p>At <code>ε = 2e-4</code> the term biased solved tangential force by <code>0.008936 N</code> on <code>2.17860 N</code>
+  (41% of a 1% budget) and degraded four-steering tracking <code>1.67e-4 → 6.692e-4</code>.</p>
+  <p class="why"><strong>But note:</strong> a later measurement found <code>ε ≥ 0.2</code> <em>does</em> fix an unrelated
+  problem — the four-coplanar-contact load-distribution null space — giving <code>177/181/187/190 N</code> with no
+  tracking cost. So the term is useful for <em>load-distribution selection</em>, not for Hessian conditioning.
+  The option is retained for solvers without a diagonal floor.</p>
+</div>
+
+<div class="risk info">
+  <h4>DYN-02 — the <code>Ṗu</code> term <span class="tag t-no">does not transfer</span></h4>
+  <p>RBDyn's floating-base <code>alpha</code> is already the body twist, so <code>P</code> is constant along planar
+  motion and <code>Ṗ ≡ 0</code> exactly (measured 0; a probe returns 0.80 on a tilting chassis, confirming the probe
+  works). The card's content transfers as “the bias must be the full <code>h(q,α)</code>, not gravity alone”, asserted
+  at 640× the tolerance.</p>
+</div>
+
+<p>
+  <strong>The general rule, and the single most useful takeaway from this branch:</strong>
+  a correction derived from <code>n<sub>Π</sub>ᵀ J<sub>red</sub> = 0</code> or from <code>Ḣ = 0</code> is a statement
+  about <em>the reduction's coordinates</em>. Check it against the whole-body form before implementing it.
+</p>
+
+<h2 id="index">4. Commit index (all 55)</h2>
+<p class="note">Chronological. <code>git show &lt;sha&gt;</code> for any of them.</p>
+<table>
+<tr><th>SHA</th><th>Subject</th><th>Maps to</th></tr>
+<tr><td class="sha">868009e5b9</td><td>expose the steering DoF selector and measured rotating rates</td><td>§2.1</td></tr>
+<tr><td class="sha">0602969f8d</td><td>commit the Ranger Mini V3 description and build-tree aliases</td><td>assets (see risk K)</td></tr>
+<tr><td class="sha">949a7acac6</td><td>clarify steering rate vs selector and cover the new validation</td><td>§2.1</td></tr>
+<tr><td class="sha">0507998605</td><td>add rotating-rate objective options and per-wheel references</td><td>§2.2</td></tr>
+<tr><td class="sha">4cb817d875</td><td>reject infinite rate weights and expose them to the loader</td><td>§2.2</td></tr>
+<tr><td class="sha">4c4317e0aa</td><td><strong>emit predicted rolling and steering rate rows in the QP</strong></td><td>§2.2 — the core fix</td></tr>
+<tr><td class="sha">4dffc82a2a</td><td>rebuild rate-row scaling when the block weight changes</td><td>§2.2</td></tr>
+<tr><td class="sha">e990588c4d</td><td>name the row axes and rescale rate rows in place</td><td>§2.2</td></tr>
+<tr><td class="sha">5cd8cfa198</td><td>invert the expanded steering constraints into wheel references</td><td>§2.4</td></tr>
+<tr><td class="sha">dff9cc26f1</td><td>commit pre-existing working-tree state before the controller rewrite</td><td>baseline (risk K)</td></tr>
+<tr><td class="sha">cf077eafb6</td><td><strong>drive four-steering references through the QP rate rows</strong></td><td>§2.4 — −416/+147</td></tr>
+<tr><td class="sha">0070515749</td><td>document the rate-weight scaling and widen the drive-acceleration setting</td><td>§2.5</td></tr>
+<tr><td class="sha">a13be7cecb</td><td>pin the four-steering wheel layout and yaw sign convention</td><td>tests</td></tr>
+<tr><td class="sha">460c3d047e</td><td>ticker accepts <code>robot:=</code>/<code>controller:=</code> overrides</td><td>tooling</td></tr>
+<tr><td class="sha">5b611bb0a6</td><td>run every CTest with an isolated HOME</td><td>test isolation (risk C)</td></tr>
+<tr><td class="sha">9023877aef</td><td>promote the corrected four-steering QP and refresh validation notes</td><td>docs</td></tr>
+<tr><td class="sha">be199de66a</td><td>revert four-steering <code>driveAcceleration</code> to 20 rad/s²</td><td>§2.4 — regression fix</td></tr>
+<tr><td class="sha">ba9ebaca75</td><td>let scripted twist changes use the same transient contact recovery as keyboard</td><td>§2.6</td></tr>
+<tr><td class="sha">52d2529a0e</td><td>observe <code>realRobots()</code> from sensors instead of mirroring the control robot</td><td>§2.6</td></tr>
+<tr><td class="sha">2bfe66aa85</td><td>record the whole-body carry-over decision for the normal-load row</td><td>§3 / R2</td></tr>
+<tr><td class="sha">596036df3d</td><td>pin the chassis-aligned planar geometry invariants</td><td>§3 / A1</td></tr>
+<tr><td class="sha">e0178cda92</td><td><strong>soften the four lateral rows with per-wheel slacks</strong></td><td>§2.3 — the real fix</td></tr>
+<tr><td class="sha">0eba3e6b2b</td><td>weight the twist error per axis for unit normalisation</td><td>§2.5</td></tr>
+<tr><td class="sha">33c7bdc137</td><td>regularize the contact-force generators</td><td>§2.5 / R3</td></tr>
+<tr><td class="sha">1f136644ad</td><td>default the generator regularization off</td><td>§3 / R3</td></tr>
+<tr><td class="sha">35c7ca1bba</td><td>bound the heading reference and stop reading λ as a contact sensor</td><td>§2.6</td></tr>
+<tr><td class="sha">cbd32acee7</td><td>make the CPU MuJoCo suite say which regime it ran in</td><td>risk B</td></tr>
+<tr><td class="sha">0eb6aed3db</td><td>promote the corrected four-steering QP and record its validation</td><td>docs</td></tr>
+<tr><td class="sha">02155bc135</td><td>implement the P0 negative testcards</td><td>tests (Layer A–F)</td></tr>
+<tr><td class="sha">1847c686fb</td><td>implement the P0 oracle and property testcards</td><td>tests (Layer G)</td></tr>
+<tr><td class="sha">c2269e44f6</td><td>add the ORC-08 cross-check against the real mc_mujoco</td><td>risk B</td></tr>
+<tr><td class="sha">077961fd31</td><td>implement the P1 oracle and property testcards</td><td>tests (Layer G)</td></tr>
+<tr><td class="sha">9df2662914</td><td>implement the P0 Layer H smoke sequence</td><td>tests (Layer H)</td></tr>
+<tr><td class="sha">d90a857617</td><td>implement the P1 Layer H smoke sequence</td><td>tests (Layer H)</td></tr>
+<tr><td class="sha">b20dffece7</td><td>trace every testcard to its test and record the gaps</td><td>traceability</td></tr>
+<tr><td class="sha">141c78a9a5</td><td>add a YAML-only FSM sample driving three chassis curves</td><td>RangerTrajectory (risk F6)</td></tr>
+<tr><td class="sha">14c02f7980</td><td>steer the FSM sample from generated carrier orientation waypoints</td><td>RangerTrajectory</td></tr>
+<tr><td class="sha">70c01d2701</td><td>make each keyboard translation key command a single axis</td><td>45° bug fix</td></tr>
+<tr><td class="sha">9e997bcddb</td><td>stop allocating on the controller's real-time path</td><td>cleanup (−31% allocs)</td></tr>
+<tr><td class="sha">51063cb88e</td><td>drop write-only and duplicated controller state</td><td>cleanup</td></tr>
+<tr><td class="sha">942c8d9474</td><td>collapse the repeated per-wheel datastore lookups</td><td>cleanup</td></tr>
+<tr><td class="sha">c3e5cf8c44</td><td>correct comments that no longer match the controller</td><td>cleanup</td></tr>
+<tr><td class="sha">8da6d4b022</td><td>remove dead solver members, includes and statements</td><td>cleanup</td></tr>
+<tr><td class="sha">1979f2e39d</td><td>split the controller constructor's registration blocks</td><td>cleanup (729→389 lines)</td></tr>
+<tr><td class="sha">8b73ef6fcd</td><td>split <code>updateReference</code> into its three phases</td><td>cleanup (356→8 lines)</td></tr>
+<tr><td class="sha">ea3c2263a5</td><td>deduplicate the dynamics constraint's bound and force helpers</td><td>cleanup</td></tr>
+<tr><td class="sha">562ed18373</td><td>drop the unused dt constant from the long-horizon smoke</td><td>cleanup</td></tr>
+<tr><td class="sha">7cad0dd7a5</td><td>seed <code>RollingContactConstraint</code> activations from wheel config</td><td>bug fix (risk J)</td></tr>
+<tr><td class="sha">54d8c50318</td><td>seed <code>baseYawTarget_</code> consistently at the world heading</td><td>bug fix</td></tr>
+<tr><td class="sha">152459c0cb</td><td>compare the closed-loop keyboard yaw error to a live target</td><td>bug fix (risk D)</td></tr>
+<tr><td class="sha">56bb8cda5d</td><td>add a ramp terrain for mc_mujoco</td><td>§ ramps</td></tr>
+<tr><td class="sha">86a03de34b</td><td>launch the ramp terrain from mc_mujoco configurations</td><td>§ ramps (risk I)</td></tr>
+<tr><td class="sha">cc21947f03</td><td>validate the four-steering chassis on slopes and ramps</td><td>§ ramps</td></tr>
+<tr><td class="sha">ce7c96f0d8</td><td>size ramps-scene contact markers to the vehicle, not the terrain</td><td>rendering</td></tr>
+<tr><td class="sha">9e0e40f3f9</td><td>stop shrinking the ramps-scene force arrows with the terrain</td><td>rendering (fixes ce7c96f0d8)</td></tr>
+</table>
+
+<h2 id="risks">5. Risks and fishy issues</h2>
+
+<div class="risk high">
+  <h4>A. The validation oracle was weaker than it looked — and its replacement still disagrees with reality</h4>
+  <p>The CPU-headless MuJoCo suite was this project's primary validation signal and reported <strong>8/8 green for
+  weeks</strong> while being <em>structurally incapable</em> of observing a real bug: it injected MuJoCo ground-truth
+  contact data every substep, which masked the controller reading its own solver's arbitrary load-distribution choice
+  as if it were a contact sensor. Real <code>mc_mujoco</code> detached a wheel within 25 ms on cases the suite passed.</p>
+  <p>It also hard-coded <code>torque_control: true</code> while <code>mc_mujoco</code> defaults to <code>false</code>.
+  <code>ORC-08</code> measured the consequence: on a crab manoeuvre real mc_mujoco delivers
+  <strong>67.9%</strong> of the commanded distance under <code>--torque-control</code> versus <strong>98.6%</strong>
+  under joint PD — and <strong>the gap does not converge with timestep</strong>
+  (<code>0.2953 / 0.2151 / 0.2914 m</code> at 5 / 2.5 / 1 ms, non-monotone across a five-fold refinement).</p>
+  <p class="why"><strong>Status:</strong> <code>cbd32acee7</code> makes the suite record its regime
+  (<code>--torque-control</code>, <code>--measured-contacts</code>, <code>--preset-steering</code>) so the divergence is
+  visible, and <code>c2269e44f6</code> adds the real-mc_mujoco cross-check. <strong>The disagreement itself is
+  unresolved.</strong> Treat CPU-suite green as necessary, not sufficient.</p>
+</div>
+
+<div class="risk high">
+  <h4>B. “107/107” is not trustworthy without a full rebuild and the right environment</h4>
+  <p>Three independent ways the gate lies:</p>
+  <ul>
+    <li><strong>Stale version header</strong> (corrected — this was previously described here as version-string
+    <em>skew</em>, which is wrong). <code>src/CMakeLists.txt:83-92</code> generates
+    <code>include/mc_rtc/version.h</code> with <code>DEPENDS ${MC_RTC_ALL_FILES}</code> — the tracked source list,
+    <strong>not</strong> <code>.git/HEAD</code>. A bare <code>git commit</code> therefore touches no source mtime,
+    the custom command does not rerun, and <em>nothing rebuilds</em>. The header goes <strong>stale</strong>
+    (reporting the previous SHA), it does not go <strong>mixed</strong> — every binary stays uniformly stamped, so
+    the <code>*_CHECK_VERSION</code> guards do not fire. Cosmetic for provenance, not a correctness hazard.
+    Remove <code>build/include/mc_rtc/version.h</code> and rebuild if you need the stamp to match the commit.</li>
+    <li><strong>Missing env var.</strong> <code>MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON</code> must be
+    <em>exported for the whole ctest run</em>, not just the rolling tests, or 49 JVRC1-loading tests crash in qhull
+    (<code>QH6028 … Wrong qh_fprintf was called</code>).</li>
+    <li><strong>Link-layout fragility.</strong> <code>PrimalSolutionIsUniqueAcrossWarmStartsAndSolversQP03</code>
+    passes in isolation (gap <code>1.05e-07</code> against a <code>2.2e-03</code> bound) but has failed in full-binary
+    runs with a gap of <code>0.64</code>. Its pass/fail tracks the link layout, not the source.</li>
+    <li><strong>Concurrency.</strong> Running <code>mc_mujoco</code> or a second build alongside ctest produces
+    cascades (<code>libmc_rtc_utils.so.2: file too short</code>, IPC socket collisions).</li>
+  </ul>
+  <p class="why"><strong>Practical rule:</strong> full rebuild, env exported, nothing else running — then trust it.
+  The two large cascades actually observed (24 and 49 failures) are attributable to the missing env var and to
+  concurrency, not to the version header; both cleared on a clean re-run.</p>
+</div>
+
+<div class="risk high">
+  <h4>C. Four separate checks were found passing vacuously. Assume there are more.</h4>
+  <ol>
+    <li><strong>The CPU MuJoCo suite</strong> (risk A) — could not observe the bug it was guarding.</li>
+    <li><strong><code>ORC-02</code></strong> — its ICR-coordinated fixture makes the rolling-row bias identically zero
+    (<code>1.39e-17</code> vs <code>0.188</code> on an uncoordinated state), so a mutation <em>deleting the entire bias
+    term</em> passed unnoticed. Now pinned by an explicit assertion.</li>
+    <li><strong><code>QP-03</code></strong> — shared the same degenerate fixture (ICR angles at zero velocity).
+    Fixing it improved Tasks/TVM agreement from <code>1.7e-6</code> to <code>1.0e-7</code>.</li>
+    <li><strong><code>check-keyboard-yaw.py</code></strong> — bounded the yaw error only from <em>above</em>
+    (<code>&lt; 0.15 rad</code>), which a dead-zero signal satisfies trivially. It could never have caught the bug it
+    existed to guard.</li>
+  </ol>
+  <p class="why">Every testcard added after this discovery is mutation-verified. Anything written <em>before</em> it
+  should be treated as unverified until mutated.</p>
+</div>
+
+<div class="risk">
+  <h4>D. Tuned constants that look arbitrary but are load-bearing</h4>
+  <table>
+    <tr><th>Constant</th><th>Value</th><th>Why not “simplify” it</th></tr>
+    <tr><td><code>rollingRateWeight</code>, <code>steeringRateWeight</code></td><td><code>4e7</code></td>
+        <td>Weight enters the objective × <code>dt²</code>. <code>4e7·(0.005)² = 1000</code>. At 200 the rows are inert.</td></tr>
+    <tr><td><code>lateralSlackWeight</code></td><td><code>1e7</code></td>
+        <td>Two-sided window: ticker skid below <code>5e6</code>, MuJoCo yaw failure at <code>1e9</code>.</td></tr>
+    <tr><td><code>driveAcceleration</code></td><td><code>20</code></td>
+        <td>Sharp knee, not a gradient: fine through 40, torque-saturated and detaching by 50. <code>100</code> was a real regression (<code>be199de66a</code>).</td></tr>
+    <tr><td><code>generatorRegularization</code></td><td><code>0.0</code></td>
+        <td>Enabling it biases physical force; the solver already floors the Hessian.</td></tr>
+    <tr><td><code>-baseYawTarget_</code> mirror</td><td>closed-loop keyboard only</td>
+        <td><code>posW().rotation()</code> is world-to-body, so <code>measuredYaw = −ψ</code>. Pinned by a pty-driven test.</td></tr>
+  </table>
+  <p class="why">Each carries an explanatory comment. <strong>A comment explaining <em>why</em> a value is what it is
+  should be read as a warning, not an invitation.</strong></p>
+</div>
+
+<div class="risk">
+  <h4>E. Tuning against the kinematic ticker has caused a regression once already</h4>
+  <p>The ticker has no contact physics. <code>driveAcceleration</code> was widened 20→100 on ticker metrics
+  (lateral slip 0.291 → 0.079 m/s) while the same measurement recorded crab start-up friction margin collapsing
+  from <code>+70.6</code> to <code>0.0</code>. In MuJoCo that setting saturated drive torque at the 35 Nm limit,
+  zeroed normal force and detached wheels. Reverted in <code>be199de66a</code>.</p>
+  <p class="why">The same trap nearly recurred with <code>lateralSlackWeight</code>: ticker-only tuning would have
+  chosen <code>1e9</code> and shipped a MuJoCo failure. <strong>Use MuJoCo as the arbiter for anything touching
+  contact.</strong></p>
+</div>
+
+<div class="risk">
+  <h4>F. Early commits are not independently buildable</h4>
+  <p><code>0602969f8d</code> and <code>dff9cc26f1</code> are “chore” commits capturing pre-existing uncommitted
+  working-tree state (the Ranger description and aliases; the controller, ticker configs and MuJoCo runner). They were
+  added because <code>868009e5b9</code>'s tests referenced a robot alias that did not yet exist in-tree, and because the
+  controller rewrite needed a reviewable diff. <strong>Commits before <code>0602969f8d</code> will not build or test
+  standalone</strong>, and those two bundle work not authored as part of this branch.</p>
+</div>
+
+<div class="risk">
+  <h4>G. Config surfaces that exist but do nothing</h4>
+  <p><code>RollingContactDescription::activation</code> was parsed from YAML, validated, and documented in the JSON
+  schema with a default of 1 — and <strong>never read</strong>. <code>activation: 0.5</code> was silently ignored.
+  Fixed in <code>7cad0dd7a5</code>.</p>
+  <p class="why">That is a pattern worth auditing, not a one-off: a schema entry plus a validator plus a doc comment is
+  <em>not</em> evidence that anything consumes the value. Grep for a reader before trusting a config key.</p>
+</div>
+
+<div class="risk">
+  <h4>H. Findings live in untracked files</h4>
+  <p><code>rolling-contact-report/README.md</code>, <code>control-issue.md</code> and <code>plans/</code> are
+  <strong>untracked</strong> in this checkout. Several measurement results and carry-over decisions — including the
+  R2/A1 rationale — are recorded only there. <code>control-issue.md</code> was committed once (as a whole 915-line
+  file) by <code>2bfe66aa85</code>; the others were not.</p>
+  <p class="why">A fresh clone will not have them. Consider tracking them.</p>
+</div>
+
+<div class="risk">
+  <h4>I. One change outside the repository</h4>
+  <p><code>86a03de34b</code>'s ramp terrain requires <code>ground.yaml</code> installed at
+  <code>~/local/share/mc_mujoco/ground.yaml</code>. It is backward compatible — everything except the three-argument
+  <code>MainRobot</code> form still gets the stock flat plane — and the original is backed up at
+  <code>/tmp/ramp-work/ground.yaml.orig</code> (<em>a temp path; it will not survive a reboot</em>).</p>
+</div>
+
+<div class="risk">
+  <h4>J. A latent mc_mujoco trap that hides the entire robot</h4>
+  <p>Every geom in <code>ranger_mini_v3.xml</code> is group 0 (no <code>group</code> attribute); only the terrain uses
+  <code>group="1"</code>. With no <code>~/local/share/mc_mujoco/mc_mujoco.yaml</code> — today's state — layers 0/1/2 are
+  on and the robot draws. <strong>The moment that file exists, <code>visualize.collisions</code> resolves to false and
+  the vehicle vanishes</strong>, leaving only contact markers. mc_mujoco writes that file itself when GUI settings are
+  saved. Reproduced exactly; the fix is <code>group="1"</code> on the robot's visual geoms, not applied.</p>
+</div>
+
+<div class="risk">
+  <h4>K. Rendering fix needed a second pass — worth knowing why</h4>
+  <p><code>ce7c96f0d8</code> correctly shrank <code>scale.*</code> (which multiply <code>stat.meansize</code>, 1.539 on
+  ramps vs 0.131 flat) but <em>also</em> halved <code>map/force</code> — which divides by <code>stat.meanmass</code>,
+  and that is <strong>7.5 in both scenes</strong> because the terrain body is massless. It additionally sized for
+  184 N/wheel when MuJoCo's cylinder-plane collider emits <strong>two contacts per wheel</strong> (~92 N each).
+  Net 4× too short. Corrected in <code>9e0e40f3f9</code>.</p>
+  <p class="why">The physics was never wrong: at rest the eight normal forces sum to
+  <strong>735.7500 N</strong> against <code>m·g = 735.7500 N</code>, residual <code>−0.0000 N</code>.</p>
+</div>
+
+<h2 id="limits">6. Known unfixed limitations</h2>
+<table>
+<tr><th>Limitation</th><th>Measured</th><th>Cause</th></tr>
+<tr><td>Pure in-place yaw tracks poorly</td><td><strong>6.7%</strong> (PD) / 31% (torque control); mixed commands 84–96%</td>
+    <td>The QP places contact forces along the wheel's 0.08 m contact line but imposes its constraints at the single
+    <em>centre point</em>, so scrub torque is unmodelled. Narrowing the model wheel half-width 0.04→0.004 m raises
+    tracking to 89%. Needs a constraint on spin about the contact normal.</td></tr>
+<tr><td>Steering-rate ceiling</td><td>clamps at exactly <strong>4 rad/s</strong> against an 8 rad/s model limit; solved
+    steering acceleration exactly zero while the rate row demands −800 rad/s²</td><td>Unexplained. Found by <code>SMK-08</code>.</td></tr>
+<tr><td><code>longitudinal: soft</code> does not hold speed</td><td>0.3 m/s commanded → <strong>1.31 m/s</strong>, modes
+    reported <code>sliding</code> throughout</td><td>Unexplained. Note the existing suite uses <code>soft</code> for its ramp cases.</td></tr>
+<tr><td>Ramp <em>transitions</em></td><td>5°: crosses the toe, breaks at the crest. ≥10°: fails at the toe, never crests.
+    Under PD, stalls at every angle.</td><td><code>terrainNormal</code> is a constant from config (assumption
+    <code>as:one-plane</code>). Config-only experiment: <code>baseOrientationWeight</code> 500→50 turns the 10° stall
+    (x = 1.74 m) into a completed traverse (x = 5.89 m), so it is the orientation reference fighting the slope.</td></tr>
+<tr><td>Constant slope — backend divergence</td><td>Tasks: forward works to <strong>30°</strong>.
+    TVM: degrades at 20° (modes <code>sliding</code>), lost at 25°.</td><td>Unexplained.</td></tr>
+<tr><td><code>RangerTrajectory</code> free-falls in mc_mujoco</td><td><code>ff_real_tz</code> follows
+    <code>0.16 − ½gt²</code> for the full 78.75 s while the control robot reports millimetric tracking</td>
+    <td>The sample declares no <code>robots:</code> block and <code>fsm::Controller</code> uses the robot-vector
+    overload, which does not add <code>env/ground</code>. Worked around in the ramp configs; the sample is unfixed.</td></tr>
+<tr><td>CPU suite red before this branch</td><td><code>four-steering-rate</code>, <code>four-low-friction</code></td>
+    <td>Pre-existing, and regressed against the archived Sep-1 evidence. “8/8” refers to four canonical cases × two
+    backends, not the whole 28-case suite.</td></tr>
+</table>
+
+<h2 id="howto">7. How to navigate back to the code</h2>
+<pre>cd /home/yuquan/local/mc_rtc_sources/mc_rtc
+
+git log --oneline e21ed9a997..HEAD        # the 55 commits
+git show &lt;sha&gt;                            # any single change
+git show 4c4317e0aa                       # the core QP change (rate rows)
+git show e0178cda92                       # the lateral slacks
+git show cf077eafb6 --stat                # the controller rewrite, -416/+147
+
+# theory
+less +1376 rolling-contact-report/rolling-contact-qp.tex   # eq:four-steering-wheel-qp
+less +1503 rolling-contact-report/rolling-contact-qp.tex   # re:four-steering-lateral-slack
+
+# gates (full rebuild first -- see risk B)
+cmake --build build -j 8
+export CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON
+ctest --test-dir build --output-on-failure -j1</pre>
+
+<p class="note">Primary source files:
+<a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_solver/RollingContactConstraint.cpp">RollingContactConstraint.cpp</a> ·
+<a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_solver/RollingContactDynamicsConstraint.cpp">RollingContactDynamicsConstraint.cpp</a> ·
+<a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_rbdyn/RollingContact.cpp">mc_rbdyn/RollingContact.cpp</a> ·
+<a href="file:///home/yuquan/local/mc_rtc_sources/mc_rtc/src/mc_control/samples/RollingContact/mc_rolling_contact_controller.cpp">mc_rolling_contact_controller.cpp</a>
+</p>
+
+</div></body></html>

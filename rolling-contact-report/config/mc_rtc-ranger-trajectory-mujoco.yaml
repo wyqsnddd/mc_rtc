@@ -1,0 +1,55 @@
+# Launch the RangerTrajectory FSM sample in mc_mujoco:
+#
+#   cd /home/yuquan/local/mc_rtc_sources/mc_rtc
+#   mc_mujoco -f rolling-contact-report/config/mc_rtc-ranger-trajectory-mujoco.yaml
+#
+# Run it from the repository root: the module paths below are repo relative,
+# exactly as in mc_rtc-ranger-mini-v3-keyboard.yaml.
+#
+# The robot drives a circle, then a straight line, then a Lissajous curve, and
+# stops. The whole sequence takes 78.75 s (26.25 + 6.0 + 46.5), so let it run
+# that long before judging the result.
+#
+# The scenario itself -- the FSM states, the transitions, the rolling-contact
+# constraints and the observer pipeline -- lives in the controller's own
+# configuration, which is merged on top of this file:
+#   src/mc_control/samples/RangerTrajectory/etc/RangerTrajectory.in.yaml
+# Change the curves there, not here.
+MainRobot: RollingContactRangerMiniV3
+Enabled: [RangerTrajectory]
+Default: RangerTrajectory
+Timestep: 0.005
+
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-ranger-trajectory-mujoco
+
+ClearControllerModulePath: true
+# Two entries, as in the ticker configuration: add_fsm_controller puts the
+# shared library under src/, while the controller configuration is configured
+# into etc/ one level up. MCGlobalController looks for the library in each
+# ControllerModulePaths entry and for <name>.yaml in each entry's etc/
+# subdirectory, so both are needed.
+ControllerModulePaths:
+- build/src/mc_control/samples/RangerTrajectory/src
+- build/src/mc_control/samples/RangerTrajectory
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+
+GUIServer:
+  Enable: true
+  # Keep the standard IPC endpoint used by mc_mujoco's built-in visualizer.
+  # ControllerServer probes and removes only stale socket files before retrying
+  # a bind, while leaving a live controller endpoint untouched.
+  IPC:
+    Socket: /tmp/mc_rtc
+  TCP:
+    Host: "127.0.0.1"
+    Ports: [4242, 4343]
+
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
