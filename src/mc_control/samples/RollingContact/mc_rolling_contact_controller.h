@@ -108,6 +108,33 @@ private:
    * normal.
    */
   void updateTerrainNormal();
+  /** Least-squares chassis planar twist [vx, vy, omega] of @p measured's wheels.
+   *
+   * Reads only @p measured's drive rates and steering angles - the MEASURED
+   * state - and runs them forwards through mc_rbdyn::steeringRollingMatrix(),
+   * the same rows the QP's rolling constraint is built from. Each wheel's two
+   * rows and their right-hand side are scaled by sqrt(activation), so a
+   * Detached wheel drops out of the estimate and a Sliding one fades.
+   *
+   * The solve is a complete-orthogonal-decomposition least squares, which
+   * returns the minimum-norm solution for a rank-deficient block instead of
+   * throwing, so a single attached wheel (or none at all) is not a failure.
+   *
+   * Deliberately NOT a function of the solved alphaD, of the QP's rolling-row
+   * output, or of any reference: an estimate derived from the QP would confirm
+   * the model instead of measuring against it, and every validation built on
+   * this quantity would be vacuous. The caller passes realRobot(), which the
+   * Encoder observer refreshes from the encoder packet before run().
+   *
+   * @param residual receives ||A v - b||, the weighted inconsistency of the
+   * measured wheel state with a single rigid planar twist. Small while rolling;
+   * it is the quantity that grows when the wheels skid.
+   * @returns the twist, or a non-finite vector when the measured state is not
+   * finite - consumers must check.
+   */
+  Eigen::Vector3d wheelOdometryTwist(const mc_rbdyn::Robot & measured, double & residual);
+  /** Refresh odometryTwist_/odometryResidual_ from realRobot(). */
+  void updateOdometry();
   void updateModes();
   void updateDiagnostics(bool solverSuccess);
   void syncControlRobotFromSensors();
@@ -259,6 +286,14 @@ private:
   std::vector<double> frictionMargins_;
   std::vector<double> driveTorques_;
   std::vector<double> driveTorqueMargins_;
+  /** Last wheel-odometry twist [vx, vy, omega] in the chassis frame, and the
+   * weighted inconsistency of the measured wheel state that produced it.
+   *
+   * Published on the datastore for the tilt observer and logged as
+   * RollingContact_odometry_twist / _residual. Nothing in the QP reads them.
+   */
+  Eigen::Vector3d odometryTwist_ = Eigen::Vector3d::Zero();
+  double odometryResidual_ = 0.0;
   double dynamicsResidual_ = 0.0;
   double floatingBaseEffortNorm_ = 0.0;
   std::vector<double> appliedActivations_;
@@ -282,6 +317,19 @@ private:
   Eigen::VectorXd keyboardRefVel_;
   /** nrDof scratch for the solved accelerations read back by updateDiagnostics(). */
   Eigen::VectorXd alphaDBuffer_;
+  /** Scratch for wheelOdometryTwist(): the planar wheel descriptions, the
+   * measured drive rates, and the weighted (2n)x3 block and right-hand side.
+   *
+   * steeringRollingMatrix() itself returns a freshly allocated (2n)x(3+n)
+   * matrix, so this path is not allocation-free the way the rest of run() is.
+   * Rebuilding those rows here to avoid it would duplicate the one piece of
+   * kinematics the whole estimate is supposed to share with the constraint,
+   * which is a worse trade than one small allocation per cycle.
+   */
+  std::vector<mc_rbdyn::PlanarWheel> odometryWheels_;
+  Eigen::VectorXd odometryRates_;
+  Eigen::MatrixXd odometryMatrix_;
+  Eigen::VectorXd odometryRhs_;
 };
 
 } // namespace mc_control

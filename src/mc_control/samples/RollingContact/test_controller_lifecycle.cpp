@@ -175,6 +175,44 @@ std::unique_ptr<mc_control::MCRollingContactController> makeController(
   return controller;
 }
 
+/** Open-loop controller with an Encoder-only observer pipeline attached.
+ *
+ * The wheel-odometry estimate reads realRobot().mbc(), and nothing outside an
+ * observer pipeline ever writes that. makeClosedLoopController() would also
+ * supply it, but it pins the floating base to a FloatingBase sensor that never
+ * moves, so the chassis could not drive anywhere and the odometry would have
+ * nothing to measure. This helper leaves the base open loop and mirrors only
+ * the joint state, in "control" mode for the reason observerPipelineConfig()
+ * documents: this harness populates no encoder packet.
+ */
+std::unique_ptr<mc_control::MCRollingContactController> makeOdometryController(
+    const std::string & robot,
+    const std::string & scenario,
+    const std::function<void(mc_rtc::Configuration &)> & configure = {})
+{
+  loadObserverModules();
+  auto config = controllerConfiguration(scenario);
+  if(configure)
+  {
+    auto settings = config("RollingContact");
+    configure(settings);
+  }
+  config.load(mc_rtc::Configuration::fromYAMLData("ObserverPipelines:\n"
+                                                  "  - name: RollingContactOdometryPipeline\n"
+                                                  "    gui: false\n"
+                                                  "    observers:\n"
+                                                  "      - type: Encoder\n"
+                                                  "        update: true\n"
+                                                  "        position: control\n"
+                                                  "        velocity: control\n"));
+  auto controller = std::make_unique<mc_control::MCRollingContactController>(
+      robotModule(robot), 0.005, config, mc_control::MCController::Backend::Tasks);
+  controller->createObserverPipelines(config);
+  controller->reset({controller->robot().mbc().q});
+  controller->resetObserverPipelines();
+  return controller;
+}
+
 /** Ranger Mini V3 on the "hold" script: no scripted twist, so the controller
  * follows whatever setCommandedTwist() last received.
  */
@@ -1836,6 +1874,99 @@ BOOST_AUTO_TEST_CASE(OdometryCrossCheckIncludingWhereItMustDisagreeSMK11)
       // "validated" and then used on a slope.
       BOOST_CHECK_LT(disagreement, 1e-3 * pathLength);
     }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(WheelOdometryRecoversTheCommandedTwistAndSeesSkid)
+{
+  // The wheel-odometry estimate read forwards through steeringRollingMatrix()
+  // must recover the twist the wheel references were inverted FROM, on flat
+  // ground, on both chassis. That is the only statement that makes the
+  // estimate usable as an independent input to a tilt observer: if it were a
+  // function of the QP's own solution it would confirm the model instead of
+  // measuring against it.
+  //
+  // The second half is what makes the first non-vacuous. A least-squares fit
+  // to eight rows always returns SOME twist; the residual is what says whether
+  // the wheels agree on it. One hinge knocked off the common instantaneous
+  // centre - a lateral impulse, in the only terms these rows can express -
+  // must make it jump by orders of magnitude, or the residual is decoration.
+  struct Case
+  {
+    const char * name;
+    const char * robot;
+    const char * scenario;
+    Eigen::Vector3d twist;
+    bool commanded; // four-steering takes its twist through setCommandedTwist()
+    int cycles;
+    int from;
+  };
+  // Settling windows taken from SMK-03, which measured them: the four-steering
+  // rate rows own the wheel DOF and settle inside 2 s, while the differential
+  // chassis is driven by the posture task alone and rings for ~19 s.
+  const std::array<Case, 5> cases = {
+      Case{"T1 differential forward", "RollingContactDifferential", "forward", {0.2, 0.0, 0.0}, false, 4000, 3800},
+      Case{"T2 forward", "RollingContactRangerMiniV3", "hold", {0.3, 0.0, 0.0}, true, 600, 400},
+      Case{"T2 crab", "RollingContactRangerMiniV3", "hold", {0.2, 0.15, 0.0}, true, 600, 400},
+      Case{"T2 pure yaw", "RollingContactRangerMiniV3", "hold", {0.0, 0.0, 0.4}, true, 600, 400},
+      Case{"T2 forward+yaw", "RollingContactRangerMiniV3", "hold", {0.25, 0.0, 0.3}, true, 600, 400}};
+
+  for(const auto & test : cases)
+  {
+    auto controller = makeOdometryController(test.robot, test.scenario,
+                                             [&](mc_rtc::Configuration & settings)
+                                             {
+                                               if(!test.commanded) { settings.add("linearSpeed", test.twist.x()); }
+                                             });
+    if(test.commanded) { controller->setCommandedTwist(test.twist); }
+    Eigen::Vector3d meanTwist = Eigen::Vector3d::Zero();
+    double worstResidual = 0.0;
+    int samples = 0;
+    for(int cycle = 0; cycle < test.cycles; ++cycle)
+    {
+      controller->runObserverPipelines();
+      BOOST_REQUIRE_MESSAGE(controller->run(), test.name << ": the QP failed at cycle " << cycle);
+      if(cycle < test.from) { continue; }
+      const auto odometry = controller->datastore().call<Eigen::Vector3d>("RollingContact::GetOdometryTwist");
+      const double residual = controller->datastore().call<double>("RollingContact::GetOdometryResidual");
+      BOOST_REQUIRE_MESSAGE(odometry.allFinite() && std::isfinite(residual),
+                            test.name << ": non-finite odometry at cycle " << cycle);
+      meanTwist += odometry;
+      worstResidual = std::max(worstResidual, residual);
+      ++samples;
+    }
+    BOOST_REQUIRE_GT(samples, 0);
+    meanTwist /= static_cast<double>(samples);
+    const Eigen::Vector3d error = meanTwist - test.twist;
+    BOOST_TEST_MESSAGE("[odometry] " << test.name << ": commanded [" << test.twist.transpose() << "] estimated ["
+                                     << meanTwist.transpose() << "] error norm " << error.norm()
+                                     << ", worst residual while rolling " << worstResidual << " m/s");
+    // 2% of the commanded twist's magnitude, floored so a zero axis is still
+    // bounded. The differential chassis is the loose one: its wheels follow an
+    // integrated posture target, not a rate row.
+    BOOST_CHECK_LT(error.norm(), 0.02 * test.twist.norm() + 1e-3);
+    // A rigid rolling solution leaves nothing over. This is the bound quoted
+    // as "small while rolling"; the impulse below is what it is small compared
+    // to.
+    BOOST_CHECK_LT(worstResidual, 1e-3);
+
+    if(!test.commanded) { continue; }
+
+    // The lateral impulse. Knock one hinge off the instantaneous centre the
+    // other three share, in the measured state only, and step once more
+    // WITHOUT the observer pipeline so nothing overwrites the perturbation
+    // before updateOdometry() reads it.
+    auto & measured = controller->realRobot();
+    const auto steer = measured.jointIndexByName("front_left_steer");
+    measured.mbc().q[steer][0] += 0.6;
+    measured.forwardKinematics();
+    BOOST_REQUIRE(controller->run());
+    const double impulseResidual = controller->datastore().call<double>("RollingContact::GetOdometryResidual");
+    BOOST_TEST_MESSAGE("[odometry] " << test.name << ": residual after a 0.6 rad hinge impulse " << impulseResidual
+                                     << " m/s (" << impulseResidual / std::max(worstResidual, 1e-12)
+                                     << "x the rolling residual)");
+    BOOST_CHECK_GT(impulseResidual, 100.0 * worstResidual);
+    BOOST_CHECK_GT(impulseResidual, 1e-2);
   }
 }
 

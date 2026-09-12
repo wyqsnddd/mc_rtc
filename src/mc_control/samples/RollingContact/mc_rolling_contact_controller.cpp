@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <numeric>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -628,6 +629,10 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   measuredDrivePositions_.resize(wheels_.size(), 0.0);
   keyboardRefVel_.setZero(robot().mb().nrDof());
   alphaDBuffer_.setZero(robot().mb().nrDof());
+  odometryWheels_.resize(wheels_.size());
+  odometryRates_.setZero(static_cast<Eigen::Index>(wheels_.size()));
+  odometryMatrix_.setZero(2 * static_cast<Eigen::Index>(wheels_.size()), 3);
+  odometryRhs_.setZero(2 * static_cast<Eigen::Index>(wheels_.size()));
   // Install the posture-target keys once. run() only ever rewrites the single
   // value behind each key, so no node and no value vector is ever reallocated.
   for(const auto & wheel : wheels_)
@@ -770,6 +775,27 @@ void MCRollingContactController::registerDatastoreCalls()
                         [this]() -> Eigen::Vector3d { return basePositionTask_->dimWeight(); });
   datastore().make_call("RollingContact::GetBaseOrientationDimWeight",
                         [this]() -> Eigen::Vector3d { return baseOrientationTask_->dimWeight(); });
+  datastore().make_call("RollingContact::GetOdometryTwist", [this]() { return odometryTwist_; });
+  datastore().make_call("RollingContact::GetOdometryResidual", [this]() { return odometryResidual_; });
+  // Published under the VelocityAidedTilt namespace, not RollingContact::,
+  // because the consumer is an observer that resolves the key by name and knows
+  // nothing about this controller - the same arrangement
+  // KinematicInertialPoseObserver has with "KinematicAnchorFrame::<robot>".
+  // Taking the robot as an argument (rather than closing over realRobot())
+  // follows that precedent too, and lets a caller ask the same question of the
+  // control robot.
+  datastore().make_call("VelocityAidedTilt::SensorVelocity::" + robot().name(),
+                        [this](const mc_rbdyn::Robot & measured) -> Eigen::Vector3d
+                        {
+                          double residual = 0.0;
+                          return wheelOdometryTwist(measured, residual);
+                        });
+  // How much wheel support that twist actually rests on, in wheels: the sum of
+  // the activations the rows above were weighted by. A consumer needs it to
+  // tell "the chassis is standing still" from "nothing is touching the ground",
+  // which the twist alone cannot express - both are the zero vector.
+  datastore().make_call("VelocityAidedTilt::VelocityActivation::" + robot().name(), [this]() -> double
+                        { return std::accumulate(appliedActivations_.begin(), appliedActivations_.end(), 0.0); });
   datastore().make_call("RollingContact::GetHardRhsNorm", [this]() { return rolling_->hardRhs().norm(); });
   datastore().make_call("RollingContact::GetSlidingGenerator",
                         [this](const std::string & name) { return dynamics_->slidingGenerator(name); });
@@ -785,6 +811,9 @@ void MCRollingContactController::registerLogEntries()
   logger().addLogEntry("RollingContact_contact_fallback", [this]() { return contactFallback_; });
   logger().addLogEntry("RollingContact_rolling_weight", [this]() { return rolling_->rollingWeight(); });
   logger().addLogEntry("RollingContact_dynamics_residual", [this]() { return dynamicsResidual_; });
+  logger().addLogEntry("RollingContact_odometry_twist",
+                       [this]() -> const Eigen::Vector3d & { return odometryTwist_; });
+  logger().addLogEntry("RollingContact_odometry_residual", [this]() { return odometryResidual_; });
   logger().addLogEntry("RollingContact_floating_base_effort_norm", [this]() { return floatingBaseEffortNorm_; });
   logger().addLogEntry("RollingContact_update_ms", [this]() { return updateTimeMs_; });
   logger().addLogEntry("RollingContact_solve_and_build_ms", [this]() { return solveAndBuildTimeMs_; });
@@ -1602,6 +1631,73 @@ void MCRollingContactController::updateTerrainNormal()
   dynamics_->terrainNormal(terrainNormal_);
 }
 
+Eigen::Vector3d MCRollingContactController::wheelOdometryTwist(const mc_rbdyn::Robot & measured, double & residual)
+{
+  const auto nrWheels = static_cast<Eigen::Index>(wheels_.size());
+  for(size_t i = 0; i < wheels_.size(); ++i)
+  {
+    const auto drive = measured.jointIndexByName(wheels_[i].driveJoint);
+    const double rate = measured.mbc().alpha[drive][0];
+    // A differential chassis has no hinge; its wheel line is the chassis
+    // forward axis, which is delta = 0 in exactly these rows.
+    const double steering =
+        wheels_[i].steeringJoint.empty()
+            ? 0.0
+            : measured.mbc().q[measured.jointIndexByName(wheels_[i].steeringJoint)][0];
+    if(!std::isfinite(rate) || !std::isfinite(steering))
+    {
+      residual = std::numeric_limits<double>::quiet_NaN();
+      return Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN());
+    }
+    auto & planar = odometryWheels_[i];
+    planar.offset = wheelOffsets_[i];
+    planar.radius = wheels_[i].radius;
+    planar.spinSign = wheels_[i].spinSign;
+    planar.steeringAngle = steering;
+    // The steering rate only enters steeringRollingMatrix()'s acceleration
+    // bias, which this velocity-level solve does not use.
+    planar.steeringRate = 0.0;
+    odometryRates_[static_cast<Eigen::Index>(i)] = rate;
+  }
+  // Forwards, not inverted: rows.matrix * [vx, vy, omega, phidot...] = 0, so
+  // the chassis twist solves A v = b with b carrying the measured wheel rates.
+  const auto rows = mc_rbdyn::steeringRollingMatrix(odometryWheels_, Eigen::Vector3d::Zero());
+  odometryMatrix_ = rows.matrix.leftCols<3>();
+  odometryRhs_.noalias() = -rows.matrix.rightCols(nrWheels) * odometryRates_;
+  for(size_t i = 0; i < wheels_.size(); ++i)
+  {
+    // sqrt(activation) on both sides is the weighted least squares the mode
+    // manager's activation already means everywhere else in this controller:
+    // the squared residual of each wheel enters the objective at `activation`.
+    const double weight = std::sqrt(std::max(0.0, appliedActivations_[i]));
+    const auto row = 2 * static_cast<Eigen::Index>(i);
+    odometryMatrix_.middleRows<2>(row) *= weight;
+    odometryRhs_.segment<2>(row) *= weight;
+  }
+  // Minimum-norm least squares. Rank-deficient inputs are ordinary here - one
+  // attached wheel leaves the block rank 2, none at all leaves it zero - and
+  // completeOrthogonalDecomposition() returns the minimum-norm solution for
+  // both instead of throwing.
+  const Eigen::Vector3d twist = odometryMatrix_.completeOrthogonalDecomposition().solve(odometryRhs_);
+  residual = (odometryMatrix_ * twist - odometryRhs_).norm();
+  return twist;
+}
+
+void MCRollingContactController::updateOdometry()
+{
+  // realRobot(), not robot(): the Encoder observer has refreshed it from this
+  // tick's encoder packet by the time run() is reached, and reading it here
+  // keeps the estimate on the measurement path in both the ticker and the
+  // mc_mujoco deployment. robot().encoderVelocities() is deliberately not used:
+  // the CTest lifecycle harness never populates that array (see the comment on
+  // observerPipelineConfig() in test_controller_lifecycle.cpp).
+  //
+  // Computed before updateModes() so that the logged twist and the value the
+  // observer pipeline read from the datastore earlier in the same tick are
+  // built from the same activations.
+  odometryTwist_ = wheelOdometryTwist(realRobot(), odometryResidual_);
+}
+
 void MCRollingContactController::updateModes()
 {
   const bool wasContactFallback = contactFallback_;
@@ -2022,6 +2118,7 @@ bool MCRollingContactController::run()
       const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
       measuredDrivePositions_[i] = robot().mbc().q[drive][0];
     }
+    updateOdometry();
     updateTerrainNormal();
     updateModes();
     updateReference();
