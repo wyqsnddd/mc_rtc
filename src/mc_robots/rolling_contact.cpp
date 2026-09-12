@@ -32,6 +32,14 @@ RollingContactRobotModule::RollingContactRobotModule(const std::string & descrip
   // contact geometry remains unchanged when the base frame is rebased.
   _default_attitude = {{1.0, 0.0, 0.0, 0.0, 0.0, 0.0, rangerMiniV3 ? 0.16 : 0.2}};
   _bodySensors.emplace_back("FloatingBase", "chassis", sva::PTransformd::Identity());
+  if(rangerMiniV3)
+  {
+    // Coincident with the MuJoCo <site name="imu" pos="0 0 0"/> in
+    // ranger_mini_v3.xml. The two must stay equal: X_b_s is what the tilt
+    // observer will use to rotate the gyro into the chassis frame and to add the
+    // accelerometer's lever arm, and mc_mujoco reports the site's own frame.
+    _bodySensors.emplace_back("ChassisIMU", "chassis", sva::PTransformd::Identity());
+  }
 
   if(variant == "rolling_diff")
   {

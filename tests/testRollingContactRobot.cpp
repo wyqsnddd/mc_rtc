@@ -170,6 +170,9 @@ BOOST_AUTO_TEST_CASE(LoadDifferentialRollingRobot)
   BOOST_CHECK_SMALL((centerAfter - centerBefore).norm(), 1e-12);
   BOOST_CHECK_SMALL((contactAfter - contactBefore).norm(), 1e-12);
   checkBodyInertias(robot);
+  // Only the Ranger has a MuJoCo IMU site to back this sensor; rolling_diff
+  // has no counterpart, so init_sensor_id would log an error every load.
+  BOOST_CHECK(!robot.hasBodySensor("ChassisIMU"));
 }
 
 BOOST_AUTO_TEST_CASE(LoadFourSteeringRollingRobot)
@@ -205,6 +208,9 @@ BOOST_AUTO_TEST_CASE(LoadFourSteeringRollingRobot)
   BOOST_CHECK(robot.hasSurface("RearLeftWheel"));
   BOOST_CHECK(robot.hasSurface("RearRightWheel"));
   checkBodyInertias(robot);
+  // Only the Ranger has a MuJoCo IMU site to back this sensor; rolling_4s has
+  // no counterpart, so init_sensor_id would log an error every load.
+  BOOST_CHECK(!robot.hasBodySensor("ChassisIMU"));
 }
 
 BOOST_AUTO_TEST_CASE(LoadRangerMiniV3RollingRobot)
@@ -230,6 +236,18 @@ BOOST_AUTO_TEST_CASE(LoadRangerMiniV3RollingRobot)
   BOOST_CHECK_EQUAL(floatingBase.parentBody(), "chassis");
   BOOST_CHECK_SMALL((floatingBase.X_b_s().matrix() - sva::PTransformd::Identity().matrix()).norm(), 1e-12);
   BOOST_CHECK_SMALL((robot.posW().matrix() - robot.frame("chassis").position().matrix()).norm(), 1e-12);
+  // Stage 1 of the floating-base tilt estimation plan: the Ranger also carries
+  // a dedicated IMU body sensor, plumbed here but unread by anything yet.
+  BOOST_REQUIRE(robot.hasBodySensor("ChassisIMU"));
+  const auto & chassisImu = robot.bodySensor("ChassisIMU");
+  BOOST_CHECK_EQUAL(chassisImu.parentBody(), "chassis");
+  BOOST_CHECK_SMALL((chassisImu.X_b_s().matrix() - sva::PTransformd::Identity().matrix()).norm(), 1e-12);
+  // ChassisIMU must not be index 0: bodySensor() (no args) returns
+  // bodySensors[0], and both BodySensorObserver and KinematicInertialPoseObserver
+  // default their sensor to it. This is the assertion that stops a future
+  // reorder from silently redirecting every observer's default sensor away
+  // from the simulator ground truth.
+  BOOST_CHECK_EQUAL(robot.bodySensor().name(), "FloatingBase");
   BOOST_REQUIRE_EQUAL(module->_visual.at("chassis").size(), 1);
   BOOST_CHECK_SMALL(module->_visual.at("chassis").front().origin.translation().norm(), 1e-12);
   BOOST_CHECK_SMALL(

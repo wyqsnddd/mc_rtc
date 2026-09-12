@@ -23,6 +23,13 @@
       <!-- Explicit marker for the frame convention; it is visual-only and has no contact. -->
       <site name="chassis_frame" type="sphere" pos="0 0 0" size="0.008" rgba="0.95 0.15 0.05 1"/>
 
+      <!-- IMU site. Coincident with the chassis / free-joint / inertial origin, so the
+           mc_rtc BodySensor X_b_s is Identity and the accelerometer carries no
+           lever-arm term this model does not also carry. (Unlike jvrc1, where the
+           mc_rtc module places the IMU at (-0.0325, 0, 0.1095) while the MuJoCo site
+           sits at the body origin, leaving the two inconsistent.) -->
+      <site name="imu" type="sphere" pos="0 0 0" size="0.001" group="3"/>
+
       <!-- Visible Ranger Mini V3 body. Contact geometry is kept separate so the model remains easy to audit. -->
       <geom name="chassis_lower_visual" type="box" pos="0 0 -0.075" size="0.27 0.19 0.04"
             material="black" contype="0" conaffinity="0"/>
@@ -126,4 +133,8 @@
     <motor name="rear_right_steer_motor" joint="rear_right_steer" gear="1" ctrllimited="true" ctrlrange="-25 25"/>
     <motor name="rear_right_drive_motor" joint="rear_right_drive" gear="1" ctrllimited="true" ctrlrange="-35 35"/>
   </actuator>
+  <sensor>
+    <gyro          name="ChassisIMU_gyro"          site="imu"/>
+    <accelerometer name="ChassisIMU_accelerometer" site="imu"/>
+  </sensor>
 </mujoco>
