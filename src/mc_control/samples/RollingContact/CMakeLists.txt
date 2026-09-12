@@ -182,6 +182,46 @@ if(BUILD_TESTING)
       TIMEOUT 30
   )
 
+  # The chassis tilt estimator end to end: synthesised IMU in
+  # Ticker::simulate_sensors(), VelocityAidedTiltObserver, and the controller's
+  # attitude monitor. Twelve seconds because the yaw command has to carry the
+  # chassis a useful way around the cone about the tilted terrain normal before
+  # --tilt-excursion-min is satisfied; see the configuration's header for why a
+  # level chassis would make the bound vacuous.
+  add_test(
+    NAME RollingContactControllerFourSteeringTilt
+    COMMAND
+      $<TARGET_FILE:mc_rtc_ticker> -f
+      "${PROJECT_SOURCE_DIR}/rolling-contact-report/config/mc_rtc-four-steering-tilt.yaml"
+      --run-for 12 --no-sync
+  )
+  set_tests_properties(
+    RollingContactControllerFourSteeringTilt
+    PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+      TIMEOUT 90
+      ENVIRONMENT "CUDA_VISIBLE_DEVICES=-1;MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON"
+      FIXTURES_SETUP RollingContactFourSteeringTiltLog
+  )
+  add_test(
+    NAME RollingContactControllerFourSteeringTiltLog
+    COMMAND
+      "${Python3_EXECUTABLE}" "${ROLLING_CONTACT_CHECKER}"
+      /tmp/mc-rtc-rolling-four-steering-tilt-RollingContact-latest.bin --cycles 2400
+      --scenario ackermann_left --backend Tasks --utils "$<TARGET_FILE_DIR:mc_bin_to_log>"
+      # 0.5 degrees against a measured 0.028 peak: an order of margin, so this
+      # fails on a broken frame or a dead sensor rather than on filter tuning.
+      # The 10 degree excursion floor is measured at 20.0.
+      --tilt-error-limit 0.5 --tilt-excursion-min 10.0 --tilt-settle 2.0
+  )
+  set_tests_properties(
+    RollingContactControllerFourSteeringTiltLog
+    PROPERTIES
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+      FIXTURES_REQUIRED RollingContactFourSteeringTiltLog
+      TIMEOUT 30
+  )
+
   add_test(
     NAME RollingContactControllerTVMDifferential
     COMMAND

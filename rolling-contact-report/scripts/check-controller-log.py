@@ -28,6 +28,27 @@ def main():
     parser.add_argument("--output", type=pathlib.Path)
     parser.add_argument("--residual-limit", type=float, default=5e-3)
     parser.add_argument("--allow-mode-transitions", action="store_true")
+    parser.add_argument(
+        "--tilt-error-limit",
+        type=float,
+        help="degrees; require a tilt estimate on every cycle after --tilt-settle "
+        "and bound its error against the reference attitude. Off when unset.",
+    )
+    parser.add_argument(
+        "--tilt-excursion-min",
+        type=float,
+        default=5.0,
+        help="degrees; the reference roll/pitch must sweep at least this far while "
+        "--tilt-error-limit is in force. A level chassis compared against a level "
+        "estimate passes any error bound; this is what stops that.",
+    )
+    parser.add_argument(
+        "--tilt-settle",
+        type=float,
+        default=1.0,
+        help="seconds of run discarded before the tilt bound applies, for the "
+        "filter's own convergence transient.",
+    )
     args = parser.parse_args()
 
     log = args.log.resolve(strict=True)
@@ -203,6 +224,58 @@ def main():
             raise RuntimeError(f"negative normal force for {prefix}")
         if min(numeric[f"{prefix}_drive_torque_margin"]) < -1e-7:
             raise RuntimeError(f"drive torque limit violated for {prefix}")
+    tilt = None
+    if args.tilt_error_limit is not None:
+        tilt_fields = {
+            "RollingContact_attitude_valid",
+            "RollingContact_attitude_error",
+            "RollingContact_attitude_estimated_rp_x",
+            "RollingContact_attitude_estimated_rp_y",
+            "RollingContact_attitude_reference_rp_x",
+            "RollingContact_attitude_reference_rp_y",
+        }
+        missing_tilt = tilt_fields.difference(rows[0])
+        if missing_tilt:
+            raise RuntimeError(f"missing tilt fields: {sorted(missing_tilt)}")
+        first = math.ceil(args.tilt_settle / timestep)
+        if first >= len(rows):
+            raise RuntimeError("--tilt-settle discards the whole run")
+        settled = rows[first:]
+        for index, row in enumerate(settled, start=first):
+            if row["RollingContact_attitude_valid"] != "1":
+                raise RuntimeError(f"no tilt estimate at cycle {index}")
+        degrees = [math.degrees(float(row["RollingContact_attitude_error"])) for row in settled]
+        if not all(math.isfinite(value) for value in degrees):
+            raise RuntimeError("non-finite tilt error")
+        # The reference roll and pitch have to have gone somewhere. Both are
+        # functions of the reference tilt alone, so their peak-to-peak spread is
+        # the attitude excursion the estimator was actually asked to follow;
+        # bounding an error against a chassis that never moved would pass with
+        # an estimator stuck at its initial value.
+        excursions = []
+        for axis in ("x", "y"):
+            values = [
+                math.degrees(float(row[f"RollingContact_attitude_reference_rp_{axis}"]))
+                for row in settled
+            ]
+            excursions.append(max(values) - min(values))
+        excursion = max(excursions)
+        if excursion < args.tilt_excursion_min:
+            raise RuntimeError(
+                f"reference attitude swept only {excursion:.3f} deg, "
+                f"below the {args.tilt_excursion_min} deg this check needs to mean anything"
+            )
+        if max(degrees) > args.tilt_error_limit:
+            raise RuntimeError(
+                f"tilt estimate error {max(degrees):.3f} deg exceeded {args.tilt_error_limit} deg"
+            )
+        tilt = {
+            "settle_s": args.tilt_settle,
+            "error_deg_max": max(degrees),
+            "error_deg_rms": math.sqrt(sum(v * v for v in degrees) / len(degrees)),
+            "reference_excursion_deg": excursion,
+        }
+
     update = numeric["RollingContact_update_ms"]
     solve = numeric["RollingContact_solve_and_build_ms"]
     total = numeric["RollingContact_total_ms"]
@@ -253,6 +326,8 @@ def main():
             "max": max(total[10:]),
         },
     }
+    if tilt is not None:
+        report["tilt"] = tilt
     serialized = json.dumps(report, indent=2, sort_keys=True)
     print(serialized)
     if args.output:

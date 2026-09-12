@@ -5,9 +5,13 @@
 #include "mc_rolling_contact_controller.h"
 
 #include <mc_rbdyn/CylindricalSurface.h>
+#include <mc_rtc/constants.h>
+#include <mc_rtc/gui/ArrayLabel.h>
+#include <mc_rtc/gui/Arrow.h>
 #include <mc_rtc/gui/Button.h>
 #include <mc_rtc/gui/Label.h>
 #include <mc_rtc/gui/NumberInput.h>
+#include <mc_rtc/gui/plot.h>
 #include <mc_rtc/logging.h>
 #include <mc_solver/TasksQPSolver.h>
 
@@ -645,6 +649,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
 
   registerLogEntries();
   registerStatusGUI();
+  registerAttitudeGUI();
   mc_rtc::log::success("RollingContact CPU controller initialized for {} ({})", robot().name(), scenario_);
 }
 
@@ -821,6 +826,16 @@ void MCRollingContactController::registerLogEntries()
   logger().addLogEntry("RollingContact_odometry_twist",
                        [this]() -> const Eigen::Vector3d & { return odometryTwist_; });
   logger().addLogEntry("RollingContact_odometry_residual", [this]() { return odometryResidual_; });
+  // Radians, both of them, in mc_rbdyn::rpyFromMat's convention; the GUI is
+  // where degrees appear. "reference" and not "ground truth": it is the
+  // FloatingBase body sensor's attitude, which is MuJoCo's qpos under
+  // mc_mujoco but the control robot's own integrated pose under mc_rtc_ticker.
+  logger().addLogEntry("RollingContact_attitude_estimated_rp",
+                       [this]() -> const Eigen::Vector2d & { return attitudeMonitorEstimatedRP_; });
+  logger().addLogEntry("RollingContact_attitude_reference_rp",
+                       [this]() -> const Eigen::Vector2d & { return attitudeMonitorReferenceRP_; });
+  logger().addLogEntry("RollingContact_attitude_error", [this]() { return attitudeMonitorError_; });
+  logger().addLogEntry("RollingContact_attitude_valid", [this]() { return attitudeMonitorValid_; });
   logger().addLogEntry("RollingContact_floating_base_effort_norm", [this]() { return floatingBaseEffortNorm_; });
   logger().addLogEntry("RollingContact_update_ms", [this]() { return updateTimeMs_; });
   logger().addLogEntry("RollingContact_solve_and_build_ms", [this]() { return solveAndBuildTimeMs_; });
@@ -1040,6 +1055,77 @@ void MCRollingContactController::registerStatusGUI()
         mc_rtc::gui::Label("Friction margin", [this, i]() { return frictionMargins_[i]; }),
         mc_rtc::gui::Label("Drive torque margin", [this, i]() { return driveTorqueMargins_[i]; }));
   }
+}
+
+void MCRollingContactController::registerAttitudeGUI()
+{
+  using namespace mc_rtc::gui;
+  // static, so the arrow lambdas below can use it without capturing it.
+  static constexpr double kArrowLength = 0.6;
+  // Numbers first: the pair of roll/pitch readings and the single angle between
+  // the two normals that they decompose. Degrees here and only here - the log
+  // and the members stay in radians.
+  gui()->addElement({"Rolling Contact", "Attitude"},
+                    Label("Estimate available", [this]() { return attitudeMonitorValid_; }),
+                    ArrayLabel("Estimated roll/pitch [deg]", {"roll", "pitch"},
+                               [this]() -> Eigen::Vector2d
+                               {
+                                 return {mc_rtc::constants::toDeg(attitudeMonitorEstimatedRP_.x()),
+                                         mc_rtc::constants::toDeg(attitudeMonitorEstimatedRP_.y())};
+                               }),
+                    ArrayLabel("Reference roll/pitch [deg]", {"roll", "pitch"},
+                               [this]() -> Eigen::Vector2d
+                               {
+                                 return {mc_rtc::constants::toDeg(attitudeMonitorReferenceRP_.x()),
+                                         mc_rtc::constants::toDeg(attitudeMonitorReferenceRP_.y())};
+                               }),
+                    Label("Attitude error [deg]",
+                          [this]() { return mc_rtc::constants::toDeg(attitudeMonitorError_); }));
+  // Then the same thing in the 3D view, where a degree of tilt is easier to see
+  // than to read: two arrows out of the chassis origin, green for the estimate
+  // and grey for the reference. They coincide exactly when the estimate is
+  // right, which is the whole point - and they still coincide when no observer
+  // is running, which the "Estimate available" label above is there to
+  // distinguish.
+  gui()->addElement({"Rolling Contact", "Attitude"},
+                    Arrow(
+                        "Estimated normal", ArrowConfig{Color::Green},
+                        [this]() -> Eigen::Vector3d { return realRobot().posW().translation(); },
+                        [this]() -> Eigen::Vector3d
+                        { return realRobot().posW().translation() + kArrowLength * attitudeMonitorEstimatedNormal_; }),
+                    Arrow(
+                        "Reference normal", ArrowConfig{Color::Gray},
+                        [this]() -> Eigen::Vector3d { return realRobot().posW().translation(); },
+                        [this]() -> Eigen::Vector3d
+                        { return realRobot().posW().translation() + kArrowLength * attitudeMonitorReferenceNormal_; }));
+  // And finally the curves. Behind buttons, following the stabilizer's
+  // precedent (StabilizerTask_log_gui.cpp:272): a plot costs bandwidth every
+  // cycle it is open, and only a GUI client that implements plots shows one at
+  // all, so it is opened on request rather than by default.
+  auto plotButtons = [this](const char * title, const char * plotName, int axis)
+  {
+    return std::make_pair(
+        Button(title,
+               [this, plotName, axis]()
+               {
+                 gui()->addPlot(plotName, plot::X("t [s]", [this]() { return elapsed_; }),
+                                plot::Y(
+                                    "estimated [deg]",
+                                    [this, axis]()
+                                    { return mc_rtc::constants::toDeg(attitudeMonitorEstimatedRP_[axis]); },
+                                    Color::Green),
+                                plot::Y(
+                                    "reference [deg]",
+                                    [this, axis]()
+                                    { return mc_rtc::constants::toDeg(attitudeMonitorReferenceRP_[axis]); },
+                                    Color::Gray));
+               }),
+        Button(std::string{"Stop "} + plotName, [this, plotName]() { gui()->removePlot(plotName); }));
+  };
+  auto roll = plotButtons("Plot roll", "Roll", 0);
+  auto pitch = plotButtons("Plot pitch", "Pitch", 1);
+  gui()->addElement({"Rolling Contact", "Attitude"}, ElementsStacking::Horizontal, roll.first, roll.second);
+  gui()->addElement({"Rolling Contact", "Attitude"}, ElementsStacking::Horizontal, pitch.first, pitch.second);
 }
 
 MCRollingContactController::~MCRollingContactController()
@@ -1705,6 +1791,53 @@ void MCRollingContactController::updateOdometry()
   odometryTwist_ = wheelOdometryTwist(realRobot(), odometryResidual_);
 }
 
+void MCRollingContactController::updateAttitudeMonitor()
+{
+  // mc_rbdyn::rpyFromMat's roll and pitch read the third COLUMN of E_0_b and
+  // nothing else:
+  //     roll = atan2(E(1,2), E(2,2))     pitch = -asin(E(0,2))
+  // Only yaw touches the first row. That column is the world vertical expressed
+  // in body coordinates - which is exactly what a tilt estimator produces and
+  // calls x2 - so applying these two expressions to the estimate and to the
+  // reference compares like with like, with no yaw on either side and no Euler
+  // ambiguity to resolve. A single lambda computes both for that reason.
+  const auto rollPitch = [](const Eigen::Vector3d & tiltBody)
+  {
+    return Eigen::Vector2d{std::atan2(tiltBody.y(), tiltBody.z()),
+                           -std::asin(std::clamp(tiltBody.x(), -1.0, 1.0))};
+  };
+  const Eigen::Matrix3d referenceRotation = realRobot().posW().rotation();
+  attitudeMonitorReferenceRP_ = rollPitch(referenceRotation.col(2));
+  // The chassis +z in world is E_0_b's third ROW, not its third column - the
+  // column is the world vertical in body coordinates. Only the arrows use it.
+  attitudeMonitorReferenceNormal_ = referenceRotation.row(2).transpose();
+  // TiltBody, not Tilt: the observer has already carried x2 over to the IMU's
+  // parent body with its own X_b_s, which this controller does not know. That
+  // body is the Ranger's chassis, i.e. the floating base, so it shares
+  // posW()'s frame and the two sides are directly comparable.
+  const std::string tiltKey = "VelocityAidedTilt::TiltBody::" + robot().name();
+  const std::string normalKey = "VelocityAidedTilt::Normal::" + robot().name();
+  attitudeMonitorValid_ = datastore().has(tiltKey) && datastore().has(normalKey);
+  if(!attitudeMonitorValid_)
+  {
+    // NaN, not zero and not a copy of the reference: a pipeline without a tilt
+    // observer has no estimate, and both alternatives would draw a curve that
+    // looks like a converged one.
+    attitudeMonitorEstimatedRP_.setConstant(std::numeric_limits<double>::quiet_NaN());
+    attitudeMonitorEstimatedNormal_ = attitudeMonitorReferenceNormal_;
+    attitudeMonitorError_ = std::numeric_limits<double>::quiet_NaN();
+    return;
+  }
+  const Eigen::Vector3d estimatedTilt = datastore().get<Eigen::Vector3d>(tiltKey);
+  attitudeMonitorEstimatedRP_ = rollPitch(estimatedTilt);
+  attitudeMonitorEstimatedNormal_ = datastore().get<Eigen::Vector3d>(normalKey);
+  // The angle between the two tilts, which is the total attitude error the
+  // roll/pitch pair splits: both vectors are unit, so their dot product is its
+  // cosine. Frame-independent, and the quantity the ramp criteria are written
+  // against.
+  attitudeMonitorError_ = std::acos(std::clamp(estimatedTilt.dot(referenceRotation.col(2)), -1.0, 1.0));
+}
+
 void MCRollingContactController::updateModes()
 {
   const bool wasContactFallback = contactFallback_;
@@ -2126,6 +2259,7 @@ bool MCRollingContactController::run()
       measuredDrivePositions_[i] = robot().mbc().q[drive][0];
     }
     updateOdometry();
+    updateAttitudeMonitor();
     updateTerrainNormal();
     updateModes();
     updateReference();

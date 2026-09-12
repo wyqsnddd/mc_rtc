@@ -55,7 +55,15 @@ namespace mc_observers
  * | in  | `VelocityAidedTilt::SensorVelocity::<robot>`   | `Eigen::Vector3d(const mc_rbdyn::Robot &)` |
  * | in  | `VelocityAidedTilt::VelocityActivation::<robot>` | `double()`, optional                   |
  * | out | `VelocityAidedTilt::Tilt::<robot>`             | `Eigen::Vector3d` - x2, sensor frame     |
+ * | out | `VelocityAidedTilt::TiltBody::<robot>`         | `Eigen::Vector3d` - x2, parent-body frame |
  * | out | `VelocityAidedTilt::Normal::<robot>`           | `Eigen::Vector3d` - body +z in the world |
+ *
+ * `TiltBody` is `Tilt` carried over by `X_b_s`, and it is the one a consumer
+ * usually wants: it is the third column of the IMU parent body's `E_0_b`, so
+ * `mc_rbdyn::rpyFromMat`'s roll and pitch are read straight off it, and the
+ * same two expressions applied to a reference pose give a like-for-like
+ * comparison. `Normal` cannot substitute for it - that is `E_0_b`'s third ROW,
+ * a different vector.
  *
  * The input is the planar chassis velocity in the FLOATING-BASE BODY frame,
  * `[vx, vy, 0]`; this observer maps it to the sensor frame itself, lever arm
@@ -90,6 +98,8 @@ struct MC_OBSERVER_DLLAPI VelocityAidedTiltObserver : public Observer
 
   /** x2: the world vertical expressed in the IMU frame. Unit, yaw-free. */
   const Eigen::Vector3d & tilt() const noexcept { return tilt_; }
+  /** x2 carried over to the IMU's parent body frame. Unit, yaw-free. */
+  const Eigen::Vector3d & tiltBody() const noexcept { return tiltBody_; }
   /** The estimated body +z axis of the IMU's parent body, in world coordinates. */
   const Eigen::Vector3d & normal() const noexcept { return normal_; }
   /** The velocity measurement actually fed to the filter, in the sensor frame. */
@@ -113,6 +123,7 @@ protected:
   std::string velocityFunction_; ///< Datastore call supplying the body-frame velocity
   std::string activationFunction_; ///< Optional datastore call supplying the contact support
   std::string tiltKey_; ///< Datastore key this observer publishes x2 under
+  std::string tiltBodyKey_; ///< Datastore key this observer publishes x2's body image under
   std::string normalKey_; ///< Datastore key this observer publishes the world normal under
 
   double alpha_ = 10.0; ///< Convergence gain of the IMU-frame linear velocity
@@ -125,6 +136,7 @@ protected:
   stateObservation::TimeIndex step_ = 0;
 
   Eigen::Vector3d tilt_ = Eigen::Vector3d::UnitZ();
+  Eigen::Vector3d tiltBody_ = Eigen::Vector3d::UnitZ();
   Eigen::Vector3d tiltPrime_ = Eigen::Vector3d::UnitZ();
   Eigen::Vector3d normal_ = Eigen::Vector3d::UnitZ();
   Eigen::Vector3d imuVelocity_ = Eigen::Vector3d::Zero(); ///< x1, the filter's own IMU-frame velocity

@@ -135,6 +135,25 @@ private:
   Eigen::Vector3d wheelOdometryTwist(const mc_rbdyn::Robot & measured, double & residual);
   /** Refresh odometryTwist_/odometryResidual_ from realRobot(). */
   void updateOdometry();
+  /** Compare the tilt observer's roll and pitch against the reference attitude.
+   *
+   * Pure instrumentation: it writes only the attitudeMonitor* members, which
+   * nothing but the log and the GUI reads. No estimate reaches the QP here -
+   * the terrain normal is still the configured constant.
+   *
+   * The reference is realRobot().posW(), i.e. whatever the "FloatingBase" body
+   * sensor reports. Under mc_mujoco that is the simulator's own qpos and the
+   * comparison is against ground truth; under mc_rtc_ticker it is the control
+   * robot's integrated pose, which is also what the synthesised IMU is built
+   * from, and the comparison is a consistency check on the estimator's signal
+   * path rather than independent validation. Neither is affected by this
+   * function, which is why it is safe in both.
+   *
+   * Silently inert - attitudeMonitorValid_ stays false - when no observer
+   * published "VelocityAidedTilt::Tilt::<robot>", so the RollingContact
+   * pipelines that carry no tilt observer are unaffected.
+   */
+  void updateAttitudeMonitor();
   void updateModes();
   void updateDiagnostics(bool solverSuccess);
   void syncControlRobotFromSensors();
@@ -168,6 +187,8 @@ private:
   void registerLogEntries();
   /** The read-only status labels, under "Rolling Contact". */
   void registerStatusGUI();
+  /** updateAttitudeMonitor()'s output, under "Rolling Contact"/"Attitude". */
+  void registerAttitudeGUI();
 
   std::vector<mc_rbdyn::RollingContactDescription> wheels_;
   std::vector<Eigen::Vector2d> wheelOffsets_;
@@ -294,6 +315,27 @@ private:
    */
   Eigen::Vector3d odometryTwist_ = Eigen::Vector3d::Zero();
   double odometryResidual_ = 0.0;
+  /** updateAttitudeMonitor()'s output: estimated and reference attitude.
+   *
+   * The two roll/pitch pairs are in RADIANS and share mc_rbdyn::rpyFromMat's
+   * convention; the GUI converts to degrees where it shows them. Both are
+   * functions of a tilt vector alone - see updateAttitudeMonitor() - so no yaw
+   * enters either side and the difference is exactly the estimator's error.
+   */
+  Eigen::Vector2d attitudeMonitorEstimatedRP_ = Eigen::Vector2d::Zero();
+  Eigen::Vector2d attitudeMonitorReferenceRP_ = Eigen::Vector2d::Zero();
+  /** The same two attitudes as chassis +z in world, for the 3D arrows only.
+   *
+   * The estimated one is copied from the reference while no observer publishes
+   * it, so that the two arrows sit on top of each other rather than one of them
+   * pointing at the origin.
+   */
+  Eigen::Vector3d attitudeMonitorEstimatedNormal_ = Eigen::Vector3d::UnitZ();
+  Eigen::Vector3d attitudeMonitorReferenceNormal_ = Eigen::Vector3d::UnitZ();
+  /** Angle between the estimated and the reference world normal, in radians. */
+  double attitudeMonitorError_ = 0.0;
+  /** False until an observer publishes a tilt; the monitor holds zeros then. */
+  bool attitudeMonitorValid_ = false;
   double dynamicsResidual_ = 0.0;
   double floatingBaseEffortNorm_ = 0.0;
   std::vector<double> appliedActivations_;

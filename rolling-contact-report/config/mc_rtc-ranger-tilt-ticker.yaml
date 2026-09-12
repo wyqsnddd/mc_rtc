@@ -1,0 +1,112 @@
+# Drive the Ranger Mini V3 from the keyboard under mc_rtc_ticker and watch the
+# estimated chassis roll and pitch against the reference attitude.
+#
+#   cd /home/yuquan/local/mc_rtc_sources/mc_rtc
+#   export CUDA_VISIBLE_DEVICES=-1 MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON
+#   ./build/utils/mc_rtc_ticker -f rolling-contact-report/config/mc_rtc-ranger-tilt-ticker.yaml
+#
+# Then attach a GUI client (mc_rtc_ros' RViz panel, or any client speaking the
+# ports below) and open "Rolling Contact" -> "Attitude":
+#   - "Estimated roll/pitch [deg]" and "Reference roll/pitch [deg]", the two
+#     numbers to compare, plus the single "Attitude error [deg]" between them;
+#   - a green and a grey arrow out of the chassis, the estimated and the
+#     reference chassis +z. They sit on top of each other while the estimate is
+#     good, which is the point;
+#   - "Plot roll" and "Plot pitch", two curves each.
+# Everything is in the log too, as RollingContact_attitude_*.
+#
+# W/S forward and back, A/D sideways, Q/E yaw, X to quit. The ticker needs a real
+# terminal on standard input for those; run it in the foreground.
+#
+# TURN, DO NOT ONLY DRIVE STRAIGHT. `terrainNormal` below is tilted 10 degrees,
+# and `baseReferenceAngularVelocity_` is `yaw * terrainNormal`, so Q or E turns
+# the chassis about a tilted axis and its roll and pitch sweep the 0-to-20-degree
+# cone around it. W and S alone leave the attitude where it is and the two curves
+# sit on one flat line - correct, but it shows nothing.
+#
+# WHAT YOU ARE LOOKING AT
+# mc_rtc_ticker has no physics. The gyroscope and accelerometer come from
+# Ticker::simulate_sensors(), built from the control robot's own state, and the
+# reference attitude arrives through the FloatingBase body sensor from that same
+# state. The estimator never sees the reference - it gets an IMU, wheel encoders
+# and nothing else - so a tracking estimate does say its whole signal path is
+# right. It does NOT say the controller keeps the chassis where physics would.
+# For that, run mc_rtc-ranger-ramps-mujoco.yaml in mc_mujoco, where MuJoCo
+# supplies both the IMU and the truth. Measured here with a steady yaw command:
+# 0.028 degrees peak error, 0.019 RMS, over a 20 degree attitude excursion.
+MainRobot: RollingContactRangerMiniV3
+Enabled: [RollingContact]
+Default: RollingContact
+Timestep: 0.005
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-ranger-tilt-ticker
+ClearControllerModulePath: true
+ControllerModulePaths: [build/src/mc_control/samples/RollingContact]
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+ObserverPipelines:
+  - name: RollingContactPipeline
+    gui: true
+    observers:
+      - type: Encoder
+        update: true
+        position: encoderValues
+        velocity: encoderVelocities
+      # Supplies realRobot().posW(), which is both the yaw the tilt observer
+      # merges in and the reference the attitude monitor compares against. It
+      # has to stay ahead of VelocityAidedTilt in this list.
+      - type: BodySensor
+        update: true
+        bodySensor: FloatingBase
+        method: sensor
+        updatePose: true
+        updateVel: true
+      - type: VelocityAidedTilt
+        update: true
+        # Never true here: BodySensorObserver owns realRobot().posW() and the
+        # comparison needs it intact as the reference in the same run.
+        updateRobot: false
+        imuBodySensor: ChassisIMU
+        alpha: 10.0
+        beta: 4.0
+        gamma: 10.0
+        minimumActivation: 1.0
+GUIServer:
+  Enable: true
+  IPC:
+    Socket: /tmp/mc_rtc
+  TCP:
+    Host: "127.0.0.1"
+    Ports: [4242, 4343]
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
+RollingContact:
+  scenario: keyboard
+  # Open loop, unlike the mc_mujoco keyboard configuration. Closed-loop keyboard
+  # takes its orientation target from the measured pose, which under the ticker
+  # is the controller's own integrated attitude: the chassis would then hold
+  # whatever attitude it starts with and the tilted normal below would never
+  # reach it. Open loop builds the target from `terrainNormal` and the heading,
+  # which is what makes the attitude move at all here.
+  closedLoopFeedback: false
+  keyboardLinearSpeed: 0.3
+  keyboardAngularSpeed: 0.5
+  keyboardPollIntervalMs: 10
+  keyboardExitKey: x
+  driveAcceleration: 20.0
+  rollingRateWeight: 4.0e7
+  steeringRateWeight: 4.0e7
+  lateralSlackWeight: 1.0e7
+  steeringPostureWeight: 1.0
+  positionFeedbackGain: 5.0
+  velocityGain: 20.0
+  postureStiffness: 5.0
+  postureWeight: 100.0
+  longitudinal: hard
+  # 10 degrees about +y: [sin, 0, cos]. See the header for why it is not [0,0,1].
+  terrainNormal: [0.17364818, 0.0, 0.98480775]

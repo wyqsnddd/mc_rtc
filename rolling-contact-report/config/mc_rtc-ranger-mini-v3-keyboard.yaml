@@ -26,6 +26,30 @@ ObserverPipelines:
         method: sensor
         updatePose: true
         updateVel: true
+      # Chassis roll and pitch from the IMU and the measured wheel odometry, so
+      # that "Rolling Contact" -> "Attitude" in the GUI has something to show
+      # while you drive: the estimate, the reference attitude from the
+      # FloatingBase pose above, and the angle between them. Nothing in the QP
+      # consumes it - `terrainNormal` below is still the configured constant.
+      # Yaw is NOT estimated.
+      #
+      # This configuration runs on flat ground, so the interesting readings are
+      # the transients: what the estimate does while the chassis pitches under
+      # acceleration, or rolls over whatever it drives into. For a sustained
+      # attitude excursion use mc_rtc-ranger-tilt-ticker.yaml under the ticker,
+      # or mc_rtc-ranger-ramps-mujoco.yaml for real slopes.
+      #
+      # Only on the Ranger configurations, not on the shared
+      # etc/RollingContact.yaml pipeline: the rolling_diff and rolling_4s
+      # variants have no IMU and this observer refuses to configure without one.
+      - type: VelocityAidedTilt
+        update: true
+        updateRobot: false
+        imuBodySensor: ChassisIMU
+        alpha: 10.0
+        beta: 4.0
+        gamma: 10.0
+        minimumActivation: 1.0
 GUIServer:
   Enable: true
   # Keep the standard IPC endpoint used by mc_mujoco's built-in visualizer.

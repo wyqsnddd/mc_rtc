@@ -33,6 +33,7 @@ void VelocityAidedTiltObserver::configure(const mc_control::MCController & ctl, 
   velocityFunction_ = config("velocityFunction", "VelocityAidedTilt::SensorVelocity::" + robot_);
   activationFunction_ = config("activationFunction", "VelocityAidedTilt::VelocityActivation::" + robot_);
   tiltKey_ = "VelocityAidedTilt::Tilt::" + robot_;
+  tiltBodyKey_ = "VelocityAidedTilt::TiltBody::" + robot_;
   normalKey_ = "VelocityAidedTilt::Normal::" + robot_;
 
   // alpha / beta / gamma, and why these three numbers.
@@ -137,6 +138,7 @@ void VelocityAidedTiltObserver::reset(const mc_control::MCController & ctl)
   tilt_ = E_b_s * ctl.realRobot(robot_).posW().rotation().col(2);
   if(!tilt_.allFinite() || tilt_.norm() < 1e-9) { tilt_ = Eigen::Vector3d::UnitZ(); }
   tilt_.normalize();
+  tiltBody_ = E_b_s.transpose() * tilt_;
   tiltPrime_ = tilt_;
   imuVelocity_.setZero();
   sensorVelocity_.setZero();
@@ -223,9 +225,9 @@ bool VelocityAidedTiltObserver::run(const mc_control::MCController & ctl)
   // mergeTiltWithYawAxisAgnostic, not mergeRoll1Pitch1WithYaw2: the header at
   // rigid-body-kinematics.hpp:184 recommends it explicitly because the other
   // one throws at gimbal lock.
-  const Eigen::Vector3d tiltBody = E_b_s.transpose() * tilt_;
+  tiltBody_ = E_b_s.transpose() * tilt_;
   const Eigen::Matrix3d bodyToWorld = realRobot.posW().rotation().transpose();
-  normal_ = stateObservation::kine::mergeTiltWithYawAxisAgnostic(tiltBody, bodyToWorld).col(2);
+  normal_ = stateObservation::kine::mergeTiltWithYawAxisAgnostic(tiltBody_, bodyToWorld).col(2);
   tiltAngle_ = std::acos(std::clamp(normal_.z(), -1.0, 1.0));
   return true;
 }
@@ -241,6 +243,7 @@ void VelocityAidedTiltObserver::publish(mc_control::MCController & ctl,
 void VelocityAidedTiltObserver::update(mc_control::MCController & ctl)
 {
   publish(ctl, tiltKey_, tilt_);
+  publish(ctl, tiltBodyKey_, tiltBody_);
   publish(ctl, normalKey_, normal_);
   if(!updateRobot_) { return; }
   // Off by default and deliberately so: BodySensorObserver owns
@@ -249,9 +252,8 @@ void VelocityAidedTiltObserver::update(mc_control::MCController & ctl)
   // the same run. Only the attitude is written when it is on; the translation
   // is not this observer's to estimate.
   auto & realRobot = ctl.realRobot(robot_);
-  const Eigen::Vector3d tiltBody = ctl.robot(robot_).bodySensor(imuSensor_).X_b_s().rotation().transpose() * tilt_;
   const Eigen::Matrix3d bodyToWorld =
-      stateObservation::kine::mergeTiltWithYawAxisAgnostic(tiltBody, realRobot.posW().rotation().transpose());
+      stateObservation::kine::mergeTiltWithYawAxisAgnostic(tiltBody_, realRobot.posW().rotation().transpose());
   realRobot.posW(sva::PTransformd(bodyToWorld.transpose(), realRobot.posW().translation()));
 }
 
@@ -260,6 +262,7 @@ void VelocityAidedTiltObserver::addToLogger(const mc_control::MCController &,
                                             const std::string & category)
 {
   logger.addLogEntry(category + "_tilt", this, [this]() -> const Eigen::Vector3d & { return tilt_; });
+  logger.addLogEntry(category + "_tiltBody", this, [this]() -> const Eigen::Vector3d & { return tiltBody_; });
   logger.addLogEntry(category + "_normal", this, [this]() -> const Eigen::Vector3d & { return normal_; });
   logger.addLogEntry(category + "_tiltAngle", this, [this]() { return tiltAngle_; });
   logger.addLogEntry(category + "_sensorVelocity", this,

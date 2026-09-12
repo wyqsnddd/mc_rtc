@@ -1,0 +1,97 @@
+# Headless fixture for the chassis tilt estimator under mc_rtc_ticker.
+#
+#   ./build/utils/mc_rtc_ticker -f rolling-contact-report/config/mc_rtc-four-steering-tilt.yaml \
+#     --run-for 12 --no-sync
+#
+# Registered with CTest as RollingContactControllerFourSteeringTilt, whose
+# RollingContactControllerFourSteeringTiltLog companion bounds
+# RollingContact_attitude_error.
+#
+# WHAT THIS MEASURES, AND WHAT IT DOES NOT
+# mc_rtc_ticker has no physics. The gyroscope and accelerometer readings come
+# from Ticker::simulate_sensors(), which builds them from the control robot's
+# own state, and the reference attitude the estimate is compared against is that
+# same state arriving through the FloatingBase body sensor. So this is a
+# consistency check on the estimator's signal path - IMU synthesis, frames,
+# lever arm, wheel odometry, filter, and back out to roll and pitch - and NOT
+# independent validation of the controller. The mc_mujoco ramp lanes
+# (mc_rtc-ranger-ramps-mujoco.yaml, run-ramp-validation.py) remain the only
+# place where an independent simulator supplies the truth.
+#
+# WHY THE TERRAIN NORMAL IS TILTED
+# Flat ground would make this fixture vacuous: the chassis would sit level, the
+# reference roll and pitch would stay at zero, and an estimator frozen at its
+# initial value would pass any error bound. `baseReferenceAngularVelocity_` is
+# `yaw * terrainNormal`, so with the normal 10 degrees off vertical a yaw
+# command turns the chassis about a tilted axis and its roll and pitch sweep the
+# whole 0-to-20-degree cone around it. Measured over t >= 2 s of the run below:
+# roll +10.1 to -8.7 degrees, pitch 0 to -19.2, total tilt 6.3 to 20.0 - against
+# an estimator error of 0.028 degrees peak, 0.019 RMS. The checker's
+# --tilt-excursion-min is what keeps that property from silently going away.
+MainRobot: RollingContactRangerMiniV3
+Enabled: [RollingContact]
+Default: RollingContact
+Timestep: 0.005
+Log: true
+LogPolicy: non-threaded
+LogDirectory: /tmp
+LogTemplate: mc-rtc-rolling-four-steering-tilt
+ClearControllerModulePath: true
+ControllerModulePaths: [build/src/mc_control/samples/RollingContact]
+ClearRobotModulePath: true
+RobotModulePaths: [build/src/mc_robots]
+ClearObserverModulePath: true
+ObserverModulePaths: [build/src/mc_observers]
+ObserverPipelines:
+  - name: RollingContactPipeline
+    gui: true
+    observers:
+      - type: Encoder
+        update: true
+        position: encoderValues
+        velocity: encoderVelocities
+      # Supplies realRobot().posW(), which is both the yaw the tilt observer
+      # merges in and the reference the controller's attitude monitor compares
+      # against. It has to stay ahead of VelocityAidedTilt in this list.
+      - type: BodySensor
+        update: true
+        bodySensor: FloatingBase
+        method: sensor
+        updatePose: true
+        updateVel: true
+      - type: VelocityAidedTilt
+        update: true
+        # Never true here: BodySensorObserver owns realRobot().posW() and this
+        # fixture needs it intact as the reference in the same run.
+        updateRobot: false
+        imuBodySensor: ChassisIMU
+        alpha: 10.0
+        beta: 4.0
+        gamma: 10.0
+        minimumActivation: 1.0
+GUIServer:
+  Enable: false
+ClearGlobalPluginPath: true
+GlobalPluginPaths: []
+Plugins: []
+RollingContact:
+  # Pinned so a user configuration in ~/.config/mc_rtc cannot flip this fixture
+  # into closed loop: mc_rtc merges the user file before the -f file, and every
+  # key this config leaves unset is inherited from it.
+  closedLoopFeedback: false
+  # Forward plus yaw. The yaw is what makes the attitude move; the forward
+  # component is what puts a non-trivial transport term in the accelerometer and
+  # a non-zero velocity in the wheel odometry, so both estimator inputs are
+  # exercised rather than just the gyroscope.
+  scenario: ackermann_left
+  linearSpeed: 0.3
+  velocityGain: 20.0
+  postureStiffness: 5.0
+  postureWeight: 100.0
+  steeringPostureWeight: 1.0
+  rollingRateWeight: 4.0e7
+  steeringRateWeight: 4.0e7
+  lateralSlackWeight: 1.0e7
+  longitudinal: hard
+  # 10 degrees about +y: [sin, 0, cos]. See the header for why it is not [0,0,1].
+  terrainNormal: [0.17364818, 0.0, 0.98480775]
