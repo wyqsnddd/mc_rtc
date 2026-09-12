@@ -428,6 +428,13 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
     mc_rtc::log::error_and_throw<std::invalid_argument>("RollingContact terrainNormal must be finite and nonzero");
   }
   terrainNormal_ = options.terrainNormal.normalized();
+  // One normalised vector for both constraints, and the same one every cycle.
+  // RollingContactDynamicsConstraint::terrainNormal() normalises its argument
+  // internally while RollingContactConstraint::terrainNormal() stores it
+  // verbatim, so feeding the two setters the raw configured vector would leave
+  // them holding different normals whenever the configuration is not already a
+  // unit vector. Normalise once here and hand terrainNormal_ to both.
+  options.terrainNormal = terrainNormal_;
   // This basis is the world-fixed yaw reference frame, NOT the chassis-aligned
   // planar basis of assumption A1. measuredYaw is
   // atan2(heading . terrainTangentY_, heading . terrainTangentX_), so a basis
@@ -524,7 +531,7 @@ MCRollingContactController::MCRollingContactController(mc_rbdyn::RobotModulePtr 
   const double generatorRegularization = settings("generatorRegularization", 0.0);
   dynamics_ = std::make_unique<mc_solver::RollingContactDynamicsConstraint>(robots(), 0, dt, wheels_, false,
                                                                             generatorRegularization);
-  dynamics_->terrainNormal(options.terrainNormal);
+  dynamics_->terrainNormal(terrainNormal_);
   rolling_ = std::make_unique<mc_solver::RollingContactConstraint>(robots(), 0, wheels_, options);
 
   mc_rbdyn::RollingContactModeThresholds thresholds;
@@ -1577,6 +1584,24 @@ void MCRollingContactController::updateReference()
   updateWheelReferences(twist);
 }
 
+void MCRollingContactController::updateTerrainNormal()
+{
+  // Both constraints rebuild their contact geometry from the normal they hold
+  // when update() runs, so a normal written once in the constructor and a
+  // normal rewritten with the same value every cycle are indistinguishable to
+  // the QP - which is the point. terrainNormal_ is still the configured
+  // constant here; nothing estimates it yet. What this establishes is that the
+  // per-cycle setter path itself is inert, so that when an estimate does start
+  // flowing through it any change in behaviour is attributable to the estimate
+  // and not to the plumbing.
+  //
+  // Cheap enough for the control loop: RollingContactConstraintOptions holds
+  // only scalars and one fixed-size vector, so the copy-validate-assign in
+  // RollingContactConstraint::terrainNormal() allocates nothing.
+  rolling_->terrainNormal(terrainNormal_);
+  dynamics_->terrainNormal(terrainNormal_);
+}
+
 void MCRollingContactController::updateModes()
 {
   const bool wasContactFallback = contactFallback_;
@@ -1997,6 +2022,7 @@ bool MCRollingContactController::run()
       const auto drive = robot().jointIndexByName(wheels_[i].driveJoint);
       measuredDrivePositions_[i] = robot().mbc().q[drive][0];
     }
+    updateTerrainNormal();
     updateModes();
     updateReference();
     success = MCController::run();

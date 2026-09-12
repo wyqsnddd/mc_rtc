@@ -99,6 +99,15 @@ private:
    * merely a large error.
    */
   void saturateYawTargetAgainstMeasuredHeading();
+  /** Push this cycle's terrain normal into both rolling-contact constraints.
+   *
+   * Called at the top of every run(), before the constraints' own update().
+   * The value is currently the configured constant, normalised once in the
+   * constructor, so this is a no-op in effect; it exists so the per-cycle
+   * setter path is exercised and proven inert before anything estimates the
+   * normal.
+   */
+  void updateTerrainNormal();
   void updateModes();
   void updateDiagnostics(bool solverSuccess);
   void syncControlRobotFromSensors();
