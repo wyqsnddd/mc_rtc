@@ -4,6 +4,8 @@
 
 #include <mc_control/Ticker.h>
 
+#include <mc_rtc/constants.h>
+
 #include <thread>
 
 #include <filesystem>
@@ -71,6 +73,52 @@ std::vector<double> get_encoders_velocities(const mc_rbdyn::Robot & robot)
     for(const auto & qi : robot.mbc().alpha[static_cast<size_t>(mbcIdx)]) { alpha.push_back(qi); }
   }
   return alpha;
+}
+
+/** Gyroscope and accelerometer readings a robot's body sensors would produce
+ *
+ * \returns the angular velocities and the linear accelerations, keyed by sensor
+ * name, ready for \ref MCGlobalController::setSensorAngularVelocities and
+ * \ref MCGlobalController::setSensorLinearAccelerations
+ *
+ * \note "FloatingBase" is skipped, exactly as mc_mujoco skips it: it is the
+ * ground-truth pose channel, whose position and orientation the caller writes
+ * itself, and a pipeline reading its (absent, hence zero) velocity today must
+ * keep reading zero.
+ *
+ * \note The ticker has no physics. These readings come from the control
+ * robot's own state, integrated from the last QP solution, so an attitude
+ * estimator fed with them is being checked against the state it was derived
+ * from - a consistency check on the estimator's signal path, not independent
+ * validation of the controller.
+ */
+std::pair<std::map<std::string, Eigen::Vector3d>, std::map<std::string, Eigen::Vector3d>> get_imus(
+    const mc_rbdyn::Robot & robot)
+{
+  std::map<std::string, Eigen::Vector3d> gyros;
+  std::map<std::string, Eigen::Vector3d> accelerometers;
+  for(const auto & sensor : robot.bodySensors())
+  {
+    if(sensor.name() == "FloatingBase" || !robot.hasBody(sensor.parentBody())) { continue; }
+    auto bIdx = robot.bodyIndexByName(sensor.parentBody());
+    // X_b_s carries a quantity expressed at the parent body over to the sensor,
+    // lever arm included, so X_0_s = X_b_s * X_0_b and the sensor's own twist
+    // and spatial acceleration are the body's mapped through it.
+    const auto & X_b_s = sensor.X_b_s();
+    const sva::MotionVecd V_s = X_b_s * robot.mbc().bodyVelB[bIdx];
+    const sva::MotionVecd A_s = X_b_s * robot.mbc().bodyAccB[bIdx];
+    const Eigen::Matrix3d E_0_s = (X_b_s * robot.mbc().bodyPosW[bIdx]).rotation();
+    // A gyroscope reads its own angular rate. An accelerometer reads specific
+    // force: the CLASSICAL acceleration of its origin, less gravity. bodyAccB
+    // is a spatial acceleration, whose linear part is the classical one less
+    // omega x v, hence the cross product; and constants::gravity points UP, so
+    // subtracting gravity is adding it. A level sensor at rest therefore reads
+    // +9.81 on its z axis, which is what MuJoCo reports for the same sensor.
+    gyros[sensor.name()] = V_s.angular();
+    accelerometers[sensor.name()] =
+        A_s.linear() + V_s.angular().cross(V_s.linear()) + E_0_s * mc_rtc::constants::gravity;
+  }
+  return {gyros, accelerometers};
 }
 
 /** Get the floating base position from the given log at the given time */
@@ -374,6 +422,20 @@ void Ticker::simulate_sensors()
         gc_.setSensorPositions(r.name(), {{"FloatingBase", r.posW().translation()}});
         gc_.setSensorOrientations(r.name(), {{"FloatingBase", Eigen::Quaterniond{r.posW().rotation()}}});
       }
+    }
+    // The control robots, not outputRobots(): an IMU reading is built from
+    // body velocities and accelerations, and the output robots carry neither.
+    // RobotConverter refreshes their pose through Robot::posW(), which runs
+    // forward kinematics only, so their bodyVelB and bodyAccB stay at zero -
+    // measured as an accelerometer reading of exactly |g| on every cycle of a
+    // turning run, transport term and all. The pose above is unaffected, which
+    // is why it is still read from the canonical view.
+    for(const auto & r : gc_.controller().robots())
+    {
+      auto [gyros, accelerometers] = get_imus(r);
+      if(gyros.empty()) { continue; }
+      gc_.setSensorAngularVelocities(r.name(), gyros);
+      gc_.setSensorLinearAccelerations(r.name(), accelerometers);
     }
   }
 }
