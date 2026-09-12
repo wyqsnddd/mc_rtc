@@ -42,6 +42,7 @@ add_observer(EncoderObserver)
 add_observer(BodySensorObserver)
 add_observer(KinematicInertialPoseObserver)
 add_observer(KinematicInertialObserver)
+add_observer(VelocityAidedTiltObserver)
 if(NOT MC_RTC_BUILD_STATIC)
   target_link_libraries(KinematicInertialObserver PUBLIC KinematicInertialPoseObserver)
   set_target_properties(

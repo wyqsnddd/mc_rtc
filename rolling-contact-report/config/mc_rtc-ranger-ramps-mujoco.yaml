@@ -69,6 +69,24 @@ ObserverPipelines:
         method: sensor
         updatePose: true
         updateVel: true
+      # Roll and pitch from the chassis IMU and the measured wheel odometry.
+      # Nothing consumes it yet: `terrainNormal` below is still the single
+      # configured constant the header describes. It is here so the estimate can
+      # be watched, in the GUI and in the log, against the FloatingBase pose
+      # BodySensor puts in realRobot() from MuJoCo's own qpos - which is why
+      # `updateRobot` is false. Yaw is NOT estimated.
+      #
+      # Only on this configuration and the ramp-validation sweep, not on the
+      # shared etc/RollingContact.yaml pipeline: the rolling_diff and rolling_4s
+      # variants have no IMU and this observer refuses to configure without one.
+      - type: VelocityAidedTilt
+        update: true
+        updateRobot: false
+        imuBodySensor: ChassisIMU
+        alpha: 10.0
+        beta: 4.0
+        gamma: 10.0
+        minimumActivation: 1.0
 GUIServer:
   Enable: true
   # Keep the standard IPC endpoint used by mc_mujoco's built-in visualizer.

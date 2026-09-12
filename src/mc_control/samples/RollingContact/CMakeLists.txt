@@ -52,7 +52,7 @@ if(BUILD_TESTING)
   )
   add_dependencies(
     testRollingContactControllerLifecycle rolling_contact EncoderObserver
-    BodySensorObserver
+    BodySensorObserver VelocityAidedTiltObserver
   )
   target_compile_definitions(
     testRollingContactControllerLifecycle

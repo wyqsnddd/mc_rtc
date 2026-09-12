@@ -24,7 +24,7 @@
   "not": {
     "properties": {
       "type": {
-        "enum": ["Encoder", "KinematicInertial", "BodySensor"]
+        "enum": ["Encoder", "KinematicInertial", "BodySensor", "VelocityAidedTilt"]
       }
     }
   }

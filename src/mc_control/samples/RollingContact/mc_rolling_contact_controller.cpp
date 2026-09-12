@@ -788,7 +788,14 @@ void MCRollingContactController::registerDatastoreCalls()
                         [this](const mc_rbdyn::Robot & measured) -> Eigen::Vector3d
                         {
                           double residual = 0.0;
-                          return wheelOdometryTwist(measured, residual);
+                          const Eigen::Vector3d twist = wheelOdometryTwist(measured, residual);
+                          // A LINEAR VELOCITY, not the planar twist: the third
+                          // component of that twist is a yaw rate, and handing
+                          // it over as if it were vz would feed the consumer a
+                          // rad/s in a m/s slot. The consumer gets its angular
+                          // velocity from the gyroscope. vz is zero by the
+                          // rolling constraint's own normal row.
+                          return Eigen::Vector3d{twist.x(), twist.y(), 0.0};
                         });
   // How much wheel support that twist actually rests on, in wheels: the sum of
   // the activations the rows above were weighted by. A consumer needs it to

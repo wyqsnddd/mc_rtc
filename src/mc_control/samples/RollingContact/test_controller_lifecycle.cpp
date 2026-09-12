@@ -213,6 +213,147 @@ std::unique_ptr<mc_control::MCRollingContactController> makeOdometryController(
   return controller;
 }
 
+/** Gains and wiring for one VelocityAidedTilt observer under test. */
+struct TiltSetup
+{
+  double alpha = 10.0;
+  double beta = 4.0;
+  double gamma = 10.0;
+  double minimumActivation = 1.0;
+  /** Empty means the observer's own default, i.e. the controller's odometry. */
+  std::string velocityFunction;
+  /** Attitude the chassis is placed at before reset().
+   *
+   * The controller seeds its heading and position targets from the pose it is
+   * reset at, so a chassis mocked onto a slope AFTER reset would spend the whole
+   * test driving its wheels to correct a heading error it can never realise
+   * against a pinned floating base - and those turning wheels would feed the
+   * observer a velocity the mocked accelerometer was not built for. Placing the
+   * chassis first leaves the tasks at zero error and the robot genuinely at
+   * rest, which is the state these tests assert convergence in.
+   */
+  Eigen::Matrix3d bodyToWorld = Eigen::Matrix3d::Identity();
+};
+
+/** Closed-loop Ranger with Encoder -> BodySensor -> VelocityAidedTilt attached.
+ *
+ * Closed loop so that the mocked FloatingBase pins the chassis: these tests
+ * assert on an estimator converging at a KNOWN attitude, which a chassis free
+ * to drive away from it would not provide. VelocityAidedTilt runs last because
+ * it reads realRobot().posW() for the yaw it cannot estimate, and BodySensor is
+ * what writes that.
+ */
+std::unique_ptr<mc_control::MCRollingContactController> makeTiltController(const TiltSetup & setup = {})
+{
+  loadObserverModules();
+  auto config = controllerConfiguration("hold");
+  auto settings = config("RollingContact");
+  settings.add("closedLoopFeedback", true);
+  settings.add("terrainNormal", Eigen::Vector3d{setup.bodyToWorld * Eigen::Vector3d::UnitZ()});
+  std::string yaml = "ObserverPipelines:\n"
+                     "  - name: TiltPipeline\n"
+                     "    gui: false\n"
+                     "    observers:\n"
+                     "      - type: Encoder\n"
+                     "        update: true\n"
+                     "        position: control\n"
+                     "        velocity: control\n"
+                     "      - type: BodySensor\n"
+                     "        update: true\n"
+                     "        bodySensor: FloatingBase\n"
+                     "        method: sensor\n"
+                     "        updatePose: true\n"
+                     "        updateVel: true\n"
+                     "      - type: VelocityAidedTilt\n"
+                     "        update: true\n"
+                     "        imuBodySensor: ChassisIMU\n"
+                     "        alpha: "
+                     + std::to_string(setup.alpha) + "\n        beta: " + std::to_string(setup.beta)
+                     + "\n        gamma: " + std::to_string(setup.gamma)
+                     + "\n        minimumActivation: " + std::to_string(setup.minimumActivation) + "\n";
+  if(!setup.velocityFunction.empty()) { yaml += "        velocityFunction: " + setup.velocityFunction + "\n"; }
+  config.load(mc_rtc::Configuration::fromYAMLData(yaml));
+  auto controller = std::make_unique<mc_control::MCRollingContactController>(
+      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
+  controller->createObserverPipelines(config);
+  controller->robot().posW(
+      sva::PTransformd(setup.bodyToWorld.transpose(), controller->robot().posW().translation()));
+  controller->robot().forwardKinematics();
+  controller->reset({controller->robot().mbc().q});
+  return controller;
+}
+
+mc_rbdyn::BodySensor & mutableBodySensor(mc_control::MCRollingContactController & controller, const std::string & name)
+{
+  auto & data = *controller.robot().data();
+  return data.bodySensors[data.bodySensorsIndex.at(name)];
+}
+
+/** Feed the ChassisIMU the readings a rigid body at attitude @p bodyToWorld
+ * would produce.
+ *
+ * The accelerometer measures SPECIFIC FORCE in the sensor frame. For a body
+ * with a constant body-frame velocity the strapdown model is
+ * f = omega x v + g * x2, where x2 is the world vertical in the sensor frame -
+ * which is exactly the relation `g x2' = ya + yv x yg` that TiltEstimator
+ * converges to, so a mock built this way has the true tilt as an EXACT fixed
+ * point and any frame error in the observer shows up as a bias instead of
+ * being swamped by a modelling residual. Verified against real mc_mujoco: at
+ * rest and level this sensor reads (0, 0, 9.81).
+ *
+ * @param E_b_s rotation of the sensor relative to its parent body.
+ * @param r_b_s sensor origin in the parent body frame.
+ * @param bodyVelocity linear velocity of the BODY origin, body frame.
+ * @param bodyAngularVelocity angular velocity, body frame.
+ */
+void mockChassisImu(mc_control::MCRollingContactController & controller,
+                    const Eigen::Matrix3d & bodyToWorld,
+                    const Eigen::Matrix3d & E_b_s = Eigen::Matrix3d::Identity(),
+                    const Eigen::Vector3d & r_b_s = Eigen::Vector3d::Zero(),
+                    const Eigen::Vector3d & bodyVelocity = Eigen::Vector3d::Zero(),
+                    const Eigen::Vector3d & bodyAngularVelocity = Eigen::Vector3d::Zero())
+{
+  auto & imu = mutableBodySensor(controller, "ChassisIMU");
+  imu.X_p_s(sva::PTransformd(E_b_s, r_b_s));
+  const Eigen::Vector3d verticalBody = bodyToWorld.transpose() * Eigen::Vector3d::UnitZ();
+  const Eigen::Vector3d tilt = E_b_s * verticalBody;
+  const Eigen::Vector3d gyro = E_b_s * bodyAngularVelocity;
+  const Eigen::Vector3d velocity = E_b_s * (bodyVelocity + bodyAngularVelocity.cross(r_b_s));
+  imu.angularVelocity(gyro);
+  // stateObservation::cst::gravityConstant, spelled out rather than included:
+  // using the estimator's own constant makes the fixed point exact.
+  imu.linearAcceleration(9.80665 * tilt + gyro.cross(velocity));
+}
+
+/** Pin the mocked FloatingBase at @p bodyToWorld, at rest. */
+void mockFloatingBase(mc_control::MCRollingContactController & controller, const Eigen::Matrix3d & bodyToWorld)
+{
+  auto & sensor = mutableBodySensor(controller, "FloatingBase");
+  // BodySensor orientations are inertial-to-sensor, i.e. the transpose of the
+  // body-to-world attitude.
+  sensor.orientation(Eigen::Quaterniond{bodyToWorld.transpose()});
+  sensor.position(controller.robot().posW().translation());
+  sensor.linearVelocity(Eigen::Vector3d::Zero());
+  sensor.angularVelocity(Eigen::Vector3d::Zero());
+}
+
+Eigen::Vector3d estimatedTilt(const mc_control::MCRollingContactController & controller)
+{
+  return controller.datastore().get<Eigen::Vector3d>("VelocityAidedTilt::Tilt::ranger_mini_v3");
+}
+
+Eigen::Vector3d estimatedNormal(const mc_control::MCRollingContactController & controller)
+{
+  return controller.datastore().get<Eigen::Vector3d>("VelocityAidedTilt::Normal::ranger_mini_v3");
+}
+
+/** Angle between two unit vectors, in degrees. */
+double angleBetweenDegrees(const Eigen::Vector3d & lhs, const Eigen::Vector3d & rhs)
+{
+  const double cosine = lhs.normalized().dot(rhs.normalized());
+  return std::acos(std::max(-1.0, std::min(1.0, cosine))) * 180.0 / 3.14159265358979323846;
+}
+
 /** Ranger Mini V3 on the "hold" script: no scripted twist, so the controller
  * follows whatever setCommandedTwist() last received.
  */
@@ -1968,6 +2109,188 @@ BOOST_AUTO_TEST_CASE(WheelOdometryRecoversTheCommandedTwistAndSeesSkid)
     BOOST_CHECK_GT(impulseResidual, 100.0 * worstResidual);
     BOOST_CHECK_GT(impulseResidual, 1e-2);
   }
+}
+
+BOOST_AUTO_TEST_CASE(TiltEstimateIsNotAGroundTruthPassthroughTA)
+{
+  // T-A. The one failure mode a tilt estimator validated in simulation is most
+  // likely to have is being a re-dressed copy of the simulator's own attitude.
+  // Converge at a known attitude, then CORRUPT the FloatingBase sensor - the
+  // only path by which ground truth reaches this process - while leaving the
+  // IMU correct, and step once.
+  //
+  // The assertion is on x2, the world vertical in the IMU frame, and not on the
+  // world normal: yaw is legitimately taken from FloatingBase and legitimately
+  // moves. The normal is checked too, in the opposite direction, as the positive
+  // control that the corruption was real.
+  const double pi = 3.14159265358979323846;
+  TiltSetup setup;
+  // A yaw as well as a pitch, so that identity is a genuinely different
+  // attitude. With a pure pitch, merging the same tilt with a zero yaw would
+  // return the same normal and the positive control below would be vacuous.
+  setup.bodyToWorld =
+      Eigen::Matrix3d(Eigen::AngleAxisd(0.7, Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(0.21, Eigen::Vector3d::UnitY()));
+  auto controller = makeTiltController(setup);
+  mockFloatingBase(*controller, setup.bodyToWorld);
+  mockChassisImu(*controller, setup.bodyToWorld);
+  controller->resetObserverPipelines();
+  for(int cycle = 0; cycle < 1200; ++cycle) { BOOST_REQUIRE(stepClosedLoop(*controller)); }
+
+  const Eigen::Vector3d truth = setup.bodyToWorld.transpose() * Eigen::Vector3d::UnitZ();
+  const Eigen::Vector3d previous = estimatedTilt(*controller);
+  BOOST_REQUIRE(stepClosedLoop(*controller));
+  const Eigen::Vector3d converged = estimatedTilt(*controller);
+  const Eigen::Vector3d normalBefore = estimatedNormal(*controller);
+  // The bound below is calibrated rather than assumed: this is how much the
+  // converged estimate still moves per cycle with nothing changing at all.
+  const double drift = (converged - previous).norm();
+  BOOST_TEST_MESSAGE("T-A converged tilt error " << angleBetweenDegrees(converged, truth)
+                                                 << " deg, residual drift per cycle " << drift);
+  BOOST_CHECK_LT(angleBetweenDegrees(converged, truth), 0.05);
+  BOOST_REQUIRE_LT(drift, 1e-12);
+
+  mutableBodySensor(*controller, "FloatingBase").orientation(Eigen::Quaterniond::Identity());
+  BOOST_REQUIRE(stepClosedLoop(*controller));
+  const Eigen::Vector3d after = estimatedTilt(*controller);
+  const Eigen::Vector3d normalAfter = estimatedNormal(*controller);
+  const double normalMoved = angleBetweenDegrees(normalBefore, normalAfter);
+  BOOST_TEST_MESSAGE("T-A after corrupting FloatingBase: |dx2| = " << (after - converged).norm()
+                                                                   << ", the world normal moved " << normalMoved
+                                                                   << " deg");
+  // x2 does not move at all...
+  BOOST_CHECK_SMALL((after - converged).norm(), 1e-12);
+  // ...and the normal does, which is what says the corruption reached the
+  // process. A passthrough would have moved both.
+  BOOST_CHECK_GT(normalMoved, 1.0);
+  BOOST_CHECK_SMALL(angleBetweenDegrees(normalAfter, Eigen::Vector3d(Eigen::AngleAxisd(0.21, Eigen::Vector3d::UnitY())
+                                                                     * Eigen::Vector3d::UnitZ())),
+                    0.05);
+  static_cast<void>(pi);
+}
+
+BOOST_AUTO_TEST_CASE(TiltEstimateIsNotAConstantTB)
+{
+  // T-B. The complementary failure: an estimator that never moves also passes
+  // every "it is not ground truth" check. Seed level, then command a 10 degree
+  // pitch through the mocked IMU alone, AFTER reset, and bracket the response
+  // from both sides.
+  //
+  // The two bounds are what a real finite-bandwidth filter sits between. With
+  // alpha = 10 and beta = 4 the linearisation gives omega_n = sqrt(beta g) =
+  // 6.26 rad/s and zeta = 0.80, whose step response is 14% complete at 0.1 s
+  // and settled well inside 2 s.
+  const double pi = 3.14159265358979323846;
+  const double pitch = 10.0 * pi / 180.0;
+  auto controller = makeTiltController();
+  mockFloatingBase(*controller, Eigen::Matrix3d::Identity());
+  mockChassisImu(*controller, Eigen::Matrix3d::Identity());
+  controller->resetObserverPipelines();
+  for(int cycle = 0; cycle < 200; ++cycle) { BOOST_REQUIRE(stepClosedLoop(*controller)); }
+  BOOST_REQUIRE_SMALL(angleBetweenDegrees(estimatedTilt(*controller), Eigen::Vector3d::UnitZ()), 1e-6);
+
+  // The chassis pose stays level: only the IMU is told the world has tilted, so
+  // nothing but the estimator itself can produce the response below.
+  const Eigen::Matrix3d tilted(Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()));
+  mockChassisImu(*controller, tilted);
+  std::vector<double> trace;
+  trace.reserve(400);
+  for(int cycle = 0; cycle < 400; ++cycle)
+  {
+    BOOST_REQUIRE(stepClosedLoop(*controller));
+    trace.push_back(angleBetweenDegrees(estimatedTilt(*controller), Eigen::Vector3d::UnitZ()));
+  }
+  const double atHundredMs = trace[19]; // 20 cycles at 5 ms
+  const double atTwoSeconds = trace.back();
+  // Monotone up to the point the estimate first reaches 9.5 degrees; a
+  // zeta = 0.8 second-order response overshoots by ~1.5% afterwards, which is
+  // the filter working correctly and not a trend to assert against.
+  size_t rise = 0;
+  while(rise < trace.size() && trace[rise] < 9.5) { ++rise; }
+  bool monotone = true;
+  for(size_t i = 1; i <= rise && i < trace.size(); ++i) { monotone = monotone && trace[i] >= trace[i - 1]; }
+  BOOST_TEST_MESSAGE("T-B tilt at 0.1 s " << atHundredMs << " deg, at 2 s " << atTwoSeconds
+                                          << " deg, reached 9.5 deg after " << rise << " cycles, monotone " << monotone);
+  // Kills a passthrough: ground truth would already be at 10 degrees.
+  BOOST_CHECK_LT(atHundredMs, 9.0);
+  BOOST_CHECK_GT(atHundredMs, 0.0);
+  // Kills a constant: it has to actually get there.
+  BOOST_CHECK_GT(atTwoSeconds, 9.5);
+  BOOST_CHECK_LT(atTwoSeconds, 10.5);
+  BOOST_CHECK(monotone);
+}
+
+BOOST_AUTO_TEST_CASE(TiltEstimateDegradesAndHandlesALeverArmTC)
+{
+  // T-C, first half. With no gravity signal at all the tilt is unobservable.
+  // What the filter must not do is invent one: seeded level with a silent IMU
+  // it has to stay at the vertical, finite and unit-norm, for as long as it
+  // runs.
+  {
+    auto controller = makeTiltController();
+    mockFloatingBase(*controller, Eigen::Matrix3d::Identity());
+    auto & imu = mutableBodySensor(*controller, "ChassisIMU");
+    imu.angularVelocity(Eigen::Vector3d::Zero());
+    imu.linearAcceleration(Eigen::Vector3d::Zero());
+    controller->resetObserverPipelines();
+    double worst = 0.0;
+    for(int cycle = 0; cycle < 800; ++cycle)
+    {
+      BOOST_REQUIRE(stepClosedLoop(*controller));
+      const Eigen::Vector3d tilt = estimatedTilt(*controller);
+      BOOST_REQUIRE(tilt.allFinite());
+      BOOST_REQUIRE_SMALL(tilt.norm() - 1.0, 1e-9);
+      worst = std::max(worst, angleBetweenDegrees(tilt, Eigen::Vector3d::UnitZ()));
+    }
+    BOOST_TEST_MESSAGE("T-C zero IMU: worst departure from the vertical over 4 s " << worst << " deg");
+    BOOST_CHECK_LT(worst, 1e-6);
+  }
+
+  // T-C, second half. The shipped Ranger IMU sits at the chassis origin with
+  // X_b_s = Identity, so nothing in the deployed configuration exercises either
+  // the lever arm or the sensor rotation. Give it a displaced, rotated sensor
+  // and a steady turn about the world vertical, which leaves the tilt constant
+  // while making omega x r genuinely non-zero - the check that would have
+  // caught JVRC1's X_b_s disagreeing with its site position.
+  //
+  // The horizontal part of the offset is what makes the lever arm observable:
+  // with the turn axis nearly vertical and a purely vertical offset, omega x r
+  // very nearly vanishes and the test would pass with the term deleted.
+  const Eigen::Matrix3d E_b_s(Eigen::AngleAxisd(30.0 * 3.14159265358979323846 / 180.0, Eigen::Vector3d::UnitZ()));
+  const Eigen::Vector3d r_b_s{0.12, -0.05, 0.09};
+  TiltSetup setup;
+  setup.bodyToWorld = Eigen::Matrix3d(Eigen::AngleAxisd(10.0 * 3.14159265358979323846 / 180.0,
+                                                        Eigen::Vector3d::UnitY()));
+  setup.velocityFunction = "Test::TurningChassisVelocity";
+  auto controller = makeTiltController(setup);
+  // A turn about the WORLD vertical: expressed in the body it is along the very
+  // vector the estimator is trying to find, which is exactly why such a turn
+  // leaves the tilt invariant and makes a converged comparison meaningful.
+  const Eigen::Vector3d verticalBody = setup.bodyToWorld.transpose() * Eigen::Vector3d::UnitZ();
+  const Eigen::Vector3d bodyAngularVelocity = 2.0 * verticalBody;
+  const Eigen::Vector3d bodyVelocity{0.5, 0.0, 0.0};
+  controller->datastore().make_call("Test::TurningChassisVelocity",
+                                    [&bodyVelocity](const mc_rbdyn::Robot &) { return bodyVelocity; });
+  mockFloatingBase(*controller, setup.bodyToWorld);
+  mockChassisImu(*controller, setup.bodyToWorld, E_b_s, r_b_s, bodyVelocity, bodyAngularVelocity);
+  controller->resetObserverPipelines();
+  for(int cycle = 0; cycle < 1600; ++cycle) { BOOST_REQUIRE(stepClosedLoop(*controller)); }
+
+  const Eigen::Vector3d tiltTruth = E_b_s * verticalBody;
+  const Eigen::Vector3d normalTruth = setup.bodyToWorld.col(2);
+  const double tiltError = angleBetweenDegrees(estimatedTilt(*controller), tiltTruth);
+  const double normalError = angleBetweenDegrees(estimatedNormal(*controller), normalTruth);
+  // How far off the same estimate would land with the lever arm dropped, from
+  // the filter's own fixed point g x2' = ya + yv x yg: the two velocities differ
+  // by E_b_s (omega x r), which is orthogonal to the gyro reading.
+  const double leverArmDegrees =
+      std::asin(std::min(1.0, bodyAngularVelocity.norm() * bodyAngularVelocity.cross(r_b_s).norm() / 9.80665))
+      * 180.0 / 3.14159265358979323846;
+  BOOST_TEST_MESSAGE("T-C lever arm: tilt error " << tiltError << " deg, normal error " << normalError
+                                                  << " deg, against " << leverArmDegrees
+                                                  << " deg if the lever arm were dropped");
+  BOOST_REQUIRE_GT(leverArmDegrees, 1.0);
+  BOOST_CHECK_LT(tiltError, 0.05);
+  BOOST_CHECK_LT(normalError, 0.05);
 }
 
 /** SMK-13. Sixty seconds of varied commands on both chassis and both terrains.

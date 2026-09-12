@@ -166,13 +166,80 @@ TRANSITION_COMMAND = Command("forward-0.3", "forward", linear_speed=0.3)
 TRANSITION_CYCLES = 4000
 SLOPE_CYCLES = 1400
 
+# Longitudinal stations of every lane in ramp_terrain.xml, and the Ranger's
+# wheelbase. The two concave breaks - where the surface pitches UP under the
+# chassis - are the toe and the toe-out; the crest and the plateau end are
+# convex, and a rigid chassis provably high-centres there.
+LANE_TOE = 0.600
+LANE_CREST = 2.100
+LANE_PLATEAU_END = 3.100
+LANE_TOE_OUT = 4.600
+CONCAVE_BREAKS = (LANE_TOE, LANE_TOE_OUT)
+CONVEX_BREAKS = (LANE_CREST, LANE_PLATEAU_END)
+WHEELBASE = 0.494
+
 
 def terrain_normal(degrees):
     angle = math.radians(degrees)
     return (-math.sin(angle), 0.0, math.cos(angle))
 
 
-def configuration(command, terrain, backend, build, artifact, log_template):
+def lane_height(x, ramp_degrees):
+    """Height profile h(x) of one lane of ramp_terrain.xml."""
+    slope = math.tan(math.radians(ramp_degrees))
+    if x <= LANE_TOE:
+        return 0.0
+    if x <= LANE_CREST:
+        return (x - LANE_TOE) * slope
+    crest = (LANE_CREST - LANE_TOE) * slope
+    if x <= LANE_PLATEAU_END:
+        return crest
+    if x <= LANE_TOE_OUT:
+        return crest - (x - LANE_PLATEAU_END) * slope
+    return 0.0
+
+
+def bridging_pitch(x, ramp_degrees):
+    """Pitch of the chord between the two axles, in degrees.
+
+    This - not `terrain_normal()` - is the ground truth for a chassis attitude
+    on a ramp lane. The surface pitch is a step function at every break, and a
+    0.494 m wheelbase cannot follow a step: over the 0.494 m before the toe the
+    front axle is already climbing while the rear is still flat, and the chassis
+    rides the chord between them. Comparing an attitude estimate against the
+    surface pitch would report that whole interval as a failure of the estimator
+    when it is a property of the vehicle.
+    """
+    half = 0.5 * WHEELBASE
+    rise = lane_height(x + half, ramp_degrees) - lane_height(x - half, ramp_degrees)
+    return math.degrees(math.atan2(rise, WHEELBASE))
+
+
+def quaternion_rows(qw, qx, qy, qz):
+    """Third row and third column of the rotation matrix of (qw, qx, qy, qz).
+
+    mc_rtc logs an sva::PTransformd's rotation as the quaternion of E_0_b, the
+    WORLD-TO-BODY map, so the body +z axis in world coordinates is E_0_b^T e_z,
+    i.e. the third ROW. The third column is returned alongside purely so the
+    caller can pin that convention against a run whose answer is known - see
+    `sign_pin` in the record. The two differ exactly in the sign of x, which is
+    the sign this whole comparison turns on.
+    """
+    row2 = (2.0 * (qx * qz - qw * qy), 2.0 * (qy * qz + qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy))
+    col2 = (2.0 * (qx * qz + qw * qy), 2.0 * (qy * qz - qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy))
+    return row2, col2
+
+
+def tilt_of(normal):
+    """Unsigned tilt from the world vertical and signed pitch, in degrees."""
+    nx, _, nz = normal
+    return (
+        math.degrees(math.acos(max(-1.0, min(1.0, nz)))),
+        math.degrees(math.atan2(-nx, nz)),
+    )
+
+
+def configuration(command, terrain, backend, build, artifact, log_template, tilt):
     controller = "RollingContact" if backend == "Tasks" else "RollingContact_TVM"
     normal = terrain_normal(terrain.controller_normal_degrees)
     # Logging is on so that `RollingContact_lateral_slack_norm` can be read
@@ -202,6 +269,18 @@ ObserverPipelines:
       - type: BodySensor
         update: true
         bodySensor: FloatingBase
+      # Runs last and reads realRobot().posW() for the yaw it cannot estimate,
+      # so BodySensor has to have written it. `updateRobot: false` keeps that
+      # same pose intact as the ground truth this estimate is scored against -
+      # in the same run, which is the only way the comparison is honest.
+      - type: VelocityAidedTilt
+        update: true
+        updateRobot: false
+        imuBodySensor: ChassisIMU
+        alpha: {tilt[0]:.17g}
+        beta: {tilt[1]:.17g}
+        gamma: {tilt[2]:.17g}
+        minimumActivation: 1.0
 ClearGlobalPluginPath: true
 GlobalPluginPaths: []
 Plugins: []
@@ -318,11 +397,27 @@ def analyse_csv(path, warmup_cycles, timestep=0.005):
     }
 
 
-def lateral_slack_norm(artifact, log_template, utilities):
-    """Peak and mean of `RollingContact_lateral_slack_norm` over the run."""
+EMPTY_LOG_METRICS = {
+    "lateral_slack_norm_max": None,
+    "lateral_slack_norm_mean": None,
+    "tilt": None,
+}
+
+
+def log_metrics(artifact, log_template, utilities, observer="VelocityAidedTilt", pipeline="MainPipeline"):
+    """Everything that only the mc_rtc binary log carries.
+
+    Two things live here and nowhere else: `RollingContact_lateral_slack_norm`
+    (the controller keeps it but publishes no datastore getter), and the tilt
+    estimate together with the floating-base pose it has to be scored against.
+    Reading both in one pass matters because the ground truth and the estimate
+    MUST come from the same run - a comparison against a separately recorded
+    reference would be comparing two different trajectories.
+    """
     logs = sorted(artifact.glob(f"{log_template}-*.bin"))
     if not logs:
-        return {"lateral_slack_norm_max": None, "lateral_slack_norm_mean": None}
+        return dict(EMPTY_LOG_METRICS)
+    prefix = f"Observers_{pipeline}_{observer}"
     with tempfile.TemporaryDirectory() as scratch:
         flattened = pathlib.Path(scratch) / "log.csv"
         subprocess.run(
@@ -333,18 +428,195 @@ def lateral_slack_norm(artifact, log_template, utilities):
         )
         with flattened.open(newline="", encoding="utf-8") as stream:
             reader = csv.DictReader(stream, delimiter=";")
-            field = "RollingContact_lateral_slack_norm"
-            if field not in (reader.fieldnames or ()):
-                return {"lateral_slack_norm_max": None, "lateral_slack_norm_mean": None}
-            values = [float(row[field]) for row in reader if row[field] not in ("", None)]
+            fields = set(reader.fieldnames or ())
+            slack_field = "RollingContact_lateral_slack_norm"
+            has_slack = slack_field in fields
+            estimate_fields = [f"{prefix}_normal_{axis}" for axis in "xyz"]
+            truth_fields = [f"RollingContact_base_pose_q{axis}" for axis in "wxyz"]
+            has_tilt = fields.issuperset(estimate_fields) and fields.issuperset(truth_fields)
+            slack = []
+            tilt = []
+            for row in reader:
+                if has_slack and row[slack_field] not in ("", None):
+                    slack.append(float(row[slack_field]))
+                if not has_tilt:
+                    continue
+                estimate = tuple(float(row[field]) for field in estimate_fields)
+                row2, col2 = quaternion_rows(*(float(row[field]) for field in truth_fields))
+                estimate_tilt, estimate_pitch = tilt_of(estimate)
+                truth_tilt, truth_pitch = tilt_of(row2)
+                tilt.append(
+                    {
+                        "estimate_tilt_deg": estimate_tilt,
+                        "estimate_pitch_deg": estimate_pitch,
+                        "truth_tilt_deg": truth_tilt,
+                        "truth_pitch_deg": truth_pitch,
+                        # The two candidate conventions for "body +z in world",
+                        # kept so the sign can be pinned against a run whose
+                        # answer is known instead of assumed.
+                        "truth_row2_x": row2[0],
+                        "truth_col2_x": col2[0],
+                    }
+                )
     for log in logs:
         log.unlink()
-    if not values:
-        return {"lateral_slack_norm_max": None, "lateral_slack_norm_mean": None}
-    return {
-        "lateral_slack_norm_max": max(values),
-        "lateral_slack_norm_mean": sum(values) / len(values),
+    metrics = dict(EMPTY_LOG_METRICS)
+    if slack:
+        metrics["lateral_slack_norm_max"] = max(slack)
+        metrics["lateral_slack_norm_mean"] = sum(slack) / len(slack)
+    if tilt:
+        metrics["tilt"] = tilt
+    return metrics
+
+
+def tilt_criteria(tilt, csv_path, terrain, warmup):
+    """PC-1, PC-2 and PC-3 of the tilt-estimation plan.
+
+    The tilt series and the runner CSV both carry one sample per controller
+    cycle, so they are aligned by index and truncated to the shorter of the two;
+    `aligned_samples` reports how many that left.
+    """
+    if not tilt:
+        return {}
+    with csv_path.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    wheels = sorted(
+        field[: -len("_contact_normal_deviation")]
+        for field in (rows[0] if rows else {})
+        if field.endswith("_contact_normal_deviation")
+    )
+    count = min(len(tilt), len(rows))
+    window = range(min(warmup, count), count)
+
+    # PC-2: steady state, measured where the estimate is not being asked to
+    # track a transition - the whole run on flat ground and constant slopes, and
+    # the plateau plus the two constant-slope stretches on a ramp lane.
+    def steady(index):
+        if not terrain.uses_ramp_terrain:
+            return True
+        x = float(rows[index]["base_x"])
+        margin = 0.5 * WHEELBASE
+        return any(
+            low + margin <= x <= high - margin
+            for low, high in ((LANE_TOE, LANE_CREST), (LANE_CREST, LANE_PLATEAU_END),
+                              (LANE_PLATEAU_END, LANE_TOE_OUT))
+        ) or x < LANE_TOE - margin
+
+    errors = [tilt[i]["estimate_tilt_deg"] - tilt[i]["truth_tilt_deg"] for i in window]
+    steady_errors = [tilt[i]["estimate_tilt_deg"] - tilt[i]["truth_tilt_deg"] for i in window if steady(i)]
+    criteria = {
+        "aligned_samples": count,
+        "tilt_error_max_deg": max((abs(error) for error in errors), default=None),
+        "tilt_error_rms_deg": (
+            math.sqrt(sum(error * error for error in errors) / len(errors)) if errors else None
+        ),
+        "tilt_error_steady_rms_deg": (
+            math.sqrt(sum(error * error for error in steady_errors) / len(steady_errors))
+            if steady_errors
+            else None
+        ),
+        "tilt_error_steady_max_deg": max((abs(error) for error in steady_errors), default=None),
+        # The sign pin: on a constant slope the runner tilts the world by
+        # AngleAxisd(-theta, UnitY()), so the ground normal leans towards -x and
+        # the body +z that rests on it must have a NEGATIVE x. Reported rather
+        # than assumed, because the unit tests elsewhere in this tree use the
+        # opposite sign and reading it off them would be wrong here.
+        "sign_pin_row2_x": tilt[-1]["truth_row2_x"],
+        "sign_pin_col2_x": tilt[-1]["truth_col2_x"],
     }
+
+    # PC-1: a model-free envelope. Where all four wheels report contact the
+    # chassis attitude must lie between the shallowest and the steepest surface
+    # the four wheels are touching. Needs no geometric model and covers the
+    # bridging interval by construction.
+    #
+    # Only meaningful where the runner's own reference normal IS the world
+    # vertical, i.e. on terrains it does not tilt: `<wheel>_contact_normal_
+    # deviation` is measured against `--ramp-deg`'s normal, so on a uniformly
+    # tilted world it reports ~0 for a chassis the estimator correctly places at
+    # the tilt angle, and the comparison would be between two different
+    # references rather than between an estimate and an envelope.
+    if wheels and terrain.tilt_degrees == 0.0:
+        excursions = []
+        covered = 0
+        for index in window:
+            row = rows[index]
+            if any(int(float(row[f"{wheel}_contacts"])) == 0 for wheel in wheels):
+                continue
+            deviations = [
+                math.degrees(float(row[f"{wheel}_contact_normal_deviation"])) for wheel in wheels
+            ]
+            estimate = tilt[index]["estimate_tilt_deg"]
+            excursions.append(max(0.0, min(deviations) - estimate, estimate - max(deviations)))
+            covered += 1
+        criteria["pc1_samples"] = covered
+        criteria["pc1_max_excursion_deg"] = max(excursions, default=None)
+
+    # How far the estimate lags the measured attitude, as a pure time shift:
+    # the shift that minimises the residual between the two series. Measured
+    # against the LOGGED pose rather than against the bridging model, so that it
+    # is a property of the filter alone and carries no terrain modelling. The
+    # linearisation predicts alpha / (beta g) seconds.
+    best = None
+    for shift in range(0, 201):
+        residual = 0.0
+        samples = 0
+        for i in window:
+            if i - shift < 0:
+                continue
+            delta = tilt[i]["estimate_pitch_deg"] - tilt[i - shift]["truth_pitch_deg"]
+            residual += delta * delta
+            samples += 1
+        if samples and (best is None or residual / samples < best[1]):
+            best = (shift, residual / samples)
+    if best is not None:
+        criteria["tilt_lag_s"] = best[0] * 0.005
+        criteria["tilt_lag_residual_rms_deg"] = math.sqrt(best[1])
+
+    if terrain.uses_ramp_terrain:
+        margin = 0.5 * WHEELBASE
+
+        def stretch_error(low, high):
+            values = [
+                abs(tilt[i]["estimate_tilt_deg"] - tilt[i]["truth_tilt_deg"])
+                for i in window
+                if low <= float(rows[i]["base_x"]) <= high
+            ]
+            if not values:
+                return None, None, 0
+            return (
+                max(values),
+                math.sqrt(sum(value * value for value in values) / len(values)),
+                len(values),
+            )
+
+        toe_peak, _, toe_samples = stretch_error(LANE_TOE - margin, LANE_TOE + margin)
+        _, incline_rms, incline_samples = stretch_error(LANE_TOE + margin, LANE_CREST - margin)
+        criteria["toe_peak_deg"] = toe_peak
+        criteria["toe_samples"] = toe_samples
+        criteria["incline_rms_deg"] = incline_rms
+        criteria["incline_samples"] = incline_samples
+
+    # PC-3: the transitions, against the bridging chord rather than the surface.
+    # Only the concave breaks are asserted; a rigid chassis provably high-centres
+    # at a convex one, so those are reported and not scored.
+    if terrain.uses_ramp_terrain:
+        for label, stations, key in (
+            ("concave", CONCAVE_BREAKS, "pc3_concave_max_deg"),
+            ("convex", CONVEX_BREAKS, "pc3_convex_max_deg"),
+        ):
+            worst = None
+            for index in window:
+                x = float(rows[index]["base_x"])
+                if not any(abs(x - station) <= 0.5 * WHEELBASE for station in stations):
+                    continue
+                error = abs(
+                    tilt[index]["estimate_pitch_deg"] - bridging_pitch(x, terrain.ramp_degrees)
+                )
+                worst = error if worst is None else max(worst, error)
+            criteria[key] = worst
+            del label
+    return criteria
 
 
 def run_case(arguments, environment, command, terrain, regime, backend, cycles):
@@ -353,8 +625,9 @@ def run_case(arguments, environment, command, terrain, regime, backend, cycles):
     directory.mkdir(parents=True, exist_ok=True)
     log_template = f"validation-{name}"
     configuration_path = directory / "mc_rtc.yaml"
+    tilt_gains = (arguments.tilt_alpha, arguments.tilt_beta, arguments.tilt_gamma)
     configuration_path.write_text(
-        configuration(command, terrain, backend, arguments.build, directory, log_template),
+        configuration(command, terrain, backend, arguments.build, directory, log_template, tilt_gains),
         encoding="utf-8",
     )
     install_terrain(arguments.mujoco_user_dir, terrain, arguments.repo)
@@ -404,6 +677,13 @@ def run_case(arguments, environment, command, terrain, regime, backend, cycles):
         "cycles": cycles,
         "warmup_cycles": warmup,
         "runner_exit": completed.returncode,
+        # Which terrain normal the QP's constraints were built from. The tilt
+        # observer runs in every configuration, but nothing consumes it yet, so
+        # this is "config" for the whole sweep; it is recorded as an axis so a
+        # later closed-loop run is comparable against these rows rather than
+        # replacing them.
+        "terrain_normal_source": "config",
+        "tilt_gains": list(tilt_gains),
     }
     # A non-zero exit is a result, not an accident: the runner returns
     # EXIT_FAILURE when the controller's QP fails, when the state stops being
@@ -443,7 +723,18 @@ def run_case(arguments, environment, command, terrain, regime, backend, cycles):
         }
     )
     record.update(analyse_csv(csv_path, warmup))
-    record.update(lateral_slack_norm(directory, log_template, arguments.build / "utils"))
+    metrics = log_metrics(directory, log_template, arguments.build / "utils")
+    tilt = metrics.pop("tilt")
+    record.update(metrics)
+    record.update(tilt_criteria(tilt, csv_path, terrain, warmup))
+    if tilt:
+        # The per-cycle series, kept next to the run it came from: every tilt
+        # number in the summary is a reduction of this, and a reduction alone
+        # cannot say WHERE an excursion happened.
+        with (directory / "tilt.csv").open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=sorted(tilt[0]))
+            writer.writeheader()
+            writer.writerows(tilt)
     return record
 
 
@@ -478,6 +769,14 @@ def parse_arguments():
     )
     parser.add_argument(
         "--command", action="append", help="repeatable command-name filter"
+    )
+    parser.add_argument("--tilt-alpha", type=float, default=10.0)
+    parser.add_argument("--tilt-beta", type=float, default=4.0)
+    parser.add_argument("--tilt-gamma", type=float, default=10.0)
+    parser.add_argument(
+        "--output-name",
+        default="ramp-validation.json",
+        help="name of the summary file written into --artifact-dir",
     )
     return parser.parse_args()
 
@@ -543,17 +842,25 @@ def main():
                     )
                     records.append(record)
                     achieved = record.get("achieved_twist", [float("nan")] * 3)
+
+                    def show(key):
+                        value = record.get(key)
+                        return "   n/a" if value is None else f"{value:6.3f}"
+
                     print(
                         f"{record['case']:56s} "
                         f"cmd=({record['commanded_twist'][0]:+.3f},{record['commanded_twist'][1]:+.3f},"
                         f"{record['commanded_twist'][2]:+.3f}) "
-                        f"got=({achieved[0]:+.3f},{achieved[1]:+.3f},{achieved[2]:+.3f})",
+                        f"got=({achieved[0]:+.3f},{achieved[1]:+.3f},{achieved[2]:+.3f}) "
+                        f"tilt(rms/max/steady)=({show('tilt_error_rms_deg')},{show('tilt_error_max_deg')},"
+                        f"{show('tilt_error_steady_rms_deg')}) deg "
+                        f"pc1={show('pc1_max_excursion_deg')} pc3={show('pc3_concave_max_deg')}",
                         flush=True,
                     )
     finally:
         install_terrain(arguments.mujoco_user_dir, Terrain("flat"), arguments.repo)
 
-    output = arguments.artifact_dir / "ramp-validation.json"
+    output = arguments.artifact_dir / arguments.output_name
     output.write_text(json.dumps(records, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"wrote {output} ({len(records)} runs)")
     return 0

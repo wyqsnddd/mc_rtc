@@ -73,6 +73,7 @@
           { "$ref": "../Observers/Encoder.json" },
           { "$ref": "../Observers/KinematicInertial.json" },
           { "$ref": "../Observers/BodySensor.json" },
+          { "$ref": "../Observers/VelocityAidedTilt.json" },
           { "$ref": "../Observers/ObserverConfiguration.json" }
         ],
         "discriminator": {
@@ -80,7 +81,8 @@
           "mapping": {
             "Encoder": "../Observers/Encoder.json",
             "KinematicInertial": "../Observers/KinematicInertial.json",
-            "BodySensor": "../Observers/BodySensor.json"
+            "BodySensor": "../Observers/BodySensor.json",
+            "VelocityAidedTilt": "../Observers/VelocityAidedTilt.json"
           }
         }
       }

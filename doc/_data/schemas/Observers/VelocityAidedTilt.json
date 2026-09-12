@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "title": "mc_observers::VelocityAidedTiltObserver",
+  "description": "VelocityAidedTilt: estimates the roll and pitch of a body-mounted IMU from its gyroscope and accelerometer, aided by an externally measured body-frame linear velocity supplied through a datastore call. Wraps stateObservation::TiltEstimator (Benallegue et al., RA-L 2020). YAW IS NOT ESTIMATED: a gyroscope and an accelerometer carry no heading information. Publishes VelocityAidedTilt::Tilt::&lt;robot&gt; (the world vertical in the IMU frame) and VelocityAidedTilt::Normal::&lt;robot&gt; (the IMU parent body's +z axis in the world, tilt merged with the observed robot's own yaw) when the pipeline entry is declared update: true.",
+  "properties":
+  {
+    "type": { "const": "VelocityAidedTilt" },
+    "robot": { "type": "string", "default": "MainRobot", "description": "Name of the robot carrying the IMU" },
+    "imuBodySensor": { "type": "string", "default": "Main body sensor", "description": "BodySensor holding the gyroscope and accelerometer readings. Its X_b_s is used for the lever arm and the sensor rotation, so it must agree with where the IMU actually is." },
+    "velocityFunction": { "type": "string", "default": "VelocityAidedTilt::SensorVelocity::&lt;robot&gt;", "description": "Datastore call of signature Eigen::Vector3d(const mc_rbdyn::Robot &amp;) returning the measured linear velocity of the IMU's parent body origin, in that body's frame. It must not be derived from the controller's own solution, or the estimate confirms the model instead of measuring against it." },
+    "activationFunction": { "type": "string", "default": "VelocityAidedTilt::VelocityActivation::&lt;robot&gt;", "description": "Optional datastore call of signature double() reporting how much contact support the velocity rests on. When absent, the velocity is always trusted." },
+    "minimumActivation": { "type": "number", "default": 1.0, "description": "Support below which the velocity input is replaced by the filter's own state, making the innovation zero and degrading the estimate to gyroscope dead reckoning. Only has an effect when activationFunction is present." },
+    "alpha": { "type": "number", "default": 10.0, "description": "Convergence gain of the IMU-frame linear velocity. With beta it sets zeta = alpha / (2 sqrt(beta g)) and the peak velocity-noise gain beta / alpha." },
+    "beta": { "type": "number", "default": 4.0, "description": "Fast convergence gain of the tilt; omega_n = sqrt(beta g)." },
+    "gamma": { "type": "number", "default": 10.0, "description": "Orthogonality gain, i.e. how fast the unit tilt follows the intermediate estimate." },
+    "updateRobot": { "type": "boolean", "default": false, "description": "When true, write the estimated attitude (tilt merged with the existing yaw) into the real robot's floating-base pose. Off by default: BodySensor normally owns that pose, and overwriting it destroys the reference this estimate is validated against." }
+  }
+}
