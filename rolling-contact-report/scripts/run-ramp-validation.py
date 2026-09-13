@@ -13,7 +13,7 @@ This answers two questions the flat-ground suite cannot:
 
   slope transition the robot driving from flat ground onto a ramp and off
                    again, on the terrain in
-                   src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml.
+                   src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml.
                    The controller reads `terrainNormal` once, from
                    configuration, and nothing updates it
                    (mc_rolling_contact_controller.cpp:425-447 and :527 are all
@@ -55,7 +55,7 @@ import sys
 import tempfile
 
 
-REPOSITORY_TERRAIN = "src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml"
+REPOSITORY_TERRAIN = "src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml"
 
 # Lane centres in ramp_terrain.xml. Every lane has its toe at x = 0.6 m, its
 # crest at x = 2.1 m, its plateau end at x = 3.1 m and its toe-out at x = 4.6 m.
@@ -246,7 +246,7 @@ def configuration(command, terrain, backend, build, artifact, log_template, tilt
     # back: the controller keeps the slack norm but exposes no datastore
     # getter for it, so the binary log is the only way to see it from outside
     # the process.
-    return f"""MainRobot: RollingContactRangerMiniV3
+    return f"""MainRobot: RangerMiniV3Robot
 Enabled: [{controller}]
 Default: {controller}
 Timestep: 0.005

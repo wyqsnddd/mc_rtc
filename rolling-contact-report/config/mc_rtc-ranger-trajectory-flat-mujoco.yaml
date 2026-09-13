@@ -10,7 +10,7 @@
 # flat plane, and the log template. Everything else, including the `robots:`
 # block that gives the sample a ground robot at all, is identical, so a
 # difference between the two runs is the terrain and nothing else.
-MainRobot: RollingContactRangerMiniV3
+MainRobot: RangerMiniV3Robot
 Enabled: [RangerTrajectory]
 Default: RangerTrajectory
 Timestep: 0.005

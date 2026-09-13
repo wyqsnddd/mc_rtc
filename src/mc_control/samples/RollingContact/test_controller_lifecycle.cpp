@@ -28,7 +28,7 @@ mc_rbdyn::RobotModulePtr robotModule(const std::string & name)
   static const bool configured = []()
   {
     mc_rbdyn::RobotLoader::clear();
-    mc_rbdyn::RobotLoader::update_robot_module_path({ROLLING_CONTACT_ROBOT_MODULE_PATH});
+    mc_rbdyn::RobotLoader::update_robot_module_path({RANGER_MINI_V3_ROBOT_MODULE_PATH});
     return true;
   }();
   (void)configured;
@@ -118,7 +118,7 @@ std::unique_ptr<mc_control::MCRollingContactController> makeClosedLoopController
   config("RollingContact").add("closedLoopFeedback", true);
   config.load(observerPipelineConfig(withBodySensor));
   auto controller = std::make_unique<mc_control::MCRollingContactController>(
-      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
+      robotModule("RangerMiniV3Robot"), 0.005, config, mc_control::MCController::Backend::Tasks);
   controller->createObserverPipelines(config);
   controller->reset({controller->robot().mbc().q});
   return controller;
@@ -274,7 +274,7 @@ std::unique_ptr<mc_control::MCRollingContactController> makeTiltController(const
   if(!setup.velocityFunction.empty()) { yaml += "        velocityFunction: " + setup.velocityFunction + "\n"; }
   config.load(mc_rtc::Configuration::fromYAMLData(yaml));
   auto controller = std::make_unique<mc_control::MCRollingContactController>(
-      robotModule("RollingContactRangerMiniV3"), 0.005, config, mc_control::MCController::Backend::Tasks);
+      robotModule("RangerMiniV3Robot"), 0.005, config, mc_control::MCController::Backend::Tasks);
   controller->createObserverPipelines(config);
   controller->robot().posW(
       sva::PTransformd(setup.bodyToWorld.transpose(), controller->robot().posW().translation()));
@@ -359,13 +359,13 @@ double angleBetweenDegrees(const Eigen::Vector3d & lhs, const Eigen::Vector3d & 
  */
 std::unique_ptr<mc_control::MCRollingContactController> makeRangerController()
 {
-  return makeController("RollingContactRangerMiniV3", "hold");
+  return makeController("RangerMiniV3Robot", "hold");
 }
 
 std::unique_ptr<mc_control::MCRollingContactController> makeRangerController(
     const std::function<void(mc_rtc::Configuration &)> & configure)
 {
-  return makeController("RollingContactRangerMiniV3", "hold", configure);
+  return makeController("RangerMiniV3Robot", "hold", configure);
 }
 
 /** Chassis displacement between two floating-base poses, expressed in the
@@ -547,12 +547,12 @@ void driveObserverPipelineAndCheckRealRobotTracksSensor(bool withBodySensor)
 
 BOOST_AUTO_TEST_CASE(RollingContactControllerRepeatedLifecycle)
 {
-  exercise(mc_control::MCController::Backend::Tasks, "RollingContactDifferential", 4);
-  exercise(mc_control::MCController::Backend::Tasks, "RollingContactFourSteering", 2);
-  exercise(mc_control::MCController::Backend::Tasks, "RollingContactRangerMiniV3", 4);
-  exercise(mc_control::MCController::Backend::TVM, "RollingContactDifferential", 4);
-  exercise(mc_control::MCController::Backend::TVM, "RollingContactFourSteering", 2);
-  exercise(mc_control::MCController::Backend::TVM, "RollingContactRangerMiniV3", 4);
+  exercise(mc_control::MCController::Backend::Tasks, "RangerMiniV3Differential", 4);
+  exercise(mc_control::MCController::Backend::Tasks, "RangerMiniV3FourSteering", 2);
+  exercise(mc_control::MCController::Backend::Tasks, "RangerMiniV3Robot", 4);
+  exercise(mc_control::MCController::Backend::TVM, "RangerMiniV3Differential", 4);
+  exercise(mc_control::MCController::Backend::TVM, "RangerMiniV3FourSteering", 2);
+  exercise(mc_control::MCController::Backend::TVM, "RangerMiniV3Robot", 4);
 }
 
 BOOST_AUTO_TEST_CASE(RollingContactControllerScenarioMatrix)
@@ -571,7 +571,7 @@ BOOST_AUTO_TEST_CASE(RollingContactControllerScenarioMatrix)
     {
       const auto config = controllerConfiguration(scenario);
       mc_control::MCRollingContactController controller(
-          robotModule("RollingContactDifferential"), 0.005, config, backend);
+          robotModule("RangerMiniV3Differential"), 0.005, config, backend);
       controller.reset({controller.robot().mbc().q});
       for(int cycle = 0; cycle < 20; ++cycle) { BOOST_REQUIRE(controller.run()); }
       BOOST_CHECK_EQUAL(controller.datastore().call<std::string>("RollingContact::GetBackend"),
@@ -581,7 +581,7 @@ BOOST_AUTO_TEST_CASE(RollingContactControllerScenarioMatrix)
     {
       const auto config = controllerConfiguration(scenario);
       mc_control::MCRollingContactController controller(
-          robotModule("RollingContactRangerMiniV3"), 0.005, config, backend);
+          robotModule("RangerMiniV3Robot"), 0.005, config, backend);
       controller.reset({controller.robot().mbc().q});
       for(int cycle = 0; cycle < 20; ++cycle) { BOOST_REQUIRE(controller.run()); }
       BOOST_CHECK_EQUAL(controller.datastore().call<std::string>("RollingContact::GetBackend"),
@@ -1185,7 +1185,7 @@ BOOST_AUTO_TEST_CASE(KeyboardForwardAfterACrabAndAYawTravelsAlongTheChassisHeadi
   // Open loop on purpose: this test measures where the chassis actually goes,
   // and closed-loop feedback would pin the floating base to a FloatingBase
   // sensor no simulator is updating here (see makeController's comment).
-  auto controller = makeController("RollingContactRangerMiniV3", "keyboard");
+  auto controller = makeController("RangerMiniV3Robot", "keyboard");
 
   const auto nonZero = [](int axis) {
     return [axis](const Eigen::Vector3d & twist) { return std::abs(twist(axis)) > 1e-9; };
@@ -1294,27 +1294,27 @@ BOOST_AUTO_TEST_CASE(RollingContactControllerRejectsInvalidConfiguration)
 {
   auto unknownScenario = controllerConfiguration("unknown");
   BOOST_CHECK_THROW(mc_control::MCRollingContactController(
-                        robotModule("RollingContactDifferential"), 0.005, unknownScenario),
+                        robotModule("RangerMiniV3Differential"), 0.005, unknownScenario),
                     std::invalid_argument);
 
   auto invalidTerrain = controllerConfiguration("hold");
   invalidTerrain("RollingContact").add(
       "terrainNormal", Eigen::Vector3d{std::numeric_limits<double>::quiet_NaN(), 0.0, 1.0});
   BOOST_CHECK_THROW(mc_control::MCRollingContactController(
-                        robotModule("RollingContactDifferential"), 0.005, invalidTerrain),
+                        robotModule("RangerMiniV3Differential"), 0.005, invalidTerrain),
                     std::invalid_argument);
 
   auto invalidRecovery = controllerConfiguration("hold");
   invalidRecovery("RollingContact").add("rollingWeight", 1000.0);
   invalidRecovery("RollingContact").add("recoveryRollingWeight", 10.0);
   BOOST_CHECK_THROW(mc_control::MCRollingContactController(
-                        robotModule("RollingContactDifferential"), 0.005, invalidRecovery),
+                        robotModule("RangerMiniV3Differential"), 0.005, invalidRecovery),
                     std::invalid_argument);
 
   auto invalidPeriod = controllerConfiguration("hold");
   invalidPeriod("RollingContact").add("commandPeriod", -1.0);
   BOOST_CHECK_THROW(mc_control::MCRollingContactController(
-                        robotModule("RollingContactDifferential"), 0.005, invalidPeriod),
+                        robotModule("RangerMiniV3Differential"), 0.005, invalidPeriod),
                     std::invalid_argument);
 }
 
@@ -1386,13 +1386,13 @@ BOOST_AUTO_TEST_CASE(MaxYawTargetErrorMustStayClearOfTheRotationErrorSingularity
     auto config = controllerConfiguration("hold");
     config("RollingContact").add("maxYawTargetError", invalid);
     BOOST_CHECK_THROW(
-        mc_control::MCRollingContactController(robotModule("RollingContactRangerMiniV3"), 0.005, config),
+        mc_control::MCRollingContactController(robotModule("RangerMiniV3Robot"), 0.005, config),
         std::invalid_argument);
   }
   auto valid = controllerConfiguration("hold");
   valid("RollingContact").add("maxYawTargetError", 0.5);
   BOOST_CHECK_NO_THROW(
-      mc_control::MCRollingContactController(robotModule("RollingContactRangerMiniV3"), 0.005, valid));
+      mc_control::MCRollingContactController(robotModule("RangerMiniV3Robot"), 0.005, valid));
 }
 
 BOOST_AUTO_TEST_CASE(QpContactMultiplierAloneNeverDetachesAWheel)
@@ -1549,8 +1549,8 @@ BOOST_AUTO_TEST_CASE(StraightLineDriveTracksTheReferenceSMK03)
   // position target, which rings - 13.8% high at cycle 400, 2.2% low at cycle
   // 1800, 0.12% at cycle 3800 - so its window starts at 19 s.
   const std::array<Case, 2> cases = {
-      Case{"T1 differential", "RollingContactDifferential", "forward", 0.2, false, 4000, 3800},
-      Case{"T2 four-steering", "RollingContactRangerMiniV3", "hold", 0.3, true, 600, 400}};
+      Case{"T1 differential", "RangerMiniV3Differential", "forward", 0.2, false, 4000, 3800},
+      Case{"T2 four-steering", "RangerMiniV3Robot", "hold", 0.3, true, 600, 400}};
 
   for(const auto & test : cases)
   {
@@ -1593,7 +1593,7 @@ BOOST_AUTO_TEST_CASE(InPlaceRotationSMK04)
   // with zero steady-state hinge rate. The achieved yaw fraction is recorded.
   {
     // T1 produces equal and opposite wheel rates.
-    auto controller = makeController("RollingContactDifferential", "turn_left");
+    auto controller = makeController("RangerMiniV3Differential", "turn_left");
     const auto window = runWindow(*controller, 600, 400);
     const double reference = 0.35; // the scripted yawRate
     const double rate = window.yaw / window.seconds;
@@ -1932,7 +1932,7 @@ BOOST_AUTO_TEST_CASE(OdometryCrossCheckIncludingWhereItMustDisagreeSMK11)
     // Ry(slope) * e_z. The same construction the solver-side ramp tests use.
     const Eigen::Matrix3d bodyToWorld(Eigen::AngleAxisd(slope, Eigen::Vector3d::UnitY()));
     const Eigen::Vector3d normal = bodyToWorld * Eigen::Vector3d::UnitZ();
-    auto controller = makeController("RollingContactDifferential", "forward",
+    auto controller = makeController("RangerMiniV3Differential", "forward",
                                      [&](mc_rtc::Configuration & settings)
                                      { settings.add("terrainNormal", normal); });
     controller->robot().posW(sva::PTransformd(bodyToWorld.transpose(), controller->robot().posW().translation()));
@@ -2046,11 +2046,11 @@ BOOST_AUTO_TEST_CASE(WheelOdometryRecoversTheCommandedTwistAndSeesSkid)
   // rate rows own the wheel DOF and settle inside 2 s, while the differential
   // chassis is driven by the posture task alone and rings for ~19 s.
   const std::array<Case, 5> cases = {
-      Case{"T1 differential forward", "RollingContactDifferential", "forward", {0.2, 0.0, 0.0}, false, 4000, 3800},
-      Case{"T2 forward", "RollingContactRangerMiniV3", "hold", {0.3, 0.0, 0.0}, true, 600, 400},
-      Case{"T2 crab", "RollingContactRangerMiniV3", "hold", {0.2, 0.15, 0.0}, true, 600, 400},
-      Case{"T2 pure yaw", "RollingContactRangerMiniV3", "hold", {0.0, 0.0, 0.4}, true, 600, 400},
-      Case{"T2 forward+yaw", "RollingContactRangerMiniV3", "hold", {0.25, 0.0, 0.3}, true, 600, 400}};
+      Case{"T1 differential forward", "RangerMiniV3Differential", "forward", {0.2, 0.0, 0.0}, false, 4000, 3800},
+      Case{"T2 forward", "RangerMiniV3Robot", "hold", {0.3, 0.0, 0.0}, true, 600, 400},
+      Case{"T2 crab", "RangerMiniV3Robot", "hold", {0.2, 0.15, 0.0}, true, 600, 400},
+      Case{"T2 pure yaw", "RangerMiniV3Robot", "hold", {0.0, 0.0, 0.4}, true, 600, 400},
+      Case{"T2 forward+yaw", "RangerMiniV3Robot", "hold", {0.25, 0.0, 0.3}, true, 600, 400}};
 
   for(const auto & test : cases)
   {
@@ -2324,10 +2324,10 @@ BOOST_AUTO_TEST_CASE(LongHorizonClosedLoopSMK13, *boost::unit_test::disabled())
   // higher. Applying T1's envelope to T2 is the false-failure trap the card
   // warns about. Both values are ~3x the worst measured.
   const std::array<Case, 4> cases = {
-      Case{"T1 flat", "RollingContactDifferential", "sinusoid", false, 0.0, 1e-6},
-      Case{"T1 ramp", "RollingContactDifferential", "sinusoid", false, 10.0, 1e-6},
-      Case{"T2 flat", "RollingContactRangerMiniV3", "hold", true, 0.0, 0.15},
-      Case{"T2 ramp", "RollingContactRangerMiniV3", "hold", true, 10.0, 0.15}};
+      Case{"T1 flat", "RangerMiniV3Differential", "sinusoid", false, 0.0, 1e-6},
+      Case{"T1 ramp", "RangerMiniV3Differential", "sinusoid", false, 10.0, 1e-6},
+      Case{"T2 flat", "RangerMiniV3Robot", "hold", true, 0.0, 0.15},
+      Case{"T2 ramp", "RangerMiniV3Robot", "hold", true, 10.0, 0.15}};
   // Six commands, four seconds each, cycling for the whole minute.
   const std::array<Eigen::Vector3d, 6> schedule = {
       Eigen::Vector3d{0.3, 0.0, 0.0},  Eigen::Vector3d{0.0, 0.3, 0.0},  Eigen::Vector3d{0.0, 0.0, 0.5},

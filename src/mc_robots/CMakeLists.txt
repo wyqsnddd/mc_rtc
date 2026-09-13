@@ -78,34 +78,34 @@ if(EXISTS "${MC_ENV_DESCRIPTION_PATH}")
 endif()
 
 add_robot(jvrc1)
-add_robot(rolling_contact)
+add_robot(ranger_mini_v3)
 
-set(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH
-    "${CMAKE_CURRENT_SOURCE_DIR}/rolling_contact_description"
+set(RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/ranger_mini_v3_description"
 )
-set(ROLLING_CONTACT_INSTALL_PATH
-    "${CMAKE_INSTALL_FULL_DATADIR}/mc_rtc/rolling_contact"
+set(RANGER_MINI_V3_INSTALL_PATH
+    "${CMAKE_INSTALL_FULL_DATADIR}/mc_rtc/ranger_mini_v3"
 )
-set(ROLLING_CONTACT_DESCRIPTION_PATH
-    "${ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH}"
+set(RANGER_MINI_V3_DESCRIPTION_PATH
+    "${RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH}"
 )
 configure_file(
-  rolling_contact_aliases.in.yml
-  "${CMAKE_CURRENT_BINARY_DIR}/aliases/rolling_contact.yml"
+  ranger_mini_v3_aliases.in.yml
+  "${CMAKE_CURRENT_BINARY_DIR}/aliases/ranger_mini_v3.yml"
   @ONLY
 )
-set(ROLLING_CONTACT_DESCRIPTION_PATH "${ROLLING_CONTACT_INSTALL_PATH}")
+set(RANGER_MINI_V3_DESCRIPTION_PATH "${RANGER_MINI_V3_INSTALL_PATH}")
 configure_file(
-  rolling_contact_aliases.in.yml
-  "${CMAKE_CURRENT_BINARY_DIR}/install-aliases/rolling_contact.yml"
+  ranger_mini_v3_aliases.in.yml
+  "${CMAKE_CURRENT_BINARY_DIR}/install-aliases/ranger_mini_v3.yml"
   @ONLY
 )
 install(
-  DIRECTORY rolling_contact_description/
-  DESTINATION "${CMAKE_INSTALL_DATADIR}/mc_rtc/rolling_contact"
+  DIRECTORY ranger_mini_v3_description/
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/mc_rtc/ranger_mini_v3"
 )
 install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/install-aliases/rolling_contact.yml"
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/install-aliases/ranger_mini_v3.yml"
   DESTINATION "${MC_ROBOTS_RUNTIME_INSTALL_PREFIX}/aliases"
 )
 if(TARGET jvrc1)

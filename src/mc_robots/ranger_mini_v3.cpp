@@ -2,7 +2,7 @@
  * Copyright 2015-2026 CNRS-UM LIRMM, CNRS-AIST JRL
  */
 
-#include "rolling_contact.h"
+#include "ranger_mini_v3.h"
 
 #include <mc_rbdyn/BodySensor.h>
 #include <mc_rbdyn/RobotModuleMacros.h>
@@ -14,16 +14,16 @@
 namespace mc_robots
 {
 
-RollingContactRobotModule::RollingContactRobotModule(const std::string & descriptionPath, const std::string & variant)
+RangerMiniV3RobotModule::RangerMiniV3RobotModule(const std::string & descriptionPath, const std::string & variant)
 : RobotModule(descriptionPath, variant)
 {
   if(variant != "rolling_diff" && variant != "rolling_4s" && variant != "ranger_mini_v3")
   {
-    mc_rtc::log::error_and_throw<std::invalid_argument>("Unknown rolling-contact robot variant: {}", variant);
+    mc_rtc::log::error_and_throw<std::invalid_argument>("Unknown RangerMiniV3 robot variant: {}", variant);
   }
 
   init(rbd::parsers::from_urdf_file(urdf_path, rbd::parsers::ParserParameters{}.fixed(false)));
-  _canonicalParameters = {"RollingContact", descriptionPath, variant};
+  _canonicalParameters = {"RangerMiniV3", descriptionPath, variant};
   const bool rangerMiniV3 = variant == "ranger_mini_v3";
   // Ranger's floating frame is at the geometric centre of the chassis shell,
   // coincident with the link/inertial origin and the MuJoCo free-joint body
@@ -67,8 +67,8 @@ extern "C"
 {
   ROBOT_MODULE_API void MC_RTC_ROBOT_MODULE(std::vector<std::string> & names)
   {
-    ROBOT_MODULE_CHECK_VERSION("RollingContact")
-    names = {"RollingContact"};
+    ROBOT_MODULE_CHECK_VERSION("RangerMiniV3")
+    names = {"RangerMiniV3"};
   }
 
   ROBOT_MODULE_API void destroy(mc_rbdyn::RobotModule * ptr)
@@ -80,7 +80,7 @@ extern "C"
                                                   const std::string & descriptionPath,
                                                   const std::string & variant)
   {
-    return new mc_robots::RollingContactRobotModule(descriptionPath, variant);
+    return new mc_robots::RangerMiniV3RobotModule(descriptionPath, variant);
   }
 }
 
@@ -93,10 +93,10 @@ namespace
 
 static auto registered = []()
 {
-  using fn_t = std::function<mc_robots::RollingContactRobotModule *(const std::string &, const std::string &)>;
-  mc_rbdyn::RobotLoader::register_object(
-      "RollingContact", fn_t([](const std::string & path, const std::string & variant)
-                             { return new mc_robots::RollingContactRobotModule(path, variant); }));
+  using fn_t = std::function<mc_robots::RangerMiniV3RobotModule *(const std::string &, const std::string &)>;
+  mc_rbdyn::RobotLoader::register_object("RangerMiniV3",
+                                         fn_t([](const std::string & path, const std::string & variant)
+                                              { return new mc_robots::RangerMiniV3RobotModule(path, variant); }));
   return true;
 }();
 

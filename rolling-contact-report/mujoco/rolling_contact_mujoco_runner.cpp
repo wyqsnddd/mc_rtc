@@ -54,7 +54,7 @@ struct Options
   double rampDegrees = 0.0;
   // Where on the terrain the chassis is reset, in terrain tangent coordinates.
   // Zero reproduces the historical reset at the terrain origin. The ramp
-  // terrain (src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml)
+  // terrain (src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml)
   // puts one ramp lane every 4 m in y, so `--start-y 8` is "reset in front of
   // the 15 degree ramp".
   double startX = 0.0;
@@ -496,7 +496,7 @@ bool checkStaticParity(const mjModel & model, const Options & options, const std
 
 // Every geom carried by the mc_mujoco ground body is terrain. The stock
 // env/ground.xml has exactly one of them (`ground_floor`); the ramp terrain in
-// src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml adds twelve
+// src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml adds twelve
 // ramp slabs to the same body. Contact attribution, friction and the contact
 // margin all have to cover the whole set: attributing contacts to the plane
 // alone makes a wheel that has driven onto a ramp read as zero normal force,

@@ -1,2 +1,2 @@
-xmlModelPath: src/mc_robots/rolling_contact_description/mujoco/rolling_diff.xml
-pdGainsPath: src/mc_robots/rolling_contact_description/mujoco/rolling_diff-gains.txt
+xmlModelPath: src/mc_robots/ranger_mini_v3_description/mujoco/rolling_diff.xml
+pdGainsPath: src/mc_robots/ranger_mini_v3_description/mujoco/rolling_diff-gains.txt

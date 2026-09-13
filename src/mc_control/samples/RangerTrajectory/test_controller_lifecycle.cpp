@@ -76,7 +76,7 @@ mc_rbdyn::RobotModulePtr robotModule()
     return true;
   }();
   (void)configured;
-  return mc_rbdyn::RobotLoader::get_robot_module("RollingContactRangerMiniV3");
+  return mc_rbdyn::RobotLoader::get_robot_module("RangerMiniV3Robot");
 }
 
 void loadObserverModules()

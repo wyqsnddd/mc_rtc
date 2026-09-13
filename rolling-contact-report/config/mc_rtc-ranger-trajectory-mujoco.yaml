@@ -15,7 +15,7 @@
 # configuration, which is merged on top of this file:
 #   src/mc_control/samples/RangerTrajectory/etc/RangerTrajectory.in.yaml
 # Change the curves there, not here.
-MainRobot: RollingContactRangerMiniV3
+MainRobot: RangerMiniV3Robot
 Enabled: [RangerTrajectory]
 Default: RangerTrajectory
 Timestep: 0.005

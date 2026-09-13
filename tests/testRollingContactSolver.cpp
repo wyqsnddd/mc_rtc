@@ -208,9 +208,9 @@ mc_rbdyn::RobotsPtr loadRollingRobots()
 {
   configureRobotLoader();
   auto four = mc_rbdyn::RobotLoader::get_robot_module(
-      "RollingContact", std::string(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH), std::string("rolling_4s"));
+      "RangerMiniV3", std::string(RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH), std::string("rolling_4s"));
   auto differential = mc_rbdyn::RobotLoader::get_robot_module(
-      "RollingContact", std::string(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH), std::string("rolling_diff"));
+      "RangerMiniV3", std::string(RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH), std::string("rolling_diff"));
   return mc_rbdyn::loadRobots({four, differential});
 }
 
@@ -218,7 +218,7 @@ mc_rbdyn::RobotsPtr loadDifferentialRobot()
 {
   configureRobotLoader();
   auto differential = mc_rbdyn::RobotLoader::get_robot_module(
-      "RollingContact", std::string(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH), std::string("rolling_diff"));
+      "RangerMiniV3", std::string(RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH), std::string("rolling_diff"));
   return mc_rbdyn::loadRobot(*differential);
 }
 
@@ -226,7 +226,7 @@ mc_rbdyn::RobotsPtr loadFourSteeringRobot()
 {
   configureRobotLoader();
   auto four = mc_rbdyn::RobotLoader::get_robot_module(
-      "RollingContact", std::string(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH), std::string("rolling_4s"));
+      "RangerMiniV3", std::string(RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH), std::string("rolling_4s"));
   return mc_rbdyn::loadRobot(*four);
 }
 

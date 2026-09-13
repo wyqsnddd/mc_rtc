@@ -1,3 +1,0 @@
-RollingContactDifferential: [RollingContact, "@ROLLING_CONTACT_DESCRIPTION_PATH@", rolling_diff]
-RollingContactFourSteering: [RollingContact, "@ROLLING_CONTACT_DESCRIPTION_PATH@", rolling_4s]
-RollingContactRangerMiniV3: [RollingContact, "@ROLLING_CONTACT_DESCRIPTION_PATH@", ranger_mini_v3]

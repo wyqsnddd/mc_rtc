@@ -118,8 +118,8 @@ if(Python3_Interpreter_FOUND)
     COMMAND
       ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/rolling-contact-report/scripts/check-ranger-frame.py
-      --urdf ${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description/urdf/ranger_mini_v3.urdf
-      --mujoco ${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description/mujoco/ranger_mini_v3.xml
+      --urdf ${PROJECT_SOURCE_DIR}/src/mc_robots/ranger_mini_v3_description/urdf/ranger_mini_v3.urdf
+      --mujoco ${PROJECT_SOURCE_DIR}/src/mc_robots/ranger_mini_v3_description/mujoco/ranger_mini_v3.xml
   )
   mc_rtc_isolate_test_home(RollingContactRangerFrame)
 endif()
@@ -244,9 +244,9 @@ mc_rtc_test(testRollingContactRobot mc_rbdyn)
 target_compile_definitions(
   testRollingContactRobot
   PRIVATE
-    ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description"
+    RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/ranger_mini_v3_description"
 )
-add_dependencies(testRollingContactRobot rolling_contact)
+add_dependencies(testRollingContactRobot ranger_mini_v3)
 set_tests_properties(
   testRollingContactRobot
   PROPERTIES ENVIRONMENT "MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON;CUDA_VISIBLE_DEVICES=-1"
@@ -255,9 +255,9 @@ mc_rtc_test(testRollingContactSolver mc_solver mc_tasks)
 target_compile_definitions(
   testRollingContactSolver
   PRIVATE
-    ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description"
+    RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/ranger_mini_v3_description"
 )
-add_dependencies(testRollingContactSolver rolling_contact)
+add_dependencies(testRollingContactSolver ranger_mini_v3)
 
 # ######################################################################################
 # -- Network test -- #

@@ -1,4 +1,4 @@
-MainRobot: RollingContactRangerMiniV3
+MainRobot: RangerMiniV3Robot
 Enabled: [RollingContact_TVM]
 Default: RollingContact_TVM
 Timestep: 0.005

@@ -1,0 +1,11 @@
+RangerMiniV3Differential: [RangerMiniV3, "@RANGER_MINI_V3_DESCRIPTION_PATH@", rolling_diff]
+RangerMiniV3FourSteering: [RangerMiniV3, "@RANGER_MINI_V3_DESCRIPTION_PATH@", rolling_4s]
+# Not plain `RangerMiniV3`: RobotLoader::load_aliases discards an alias whose
+# name matches a library-declared module, and the module itself registers as
+# `RangerMiniV3`. The alias therefore carries a suffix like the other two.
+RangerMiniV3Robot: [RangerMiniV3, "@RANGER_MINI_V3_DESCRIPTION_PATH@", ranger_mini_v3]
+# Same robot as RangerMiniV3Robot above. Kept as a separate key so mc_mujoco,
+# which resolves the `ground` model from a section of ground.yaml keyed by the first
+# element of MainRobot (mj_sim.cpp:233-248), can select the ramp terrain for the
+# configurations that use this spelling and flat ground for every other one.
+RangerMiniV3Ramps: [RangerMiniV3, "@RANGER_MINI_V3_DESCRIPTION_PATH@", ranger_mini_v3]

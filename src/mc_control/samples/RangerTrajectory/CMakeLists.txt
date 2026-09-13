@@ -55,7 +55,7 @@ if(BUILD_TESTING)
     testRangerTrajectoryControllerLifecycle
     PRIVATE
       RANGER_TRAJECTORY_CONFIG_PATH="${CMAKE_CURRENT_BINARY_DIR}/etc/RangerTrajectory.yaml"
-      RANGER_TRAJECTORY_ROBOT_MODULE_PATH="$<TARGET_FILE_DIR:rolling_contact>"
+      RANGER_TRAJECTORY_ROBOT_MODULE_PATH="$<TARGET_FILE_DIR:ranger_mini_v3>"
       RANGER_TRAJECTORY_OBSERVER_MODULE_PATH="$<TARGET_FILE_DIR:EncoderObserver>"
       BOOST_TEST_DYN_LINK
       BOOST_TEST_MAIN
@@ -65,7 +65,7 @@ if(BUILD_TESTING)
                                                     Boost::unit_test_framework
   )
   add_dependencies(
-    testRangerTrajectoryControllerLifecycle rolling_contact EncoderObserver
+    testRangerTrajectoryControllerLifecycle ranger_mini_v3 EncoderObserver
     BodySensorObserver MetaTasks
   )
   add_test(NAME RangerTrajectoryControllerLifecycle

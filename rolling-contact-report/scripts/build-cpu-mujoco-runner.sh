@@ -106,7 +106,7 @@ python3 "${REPOSITORY_ROOT}/rolling-contact-report/scripts/audit-cpu-linkage.py"
   "${MC_RTC_BUILD}/src/libmc_rbdyn.so" \
   "${MC_RTC_BUILD}/src/libmc_solver.so" \
   "${MC_RTC_BUILD}/src/mc_control/samples/RollingContact/rolling_contact_controller.so" \
-  "${MC_RTC_BUILD}/src/mc_robots/rolling_contact.so"
+  "${MC_RTC_BUILD}/src/mc_robots/ranger_mini_v3.so"
 
 echo "CPU MuJoCo runner: ${RUNNER_BUILD}/rolling_contact_mujoco_runner"
 echo "CPU linkage report: ${WORK_ROOT}/cpu-linkage.json"

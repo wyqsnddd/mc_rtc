@@ -42,8 +42,8 @@ if(BUILD_TESTING)
   target_compile_definitions(
     testRollingContactControllerLifecycle
     PRIVATE
-      ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/rolling_contact_description"
-      ROLLING_CONTACT_ROBOT_MODULE_PATH="$<TARGET_FILE_DIR:rolling_contact>"
+      RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH="${PROJECT_SOURCE_DIR}/src/mc_robots/ranger_mini_v3_description"
+      RANGER_MINI_V3_ROBOT_MODULE_PATH="$<TARGET_FILE_DIR:ranger_mini_v3>"
       ROLLING_CONTACT_OBSERVER_MODULE_PATH="$<TARGET_FILE_DIR:EncoderObserver>"
   )
   target_link_libraries(
@@ -51,7 +51,7 @@ if(BUILD_TESTING)
     PRIVATE rolling_contact_controller Boost::unit_test_framework
   )
   add_dependencies(
-    testRollingContactControllerLifecycle rolling_contact EncoderObserver
+    testRollingContactControllerLifecycle ranger_mini_v3 EncoderObserver
     BodySensorObserver VelocityAidedTiltObserver
   )
   target_compile_definitions(
@@ -112,7 +112,7 @@ if(BUILD_TESTING)
       --output "${PROJECT_BINARY_DIR}/rolling-contact-cpu-linkage.json"
       "$<TARGET_FILE:mc_rbdyn>"
       "$<TARGET_FILE:mc_solver>"
-      "$<TARGET_FILE:rolling_contact>"
+      "$<TARGET_FILE:ranger_mini_v3>"
       "$<TARGET_FILE:rolling_contact_controller>"
       "$<TARGET_FILE:testRollingContactControllerLifecycle>"
   )

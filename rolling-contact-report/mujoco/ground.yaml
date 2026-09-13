@@ -17,16 +17,16 @@
 #
 # HOW THE SELECTION WORKS -- READ THIS BEFORE EDITING
 # mc_mujoco prefers a section keyed by the FIRST element of `MainRobot` over the
-# top-level `xmlModelPath` (mj_sim.cpp:233-248). `MainRobot` written as a plain
-# alias, e.g.
-#     MainRobot: RollingContactRangerMiniV3
-# yields the key "RollingContactRangerMiniV3", which is absent here, so those
+# top-level `xmlModelPath` (mj_sim.cpp:233-248).
+#     MainRobot: RangerMiniV3Robot
+# yields the key "RangerMiniV3Robot", which is absent here, so those
 # configurations fall through to the top-level entry and keep the stock flat
 # ground -- the existing suite, the keyboard profile and every unrelated robot
-# are unaffected by installing this file. `MainRobot` written in the
-# three-argument module form,
-#     MainRobot: [RollingContact, "src/mc_robots/rolling_contact_description", ranger_mini_v3]
-# yields the key "RollingContact" and selects the ramp terrain. That is the only
+# are unaffected by installing this file.
+#     MainRobot: RangerMiniV3Ramps
+# yields the key "RangerMiniV3Ramps" and selects the ramp terrain. The two
+# aliases resolve to exactly the same robot
+# (src/mc_robots/ranger_mini_v3_aliases.in.yml); the spelling is the only
 # difference between config/mc_rtc-ranger-mini-v3-keyboard.yaml and
 # config/mc_rtc-ranger-ramps-mujoco.yaml.
 #
@@ -35,5 +35,5 @@
 # only ever applies to this repository's own configurations, which the README
 # already requires to be launched from the repository root.
 xmlModelPath: /home/yuquan/local/share/mc_mujoco/env/ground.xml
-RollingContact:
-  xmlModelPath: src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml
+RangerMiniV3Ramps:
+  xmlModelPath: src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml

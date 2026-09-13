@@ -69,9 +69,9 @@ from math import comb, pi
 
 import numpy as np
 
-# Chassis frame height of the Ranger Mini V3 at reset: RollingContactRobotModule
+# Chassis frame height of the Ranger Mini V3 at reset: RangerMiniV3RobotModule
 # sets _default_attitude z = 0.16 for the ranger_mini_v3 variant
-# (src/mc_robots/rolling_contact.cpp) and the "chassis" frame is the floating
+# (src/mc_robots/ranger_mini_v3.cpp) and the "chassis" frame is the floating
 # base body itself, so the frame sits at z = 0.16.  Verified from a controller
 # log: ff_tz = 0.1600000 on the first cycle.
 CHASSIS_HEIGHT = 0.16

@@ -35,7 +35,7 @@
 # the `rollingContactDynamics` and the `rollingContact` constraint), which is
 # merged on top of this file. There is no C++ or YAML in this controller that
 # updates it while running.
-MainRobot: [RollingContact, "src/mc_robots/rolling_contact_description", ranger_mini_v3]
+MainRobot: RangerMiniV3Ramps
 Enabled: [RangerTrajectory]
 Default: RangerTrajectory
 Timestep: 0.005

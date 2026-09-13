@@ -28,7 +28,7 @@
 # roll +10.1 to -8.7 degrees, pitch 0 to -19.2, total tilt 6.3 to 20.0 - against
 # an estimator error of 0.028 degrees peak, 0.019 RMS. The checker's
 # --tilt-excursion-min is what keeps that property from silently going away.
-MainRobot: RollingContactRangerMiniV3
+MainRobot: RangerMiniV3Robot
 Enabled: [RollingContact]
 Default: RollingContact
 Timestep: 0.005

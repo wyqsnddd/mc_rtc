@@ -24,14 +24,11 @@ namespace
 mc_rbdyn::RobotModulePtr loadModule(const std::string & variant)
 {
   configureRobotLoader();
-  if(variant == "rolling_diff") { return mc_rbdyn::RobotLoader::get_robot_module("RollingContactDifferential"); }
-  if(variant == "rolling_4s") { return mc_rbdyn::RobotLoader::get_robot_module("RollingContactFourSteering"); }
-  if(variant == "ranger_mini_v3")
-  {
-    return mc_rbdyn::RobotLoader::get_robot_module("RollingContactRangerMiniV3");
-  }
-  return mc_rbdyn::RobotLoader::get_robot_module(
-      "RollingContact", std::string(ROLLING_CONTACT_DESCRIPTION_SOURCE_PATH), variant);
+  if(variant == "rolling_diff") { return mc_rbdyn::RobotLoader::get_robot_module("RangerMiniV3Differential"); }
+  if(variant == "rolling_4s") { return mc_rbdyn::RobotLoader::get_robot_module("RangerMiniV3FourSteering"); }
+  if(variant == "ranger_mini_v3") { return mc_rbdyn::RobotLoader::get_robot_module("RangerMiniV3Robot"); }
+  return mc_rbdyn::RobotLoader::get_robot_module("RangerMiniV3", std::string(RANGER_MINI_V3_DESCRIPTION_SOURCE_PATH),
+                                                 variant);
 }
 
 void checkBodyInertias(const mc_rbdyn::Robot & robot)
@@ -127,7 +124,7 @@ BOOST_AUTO_TEST_CASE(LoadDifferentialRollingRobot)
   BOOST_REQUIRE(module);
   BOOST_CHECK_EQUAL(module->name, "rolling_diff");
   BOOST_REQUIRE_EQUAL(module->parameters().size(), 1);
-  BOOST_CHECK_EQUAL(module->parameters()[0], "RollingContactDifferential");
+  BOOST_CHECK_EQUAL(module->parameters()[0], "RangerMiniV3Differential");
   BOOST_REQUIRE_EQUAL(module->canonicalParameters().size(), 3);
   BOOST_CHECK_EQUAL(module->canonicalParameters()[2], "rolling_diff");
   BOOST_CHECK_EQUAL(module->ref_joint_order().size(), 2);
@@ -219,7 +216,7 @@ BOOST_AUTO_TEST_CASE(LoadRangerMiniV3RollingRobot)
   BOOST_REQUIRE(module);
   BOOST_CHECK_EQUAL(module->name, "ranger_mini_v3");
   BOOST_REQUIRE_EQUAL(module->parameters().size(), 1);
-  BOOST_CHECK_EQUAL(module->parameters()[0], "RollingContactRangerMiniV3");
+  BOOST_CHECK_EQUAL(module->parameters()[0], "RangerMiniV3Robot");
   BOOST_REQUIRE_EQUAL(module->canonicalParameters().size(), 3);
   BOOST_CHECK_EQUAL(module->canonicalParameters()[2], "ranger_mini_v3");
   BOOST_CHECK_CLOSE(module->_default_attitude[6], 0.16, 1e-12);

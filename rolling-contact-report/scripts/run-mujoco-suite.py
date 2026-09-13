@@ -25,7 +25,7 @@ class Case:
     # World geometry, as opposed to `ramp_degrees` which tilts the whole world
     # and tells the controller the matching normal. "flat" is mc_mujoco's own
     # env/ground.xml; "ramps" is
-    # src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml, flat
+    # src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml, flat
     # ground with a ramp lane every 4 m in y, selected by writing `ground.yaml`
     # into mc_mujoco's model folder. The mapping is written before every case
     # and REMOVED again for "flat", so a ramp case can never leak into the next
@@ -441,7 +441,7 @@ def terrain_normal(degrees):
     return (-math.sin(angle), 0.0, math.cos(angle))
 
 
-RAMP_TERRAIN = "src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml"
+RAMP_TERRAIN = "src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml"
 
 
 def install_terrain(user_directory, case, root):
@@ -466,9 +466,9 @@ def install_terrain(user_directory, case, root):
 
 def configuration(case, backend, root, build, artifact):
     robot_module = (
-        "RollingContactDifferential"
+        "RangerMiniV3Differential"
         if case.robot == "differential"
-        else "RollingContactRangerMiniV3"
+        else "RangerMiniV3Robot"
     )
     controller = "RollingContact" if backend == "Tasks" else "RollingContact_TVM"
     normal = terrain_normal(case.ramp_degrees)
