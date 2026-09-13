@@ -120,7 +120,7 @@ modify it unless the dependency itself is the subject of the change.
 
 An in-progress feature spanning several layers; changes here usually need edits in more than one place:
 
-- `src/mc_rbdyn/RollingContact.cpp`, `src/mc_robots/rolling_contact.*` (+ `rolling_contact_aliases.in.yml`)
+- `src/mc_rbdyn/RollingContact.cpp`, `src/mc_robots/ranger_mini_v3.*` (+ `ranger_mini_v3_aliases.in.yml`)
 - `src/mc_solver/RollingContactConstraint.cpp`, `RollingContactDynamicsConstraint.cpp` (Tasks backend)
 - `src/mc_tvm/RollingContactFunction.cpp` (TVM backend)
 - `src/mc_control/samples/RollingContact/` — sample controller, its lifecycle test and CTest registrations

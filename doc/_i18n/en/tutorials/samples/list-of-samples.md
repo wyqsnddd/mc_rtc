@@ -195,9 +195,10 @@ fixed/rolling/sliding/detached transitions.
 
 **Detailed description**: see the [CPU rolling-contact tutorial]({{site.baseurl}}/tutorials/samples/rolling-contact.html).
 
-**Supported robots**: the included `rolling_diff` and `rolling_4s` robot modules.
+**Supported robots**: the `rolling_diff`, `rolling_4s` and `ranger_mini_v3` variants of the included
+`RangerMiniV3` robot module.
 
 ```yaml
-MainRobot: [RollingContact, /path/to/mc_rtc/src/mc_robots/rolling_contact_description, rolling_diff]
+MainRobot: [RangerMiniV3, /path/to/mc_rtc/src/mc_robots/ranger_mini_v3_description, rolling_diff]
 Enabled: RollingContact
 ```

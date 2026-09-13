@@ -132,8 +132,8 @@ Validate the model-frame contract independently of a running simulator:
 
 ```sh
 python3 rolling-contact-report/scripts/check-ranger-frame.py \
-  --urdf src/mc_robots/rolling_contact_description/urdf/ranger_mini_v3.urdf \
-  --mujoco src/mc_robots/rolling_contact_description/mujoco/ranger_mini_v3.xml \
+  --urdf src/mc_robots/ranger_mini_v3_description/urdf/ranger_mini_v3.urdf \
+  --mujoco src/mc_robots/ranger_mini_v3_description/mujoco/ranger_mini_v3.xml \
   --output /tmp/ranger-frame-contract.json
 ```
 
@@ -210,7 +210,7 @@ REPO_ROOT=/home/yuquan/local/mc_rtc_sources/mc_rtc
 cd "$REPO_ROOT"
 KEYBOARD_CFG="$REPO_ROOT/rolling-contact-report/config/mc_rtc-ranger-mini-v3-keyboard.yaml"
 test -f "$KEYBOARD_CFG"
-grep -qx 'MainRobot: RollingContactRangerMiniV3' "$KEYBOARD_CFG"
+grep -qx 'MainRobot: RangerMiniV3Robot' "$KEYBOARD_CFG"
 /home/yuquan/local/bin/mc_mujoco -s \
   -f "$KEYBOARD_CFG"
 ```
@@ -603,7 +603,7 @@ the physical-rate checker uses.
   copy only for controller/keyboard tests. Restore/retain the checked-in
   `Enable: true` setting for the requested GUI launch.
 - **`JVRC1` is listed or `No loadable robot with module
-  RollingContactRangerMiniV3` is reported:** the process was not started from
+  RangerMiniV3Robot` is reported:** the process was not started from
   the repository root. Stop it, `cd` to the root, verify the `MainRobot`
   preflight, and launch again; do not send keyboard commands to the fallback
   controller.

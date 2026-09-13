@@ -196,9 +196,10 @@ fixed/rolling/sliding/detachedの安全な遷移を含みます。
 **詳しい説明**: [CPUローリング接触チュートリアル]({{site.baseurl}}/tutorials/samples/rolling-contact.html)を
 参照してください。
 
-**対応ロボット**: 同梱の`rolling_diff`と`rolling_4s`ロボットモジュール。
+**対応ロボット**: 同梱の`RangerMiniV3`ロボットモジュールの`rolling_diff`、`rolling_4s`、
+`ranger_mini_v3`バリアント。
 
 ```yaml
-MainRobot: [RollingContact, /path/to/mc_rtc/src/mc_robots/rolling_contact_description, rolling_diff]
+MainRobot: [RangerMiniV3, /path/to/mc_rtc/src/mc_robots/ranger_mini_v3_description, rolling_diff]
 Enabled: RollingContact
 ```

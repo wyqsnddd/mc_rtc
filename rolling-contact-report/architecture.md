@@ -33,7 +33,7 @@ point Jacobians, homogeneous rolling matrix, acceleration bias/right-hand side, 
 | TVM rolling rows | `mc_tvm` | a TVM function with the same backend-neutral geometry values and derivatives |
 | TVM dynamic point/cone | TVM dynamic contact | stable point-force variables with updated point/frame coefficients |
 | Loaders/schema | `mc_solver` and `mc_tasks` | existing constraint/task loader registries and JSON schemas |
-| Example robots/controllers | tracked repository modules/samples | `src/mc_robots/rolling_contact_description` and `src/mc_control/samples/RollingContact` |
+| Example robots/controllers | tracked repository modules/samples | `src/mc_robots/ranger_mini_v3_description` and `src/mc_control/samples/RollingContact` |
 | Unit/integration evidence | CTest and report fixtures | `tests/testRollingContact*.cpp`, `rolling-contact-report/evidence` |
 
 Required assets are not placed only in the ignored top-level `robots/` or `controllers/` directories.

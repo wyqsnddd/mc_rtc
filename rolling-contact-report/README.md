@@ -3,7 +3,7 @@
 This directory contains the reproducible CPU validation path for the rolling-contact controller. The
 four-steering configuration uses the self-contained Ranger Mini V3 model (`ranger_mini_v3`), with four
 independent steering and drive joints. Robot selection follows the installed mc_rtc convention: `MainRobot` is a
-single alias argument (for example, `MainRobot: RollingContactRangerMiniV3`).
+single alias argument (for example, `MainRobot: RangerMiniV3Robot`).
 
 ## How four-steering commands reach the QP
 
@@ -69,7 +69,7 @@ or the controller:
 
 ```sh
 mc_rtc_ticker -f rolling-contact-report/config/mc_rtc-four-steering.yaml \
-  robot:=RollingContactRangerMiniV3 controller:=RollingContact --run-for 5 --no-sync
+  robot:=RangerMiniV3Robot controller:=RollingContact --run-for 5 --no-sync
 ```
 
 `robot:=` sets `MainRobot` and `controller:=` sets `Default` plus `Enabled`; both are applied after the `-f`
@@ -280,7 +280,7 @@ odometry, tracking, determinism, and disturbance recovery.
 ## Run a differential-drive robot in mc_mujoco
 
 Use the Tasks or TVM configuration from this directory. The configuration already selects the one-argument
-`RollingContactDifferential` alias and uses the source-tree controller/model paths:
+`RangerMiniV3Differential` alias and uses the source-tree controller/model paths:
 
 ```sh
 source /opt/ros/jazzy/setup.bash
@@ -322,7 +322,7 @@ export MC_RTC_DISABLE_CONVEX_GENERATION_PATCH=ON
 export CUDA_VISIBLE_DEVICES=-1
 export LD_LIBRARY_PATH="$PWD/build/src:$PWD/build/plugins/ROS:$PWD/build/deps/tasks-system-install/lib:/usr/local/lib:/opt/ros/jazzy/lib"
 KEYBOARD_CFG="$PWD/rolling-contact-report/config/mc_rtc-ranger-mini-v3-keyboard.yaml"
-grep -qx 'MainRobot: RollingContactRangerMiniV3' "$KEYBOARD_CFG"
+grep -qx 'MainRobot: RangerMiniV3Robot' "$KEYBOARD_CFG"
 /home/yuquan/local/bin/mc_mujoco -s \
   -f "$KEYBOARD_CFG"
 ```
@@ -410,7 +410,7 @@ the keys are active.
 
 ## Ramp terrain
 
-`src/mc_robots/rolling_contact_description/mujoco/ramp_terrain.xml` is flat ground with four driveable ramp lanes -
+`src/mc_robots/ranger_mini_v3_description/mujoco/ramp_terrain.xml` is flat ground with four driveable ramp lanes -
 5, 10, 15 and 20 degrees at `y` = 0, 4, 8 and 12, plus a flat reference lane at `y` = -4. Every lane has its toe at
 `x` = 0.6 m, its crest at `x` = 2.1 m, its plateau end at `x` = 3.1 m and its toe-out at `x` = 4.6 m.
 
@@ -429,10 +429,9 @@ cp rolling-contact-report/mujoco/ground.yaml ~/local/share/mc_mujoco/
 ```
 
 The selection is one line. mc_mujoco prefers a section of `ground.yaml` keyed by the first element of `MainRobot`
-over the top-level `xmlModelPath` (`mj_sim.cpp:233-248`), so `MainRobot: RollingContactRangerMiniV3` keeps the stock
-flat plane while `MainRobot: [RollingContact, "src/mc_robots/rolling_contact_description", ranger_mini_v3]` - the
-same robot, spelled as the three-argument module - selects the ramps. Installing the mapping therefore changes
-nothing for the existing configurations, the suite, or any other robot.
+over the top-level `xmlModelPath` (`mj_sim.cpp:233-248`), so `MainRobot: RangerMiniV3Robot` keeps the stock flat
+plane while `MainRobot: RangerMiniV3Ramps` - an alias for exactly the same robot - selects the ramps. Installing
+the mapping therefore changes nothing for the existing configurations, the suite, or any other robot.
 
 `scripts/run-mujoco-suite.py` does not rely on that: it writes and **removes** `ground.yaml` in mc_mujoco's model
 folder around every case, from `Case.terrain`, and restores the flat mapping in a `finally`, so a ramp case cannot

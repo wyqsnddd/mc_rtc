@@ -7,8 +7,8 @@ The rolling-contact examples previously passed the implementation, description p
 All checked-in examples now use one argument:
 
 ```yaml
-MainRobot: RollingContactDifferential
-MainRobot: RollingContactRangerMiniV3
+MainRobot: RangerMiniV3Differential
+MainRobot: RangerMiniV3Robot
 ```
 
 The aliases resolve to the tracked `RollingContact` module and its differential or Ranger Mini V3 variant. The
